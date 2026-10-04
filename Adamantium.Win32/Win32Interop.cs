@@ -93,6 +93,15 @@ namespace Adamantium.Win32
         [DllImport("user32.dll")]
         public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
 
+        [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW", CharSet = CharSet.Unicode)]
+        public static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFOEX info);
+
+        [DllImport("user32.dll")]
+        public static extern bool EnumDisplayMonitors(IntPtr deviceContext, IntPtr clip, MonitorEnumProc callback, IntPtr data);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT placement);
+
         [DllImport("shcore.dll")]
         public static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
 
@@ -129,6 +138,12 @@ namespace Adamantium.Win32
 
         [DllImport("user32.dll")]
         public static extern IntPtr LoadCursor(IntPtr hInstance, NativeCursors cursorName);
+
+        [DllImport("user32.dll", EntryPoint = "LoadImageW", SetLastError = true)]
+        public static extern IntPtr LoadImage(IntPtr instance, IntPtr name, LoadImageType type, int width, int height, LoadImageFlags flags);
+
+        [DllImport("kernel32.dll", EntryPoint = "GetModuleHandleW", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern IntPtr GetModuleHandle(string moduleName);
 
         // CharSet.Unicode is REQUIRED: the entry point is the W (wide) variant, so the path must be marshaled as UTF-16.
         // Without it the string goes as ANSI, the W function reads garbage, the file "isn't found" and it returns NULL.
