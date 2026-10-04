@@ -37,11 +37,13 @@ public class RenderTargetGraphicsPresenter : GraphicsPresenter
       // rare, so a full wait-idle is enough.
       GraphicsDevice.DeviceWaitIdle();
 
+      IsReady = false;
       DisposeFrameSurfaces();
 
 
       CreateDepthBuffer();
       CreateRenderTarget();
+      IsReady = true;
 
       return true;
    }

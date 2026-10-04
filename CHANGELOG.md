@@ -14,6 +14,10 @@ All packages share one version.
 
 ### Fixed
 
+- A swapchain rebuild that failed - out of device memory, say - left the presenter without surfaces, and the next frame
+  drew into them and crashed the process. `GraphicsPresenter.IsReady` now says whether the surfaces exist,
+  `GraphicsDevice.BeginDraw` skips the frame while they do not, and the failed rebuild reports `OutOfDate`, so it is
+  retried on the next frame. A retry no longer destroys the swapchain objects a second time.
 - `ErrorOutOfDeviceMemory` when several applications, or an application and its designer previews, ran at once on a GPU
   without Resizable BAR. The device-local host-visible window (about 214 MB on such cards) is shared by every process;
   when it is full, buffers that want it now take host-visible system memory instead of failing.
