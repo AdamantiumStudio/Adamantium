@@ -5,6 +5,13 @@ All packages share one version.
 
 ## Unreleased
 
+### Added
+
+- `Win32Interop.LoadImage` and `GetModuleHandle`, with `LoadImageType` and `LoadImageFlags`: an icon loaded from a
+  module's resources, such as the application's own.
+- `Win32Interop.EnumDisplayMonitors`, `GetMonitorInfo` and `GetWindowPlacement`, with `MONITORINFOEX`,
+  `WINDOWPLACEMENT` and `MonitorEnumProc`: the monitors and their work areas, and a window's restored rectangle.
+
 ### Fixed
 
 - `ErrorOutOfDeviceMemory` when several applications, or an application and its designer previews, ran at once on a GPU
