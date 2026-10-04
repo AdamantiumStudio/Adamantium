@@ -54,6 +54,10 @@ public abstract class GraphicsPresenter : DisposableObject
         
     public bool CanPresent { get; protected set; }
 
+    /// <summary>Whether every surface a frame draws into exists. False while a rebuild is under way and after one failed;
+    /// the device draws nothing into the presenter until a rebuild succeeds.</summary>
+    public bool IsReady { get; protected set; } = true;
+
     public PresentInterval PresentInterval
     {
         get => presentInterval;

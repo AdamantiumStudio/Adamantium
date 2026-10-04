@@ -40,6 +40,7 @@ public class SwapChainGraphicsPresenter : GraphicsPresenter
     private MSAALevel _createdMsaa;
     private bool _createdTransparency;
     private bool _presentInfoReported;
+    private bool _rebuildFailing;
 
     public SwapChainGraphicsPresenter(
         IGraphicsDevice graphicsDevice, 
@@ -602,10 +603,23 @@ public class SwapChainGraphicsPresenter : GraphicsPresenter
         }
         catch(Exception ex)
         {
-            Console.WriteLine($"Exception during GraphicsPresenter resizing: {ex}");
+            if (!_rebuildFailing)
+            {
+                Log.Logger.Error($"Swapchain rebuild failed; frames are skipped until a rebuild succeeds: {ex}");
+            }
+
+            _rebuildFailing = true;
+            CanPresent = false;
+            LastPresenterState = PresenterState.OutOfDate;
             return false;
         }
 
+        if (_rebuildFailing)
+        {
+            Log.Logger.Information("Swapchain rebuild succeeded after failing; drawing again.");
+        }
+
+        _rebuildFailing = false;
         return true;
     }
 
@@ -656,10 +670,12 @@ public class SwapChainGraphicsPresenter : GraphicsPresenter
     {
         WaitForFramesToRetire();
         ReleaseAcquiredImage();
+        IsReady = false;
         CleanupSwapChain();
         CreateSwapchain();
         CreateRenderTarget();
         CreateDepthBuffer();
+        IsReady = true;
     }
 
     /// <summary>Waits until nothing is still reading the images this rebuild is about to destroy.</summary>
@@ -716,9 +732,14 @@ public class SwapChainGraphicsPresenter : GraphicsPresenter
 
     protected override void CleanupSwapChain()
     {
-        foreach (var texture in swapchainTextures)
+        if (swapchainTextures != null)
         {
-            texture?.Dispose();
+            foreach (var texture in swapchainTextures)
+            {
+                texture?.Dispose();
+            }
+
+            swapchainTextures = null;
         }
 
         DisposeFrameSurfaces();
@@ -727,9 +748,19 @@ public class SwapChainGraphicsPresenter : GraphicsPresenter
         {
             for (int i = 0; i < imageAvailableSemaphores.Length; i++)
             {
-                GraphicsDevice.Destroy(imageAvailableSemaphores[i]);
-                GraphicsDevice.Destroy(renderFinishedSemaphores[i]);
+                if (imageAvailableSemaphores[i] != null)
+                {
+                    GraphicsDevice.Destroy(imageAvailableSemaphores[i]);
+                }
+
+                if (renderFinishedSemaphores[i] != null)
+                {
+                    GraphicsDevice.Destroy(renderFinishedSemaphores[i]);
+                }
             }
+
+            imageAvailableSemaphores = null;
+            renderFinishedSemaphores = null;
         }
 
         if (presentFences != null)
@@ -742,7 +773,11 @@ public class SwapChainGraphicsPresenter : GraphicsPresenter
             presentFences = null;
         }
 
-        GraphicsDevice.Destroy(swapchain);
+        if (swapchain != null)
+        {
+            GraphicsDevice.Destroy(swapchain);
+            swapchain = null;
+        }
     }
 
     public static implicit operator SwapchainKHR(SwapChainGraphicsPresenter presenter)
