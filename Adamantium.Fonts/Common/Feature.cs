@@ -1,87 +1,27 @@
-using System;
-using System.Linq;
-using Adamantium.Fonts.Tables.GPOS;
 using Adamantium.Fonts.Tables.Layout;
 
-namespace Adamantium.Fonts.Common
+namespace Adamantium.Fonts.Common;
+
+/// <summary>An OpenType feature a font offers: its tag and registered name, the table it lives in, and its parameters.</summary>
+public sealed class Feature
 {
-    public class Feature
+    internal Feature(FeatureInfo info, FeatureKind kind, FeatureParametersTable parameters)
     {
-        public Feature(FeatureInfo featureInfo)
-        {
-            Info = featureInfo;
-        }
-        
-        public FeatureInfo Info { get; }
-        
-        public FeatureParametersTable FeatureParameters { get; internal set; }
-        
-        public bool IsEnabled { get; set; }
-        
-        internal ILookupTable[] Lookups { get; set; }
-        
-        public void Apply(GlyphLayoutContainer container, uint index, uint length)
-        {
-            if (!IsEnabled)
-            {
-                return;
-            }
-            
-            if (container.IsFeatureApplied(Info.Tag)) return;
-            
-            container.FeatureApplied(Info.Tag);
+        Info = info;
+        Kind = kind;
+        FeatureParameters = parameters;
+    }
 
-            container.NewProcessingStart();
+    public FeatureInfo Info { get; }
 
-            foreach (var lookup in Lookups)
-            {
-                if (IsPairPositioning(lookup))
-                {
-                    PositionPairs(lookup, container, index, length);
-                    continue;
-                }
+    /// <summary>Substitution (GSUB) or positioning (GPOS).</summary>
+    public FeatureKind Kind { get; }
 
-                foreach (var subTable in lookup.SubTables)
-                {
-                    switch (subTable.OwnerType)
-                    {
-                        case FeatureKind.GSUB:
-                            subTable.SubstituteGlyphs(container, Info, index, length);
-                            break;
-                        case FeatureKind.GPOS:
-                            subTable.PositionGlyph(container, Info, index, length);
-                            break;
-                    }
+    /// <summary>Names and characters of a stylistic set or a character variant; null when the font gives none.</summary>
+    public FeatureParametersTable FeatureParameters { get; }
 
-                    if (container.IsProcessingDone) return;
-                }
-            }
-        }
-
-        private static bool IsPairPositioning(ILookupTable lookup)
-        {
-            return lookup.SubTables.Length > 0 &&
-                   lookup.SubTables.All(x => x is GPOSLookupSubTable { Type: GPOSLookupType.PairAdjustment });
-        }
-
-        private void PositionPairs(ILookupTable lookup, GlyphLayoutContainer container, uint index, uint length)
-        {
-            var endIndex = Math.Min(index + length, container.Count);
-            for (var position = index; position < endIndex; position++)
-            {
-                foreach (GPOSLookupSubTable subTable in lookup.SubTables)
-                {
-                    if (subTable.PositionGlyphAt(container, Info, position))
-                    {
-                        break;
-                    }
-                }
-            }
-        }
-
-        public override string ToString()
-        {
-            return $"Short name: {Info.Tag}, Friendly name: {Info.FriendlyName}";
-        }
+    public override string ToString()
+    {
+        return $"{Info.Tag} ({Kind}): {Info.FriendlyName}";
     }
 }

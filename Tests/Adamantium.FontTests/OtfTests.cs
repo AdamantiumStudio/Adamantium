@@ -96,20 +96,15 @@ namespace Adamantium.FontTests
             var typeFace = Typeface.LoadFont(CFF1Fonts.SourceSans3_Regular, 2);
             foreach (var font in typeFace.Fonts)
             {
-                font.FeatureService.EnableFeature("kern", true);
-                foreach (var language in font.FeatureService.AvailableLanguages)
+                foreach (var script in font.FeatureCatalog.Scripts)
                 {
-                    Debug.WriteLine($"Lang: {language}");
-                    Debug.WriteLine("GPOS:");
-                    foreach (var gposFeature in language.GPOSFeatures)
+                    foreach (var language in script.Languages)
                     {
-                        Debug.WriteLine(gposFeature);
-                    }
-                    
-                    Debug.WriteLine("GSUB:");
-                    foreach (var gsubFeature in language.GSUBFeatures)
-                    {
-                        Debug.WriteLine(gsubFeature);
+                        Debug.WriteLine($"Script: {script}, language: {language}");
+                        foreach (var feature in language.Features)
+                        {
+                            Debug.WriteLine(feature);
+                        }
                     }
                 }
             }
@@ -120,14 +115,10 @@ namespace Adamantium.FontTests
         {
             var fontManager = await FontService.LoadTypeFaceAsync(CFF1Fonts.SourceSans3_Regular);
             var font = fontManager.GetTypeFace(0).GetFont(0);
-            font.FeatureService.EnableFeature(Features.kern, true);
-            var layoutContainer = new GlyphLayoutContainer(fontManager.GetTypeFace(0), font);
-            var demoString = "rw";
-            var glyphs = font.TranslateIntoGlyphs(demoString);
-            layoutContainer.SetText(demoString);
 
-            var result = font.FeatureService.ApplyFeature(Features.liga, layoutContainer, 0, (uint)glyphs.Count);
-            
+            var glyphs = Adamantium.Fonts.Shaping.TextShaper.Shape(font, "rw");
+
+            Assert.That(glyphs, Has.Length.EqualTo(2));
         }
     }
 }

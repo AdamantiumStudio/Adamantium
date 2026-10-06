@@ -22,7 +22,21 @@ public class FontTableTests
     {
         var font = Typeface.LoadFont("TTFFonts/SourceSans3-Regular.ttf", 3).GetFont(0);
 
-        Assert.That(font.FeatureService.GPOSFeatures.Select(x => x.Info.Tag), Does.Contain("kern"));
+        Assert.That(font.FeatureCatalog.GPOSFeatures.Select(x => x.Info.Tag), Does.Contain("kern"));
+    }
+
+    [Test]
+    public void FeaturesAreListedPerScriptAndLanguageSystem()
+    {
+        var catalog = Typeface.LoadFont("TTFFonts/SourceSans3-Regular.ttf", 3).GetFont(0).FeatureCatalog;
+
+        Assert.That(catalog.Scripts.Select(s => s.Tag), Is.SupersetOf(new[] { "latn", "cyrl", "grek" }));
+        var cyrillic = catalog.GetScript("cyrl");
+        Assert.That(cyrillic.DefaultLanguage, Is.Not.Null);
+        Assert.That(cyrillic.DefaultLanguage.Tag, Is.EqualTo("DFLT"));
+        Assert.That(cyrillic.GetLanguage("BGR ").HasFeature("locl"), Is.True, "Bulgarian forms");
+        Assert.That(cyrillic.GetLanguage("SRB "), Is.Not.Null.And.Not.SameAs(cyrillic.GetLanguage("BGR ")));
+        Assert.That(catalog.Features.Select(f => (f.Info.Tag, f.Kind)), Is.Unique);
     }
 
     [TestCase("TTFFonts/SourceSans3-Regular.ttf")]
@@ -42,14 +56,14 @@ public class FontTableTests
     {
         var font = Typeface.LoadFont("OTFFonts/CFF/Quicksand-Regular.otf", 3).GetFont(0);
 
-        Assert.That(font.FeatureService.GPOSFeatures.Select(x => x.Info.Tag), Does.Contain("kern"));
+        Assert.That(font.FeatureCatalog.GPOSFeatures.Select(x => x.Info.Tag), Does.Contain("kern"));
     }
 
     [Test]
     public void FeatureParametersAreReadInTheFormatOfTheirFeature()
     {
         var font = Typeface.LoadFont("OTFFonts/SourceSans3-Regular.otf", 3).GetFont(0);
-        var withParameters = font.FeatureService.GSUBFeatures.Where(x => x.FeatureParameters != null).ToArray();
+        var withParameters = font.FeatureCatalog.GSUBFeatures.Where(x => x.FeatureParameters != null).ToArray();
         var characterVariants = withParameters.Where(x => x.Info.Tag.StartsWith("cv")).ToArray();
         var stylisticSets = withParameters.Where(x => x.Info.Tag.StartsWith("ss")).ToArray();
 

@@ -49,10 +49,6 @@ namespace Adamantium.Fonts
             WwsSubfamilyName = String.Empty;
             LightBackgroundPalette = String.Empty;
             DarkBackgroundPalette = String.Empty;
-
-            NotDefLayoutData = new GlyphLayoutData(0);
-
-            FeatureService = new FeatureService();
         }
 
         public bool IsGlyphNamesProvided { get; internal set; }
@@ -80,7 +76,7 @@ namespace Adamantium.Fonts
         public string DarkBackgroundPalette { get; internal set; }
 
         // ------
-        public FeatureService FeatureService { get; }
+        public FeatureCatalog FeatureCatalog { get; } = new FeatureCatalog();
         public uint GlyphCount => (uint)glyphs.Count;
         public ushort UnitsPerEm { get; internal set; }
         public Int16 Ascender { get; internal set; }
@@ -107,7 +103,6 @@ namespace Adamantium.Fonts
 
         public IReadOnlyCollection<Glyph> Glyphs => glyphs.AsReadOnly();
         public IReadOnlyCollection<uint> Unicodes => unicodes.AsReadOnly();
-        public GlyphLayoutData NotDefLayoutData { get; }
         internal KerningSubtable[] KerningData { get; set; }
         internal OpenTypeLayout Layout { get; } = new OpenTypeLayout();
 

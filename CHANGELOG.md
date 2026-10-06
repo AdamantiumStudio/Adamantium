@@ -47,7 +47,19 @@ All packages share one version.
   kerning apply, and a character the font lacks draws its `.notdef` box instead of nothing. A glyph is no longer one
   character: `GetTextData` lists glyphs with the UTF-16 offset of their first character, and caret positions come from
   `GetCaretStops`.
+- `IFont.FeatureCatalog` replaces `FeatureService`: the features a font offers per script (`FontScript`) and language
+  system (`FontLanguage`), each with its table and parameters, as the font lists them. Before, the features of every
+  script were merged by name and the first script's won, so a Serbian or Bulgarian `locl` was lost behind the Latin one.
+  The catalog is read-only: which features apply belongs to the text being shaped (`ShapingOptions`), not to the font.
 - Memory blocks in a small heap are a 64th of it, at least 4 MB, instead of an 8th: a process takes about half as much of
   the shared window as before (a designer preview 40 MB instead of 80).
 - Running out of memory in every type a buffer allows reports the size, the memory type and the heap.
 - Every new memory block is logged at the Debug level with its type, heap and the heap's total in blocks.
+
+### Removed
+
+- The feature application `TextShaper` replaced: `GlyphLayoutContainer`, `IGlyphSubstitutions`, `IGlyphPositioning`,
+  `GlyphLayoutData`, `GlyphPosition`, `Glyph.Layout`, `IFont.NotDefLayoutData`, `Feature.Apply`, `Feature.IsEnabled`,
+  `FeatureService.EnableFeature` / `ApplyFeature`, and the `SubstituteGlyphs` / `PositionGlyph` methods of lookup
+  subtables. They applied one feature at a time with the enabled state kept in the font, and had no implementation for
+  contextual subtables.
