@@ -65,6 +65,12 @@ public static class Program
             .Where(f => f.Length > 2 && f[1] == "InCB")
             .Select(f => ParseRange(f[0], f[2]));
         Write(output, "IndicConjunctBreak.ucd", FormatRanges(conjuncts, true));
+
+        var lineBreaks = ParseRanges(await Download(ucd + "LineBreak.txt"));
+        Write(output, "LineBreak.ucd", FormatRanges(lineBreaks, true));
+
+        var eastAsian = ParseRanges(await Download(ucd + "EastAsianWidth.txt")).Where(r => r.Value is "F" or "W" or "H");
+        Write(output, "EastAsianWidth.ucd", FormatRanges(eastAsian, true));
         return 0;
     }
 

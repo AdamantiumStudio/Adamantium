@@ -8,16 +8,18 @@ namespace Adamantium.Graphics.Fonts
     public static class FontAtlasStore
     {
         // Concurrent: a virtualizing panel lays text out across cores.
-        private static readonly System.Collections.Concurrent.ConcurrentDictionary<FontParameters, FontAtlas> _fontAtlasMap = new();
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<(IFont Font, FontParameters Parameters), FontAtlas> _fontAtlasMap = new();
         /// <summary>Rasterizes glyphs inline instead of on a worker, for a one-shot render that has no next frame for the
         /// text to fill in.</summary>
         public static bool SynchronousFill { get; set; }
 
-        public static FontAtlas GetOrCreateFrom(IGraphicsDevice graphicsDevice, Typeface typeface, FontParameters fontParameters)
+        /// <summary>The atlas of <paramref name="font"/> rasterized with <paramref name="fontParameters"/>, shared by all
+        /// text in that font. Glyphs are addressed by index, so each font has its own.</summary>
+        public static FontAtlas GetOrCreateFrom(IGraphicsDevice graphicsDevice, Typeface typeface, IFont font,
+            FontParameters fontParameters)
         {
-            var atlas = _fontAtlasMap.GetOrAdd(fontParameters, _ => new FontAtlas(graphicsDevice, typeface, fontParameters));
-            ReportSharedAtlas(typeface, fontParameters, atlas);
-            return atlas;
+            return _fontAtlasMap.GetOrAdd((font, fontParameters),
+                _ => new FontAtlas(graphicsDevice, typeface, font, fontParameters));
         }
 
         /// <summary>Drops every atlas while its device is still alive: an atlas belongs to the device that made it, and
@@ -30,41 +32,6 @@ namespace Adamantium.Graphics.Fonts
             }
 
             _fontAtlasMap.Clear();
-            _atlasOwner.Clear();
-        }
-
-        private static readonly System.Collections.Concurrent.ConcurrentDictionary<FontParameters, Typeface> _atlasOwner = new();
-        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _reportedSharing = new();
-
-        // The map is keyed by rasterization settings only, so a second typeface gets the first one's atlas and reads wrong
-        // letters by index. Reported once per pair, to measure before fixing.
-        private static void ReportSharedAtlas(Typeface typeface, FontParameters parameters, FontAtlas atlas)
-        {
-            var owner = _atlasOwner.GetOrAdd(parameters, typeface);
-            if (ReferenceEquals(owner, typeface)) return;
-
-            var key = $"{Describe(owner)} -> {Describe(typeface)}";
-            if (!_reportedSharing.TryAdd(key, 0)) return;
-
-            try
-            {
-                System.IO.File.AppendAllText(
-                    System.IO.Path.Combine(System.AppContext.BaseDirectory, "glyph-probe.log"),
-                    $"[FONT-ATLAS] {System.DateTime.Now:HH:mm:ss} SHARED ATLAS: it was created for '{Describe(owner)}' " +
-                    $"and is now being handed to '{Describe(typeface)}' - same FontParameters, and the typeface is not " +
-                    $"part of the key. Glyphs are addressed by INDEX, so this one reads the other font's pictures." +
-                    System.Environment.NewLine);
-            }
-            catch
-            {
-            }
-        }
-
-        private static string Describe(Typeface typeface)
-        {
-            if (typeface == null) return "<null>";
-            var font = typeface.Fonts is { Count: > 0 } ? typeface.Fonts[0] : null;
-            return font?.FullName ?? typeface.GetType().Name + "#" + typeface.GetHashCode().ToString("x4");
         }
 
         /// <summary>Upload every atlas's finished glyphs, on the thread that owns the device. Called once a frame by the

@@ -58,6 +58,10 @@ public static class TextBoundaries
         return boundaries;
     }
 
+    /// <summary>For each UTF-16 offset from 0 to the text's length, whether a line may end there, by Unicode Standard
+    /// Annex #14: after spaces, after a hyphen, between ideographs, never before closing punctuation.</summary>
+    public static LineBreakKind[] LineBreaks(string text) => LineBreaker.Find(text);
+
     /// <summary>The next offset after <paramref name="index"/> that is a boundary, or the text's length.</summary>
     public static int Next(bool[] boundaries, int index)
     {

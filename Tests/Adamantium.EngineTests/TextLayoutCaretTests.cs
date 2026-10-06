@@ -63,6 +63,36 @@ public class TextLayoutCaretTests
     }
 
     [Test]
+    public void ATab_ReachesTheNextTabStop()
+    {
+        var tabStop = Layout(" ").GetCaretStops()[1].X * 4;
+        var layout = Layout("\tab\tc");
+        var stops = layout.GetCaretStops();
+        var tab = layout.GetTextData().Single(g => g.PositionInString == 3);
+
+        Assert.That(stops[1].X, Is.EqualTo(tabStop).Within(Tolerance), "a tab at the line start takes a whole stop");
+        Assert.That(stops[3].X, Is.LessThan(stops[4].X));
+        Assert.That(stops[4].X / tabStop, Is.EqualTo(System.Math.Round(stops[4].X / tabStop)).Within(Tolerance),
+            "c starts on a tab stop");
+        Assert.That(stops[4].X - stops[3].X, Is.LessThanOrEqualTo(tabStop + Tolerance));
+        Assert.That(stops[3].Width, Is.EqualTo(stops[4].X - stops[3].X).Within(Tolerance), "the caret spans the tab");
+        Assert.That(tab.Symbol, Is.EqualTo('\t'));
+        Assert.That(tab.Rect.Height, Is.Zero, "a tab draws nothing");
+    }
+
+    [Test]
+    public void ChangingTabSize_LaysTheTextOutAgain()
+    {
+        var space = Layout(" ").GetCaretStops()[1].X;
+        var layout = Layout("\tx");
+        layout.TabSize = 2;
+        layout.ProcessText("\tx", 20, new Size(double.NaN, double.NaN), TextWrapping.NoWrap, TextTrimming.None,
+            HorizontalTextAlignment.Left, VerticalTextAlignment.Top);
+
+        Assert.That(layout.GetCaretStops()[1].X, Is.EqualTo(space * 2).Within(Tolerance));
+    }
+
+    [Test]
     public void TheEndStop_FollowsTheLastGlyph()
     {
         var layout = Layout("To");
