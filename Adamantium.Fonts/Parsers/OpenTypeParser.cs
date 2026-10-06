@@ -369,6 +369,7 @@ namespace Adamantium.Fonts.Parsers
             gpos.FeatureList = FontReader.ReadFeatureList(featureListOffset);
 
             gpos.LookupList = FontReader.ReadGPOSLookupListTable(lookupListOffset);
+            CurrentFont.Layout.Gpos = gpos;
 
             ProcessFeatures(gpos, FeatureKind.GPOS);
 
@@ -396,6 +397,7 @@ namespace Adamantium.Fonts.Parsers
             gsub.FeatureList = FontReader.ReadFeatureList(featureListOffset);
 
             gsub.LookupList = FontReader.ReadGSUBLookupListTable(lookupListOffset);
+            CurrentFont.Layout.Gsub = gsub;
 
             ProcessFeatures(gsub, FeatureKind.GSUB);
 

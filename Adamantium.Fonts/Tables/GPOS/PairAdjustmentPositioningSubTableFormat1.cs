@@ -13,6 +13,10 @@ namespace Adamantium.Fonts.Tables.GPOS
 
         public PairSetTable[] PairSetsTables { get; set; }
 
+        public ValueFormat Value1Format { get; set; }
+
+        public ValueFormat Value2Format { get; set; }
+
         public override void PositionGlyph(
             IGlyphPositioning glyphPositioning,
             FeatureInfo feature,

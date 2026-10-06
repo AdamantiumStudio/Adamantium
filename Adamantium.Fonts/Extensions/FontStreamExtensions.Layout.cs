@@ -384,7 +384,12 @@ namespace Adamantium.Fonts.Extensions
             var baseArrayTable = new BaseArrayTable();
             var count = reader.ReadUInt16();
             baseArrayTable.BaseRecords = new BaseRecord[count];
-            var anchorOffsetArray = reader.ReadUInt16Array(markClassCount);
+            var anchorOffsets = new ushort[count][];
+            for (int k = 0; k < count; ++k)
+            {
+                anchorOffsets[k] = reader.ReadUInt16Array(markClassCount);
+            }
+
             for (int k = 0; k < count; ++k)
             {
                 var baseRecord = new BaseRecord();
@@ -392,7 +397,7 @@ namespace Adamantium.Fonts.Extensions
                 baseRecord.Anchors = new AnchorPointTable[markClassCount];
                 for (int i = 0; i < markClassCount; ++i)
                 {
-                    long offset = anchorOffsetArray[i];
+                    long offset = anchorOffsets[k][i];
                     
                     if (offset <= 0) continue;
 
@@ -720,14 +725,14 @@ namespace Adamantium.Fonts.Extensions
                 case 2:
                 {
                     var markGlyphSetsDefOffset = reader.ReadUInt16();
-                    gdef.MarkGlyphSetsTable = markGlyphSetsDefOffset == 0 ? null : reader.ReadMarkGlyphSetsTable(markGlyphSetsDefOffset);
+                    gdef.MarkGlyphSetsTable = markGlyphSetsDefOffset == 0 ? null : reader.ReadMarkGlyphSetsTable(markGlyphSetsDefOffset + offset);
                 }
                     break;
                 case 3:
                 {
                     var markGlyphSetsDefOffset = reader.ReadUInt16();
                     var itemVarStoreOffset = reader.ReadUInt32();
-                    gdef.MarkGlyphSetsTable = markGlyphSetsDefOffset == 0 ? null : reader.ReadMarkGlyphSetsTable(markGlyphSetsDefOffset);
+                    gdef.MarkGlyphSetsTable = markGlyphSetsDefOffset == 0 ? null : reader.ReadMarkGlyphSetsTable(markGlyphSetsDefOffset + offset);
                 }
                     break;
             }

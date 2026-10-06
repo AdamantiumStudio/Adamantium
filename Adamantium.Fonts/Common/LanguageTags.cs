@@ -27,6 +27,11 @@ namespace Adamantium.Fonts.Common
             return systemTags[tag];
         }
 
+        internal static bool TryGetIsoLanguage(string tag, out LanguageTag language)
+        {
+            return systemTags.TryGetValue(tag, out language);
+        }
+
         static LanguageTags()
         {
             msdnTags = new Dictionary<string, LanguageTag>();

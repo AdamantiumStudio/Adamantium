@@ -129,16 +129,20 @@ namespace Adamantium.Graphics.Fonts
         {
             if (string.IsNullOrEmpty(text)) return;
 
+            RequestAsync(Font.TranslateIntoGlyphs(new string(text.Distinct().ToArray())));
+        }
+
+        /// <summary>Requests these glyphs without waiting, the way <see cref="RequestAsync(string)"/> requests a text's:
+        /// shaped text reaches glyphs no character maps to, such as ligatures and alternates.</summary>
+        public void RequestAsync(IEnumerable<Glyph> glyphs)
+        {
             // A render with no "next frame" (a bitmap, a preview, an off-screen test) cannot let its letters arrive later.
             if (FontAtlasStore.SynchronousFill)
             {
-                Update(text);
+                ProcessGlyphs(glyphs.ToList());
                 Version++;
                 return;
             }
-
-            var uniqueSymbols = new string(text.Distinct().ToArray());
-            var glyphs = Font.TranslateIntoGlyphs(uniqueSymbols);
 
             List<Glyph> toGenerate = null;
             lock (_asyncGate)

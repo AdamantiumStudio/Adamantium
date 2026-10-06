@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Adamantium.Core;
 using Adamantium.Fonts;
+using Adamantium.Fonts.Shaping;
 using Adamantium.Fonts.TextureGeneration;
 using Adamantium.Graphics.Core;
 using Adamantium.Mathematics;
@@ -15,7 +16,6 @@ public class TextLayout : DisposableObject
 
     private const uint MaxItemsCount = 4096;
 
-    private readonly GlyphLayoutContainer layoutContainer;
     public Typeface Typeface { get; }
     public IFont Font { get; }
 
@@ -70,7 +70,6 @@ public class TextLayout : DisposableObject
         spaceGlyph = font.GetGlyphByCharacter(' ');
         dotGlyph = font.GetGlyphByCharacter('.');
 
-        layoutContainer = new GlyphLayoutContainer(typeface, font);
         // Grown to fit: preallocating the 4096 cap cost 256KB per TextBlock.
         fontItems = Array.Empty<FontItem>();
     }
@@ -171,37 +170,16 @@ public class TextLayout : DisposableObject
         var _b0 = System.GC.GetAllocatedBytesForCurrentThread();
 
 
-        var glyphs = Font.TranslateIntoGlyphs(text);
-        layoutContainer.SetText(text);
         var _b1 = System.GC.GetAllocatedBytesForCurrentThread();
 
-        var kernApplied = Font.FeatureService.ApplyFeature(Features.kern, layoutContainer, 0, (uint)glyphs.Count);
-        // var subApp = font.FeatureService.ApplyFeature(Features.aalt, layoutContainer, 0, (uint)glyphs.Length);
+        var scale = fontSize / Font.UnitsPerEm;
+        var items = Shape(text, scale);
 
         var _b2 = System.GC.GetAllocatedBytesForCurrentThread();
 
-
-        var scale = fontSize / Font.UnitsPerEm;
-
-        // Kern between this glyph and the next: GPOS stores it on the first glyph's advance, otherwise the legacy
-        // 'kern' table. Added to the pen, so it carries to every following glyph.
-        double KernAdvance(int pos)
-        {
-            if (pos < 0 || pos >= (int)layoutContainer.Count) return 0;
-            if (kernApplied)
-                return layoutContainer.GetAdvance((uint)pos).X * scale;
-            if (pos + 1 < (int)layoutContainer.Count)
-                return Font.GetKerningValue(
-                    (ushort)layoutContainer.GetGlyph(pos).Index,
-                    (ushort)layoutContainer.GetGlyph(pos + 1).Index) * scale;
-            return 0;
-        }
-
         var lineHeight = Font.LineGap == 0 ? fontSize : Font.LineGap * scale;
         lineHeight += fontSize;
-        //var capH = (font.UnitsPerEm - (font.Ascender - font.LineGap)) * scale;
         var baseLine = Font.Baseline * scale;
-        double spaceWidth = spaceGlyph.AdvanceWidth * scale;
 
         dotGlyphsWidth = (dotGlyph.AdvanceWidth * scale * 3);
 
@@ -210,36 +188,41 @@ public class TextLayout : DisposableObject
         double height = textArea.Y;
         double cursorPosition = 0;
         double wordStartPosition = 0;
-        var words = text.Split(' ');
         var glyphsData = new List<GlyphWordData>();
         int wordIndex = 0;
         int lineIndex = 0;
-        int positionInString = 0;
-        for (var index = 0; index < words.Length; index++)
+        var wordStart = 0;
+        while (wordStart <= items.Count)
         {
-            wordIndex = index;
-            var word = words[index];
-            var proceed = ProcessWord(word);
+            var wordEnd = wordStart;
+            while (wordEnd < items.Count && items[wordEnd].Symbol != ' ')
+            {
+                wordEnd++;
+            }
 
-            if (!proceed)
+            if (!ProcessWord(wordStart, wordEnd))
             {
                 break;
             }
 
-            if (wordIndex < words.Length - 1)
+            if (wordEnd < items.Count)
             {
                 // Sub-pixel like the glyphs, so the space doesn't inflate the line bounds.
+                var space = items[wordEnd];
                 var rect = new RectangleF((float)cursorPosition,
                     (float)(height + baseLine),
-                    (float)spaceWidth,
+                    (float)space.Advance,
                     0f);
-                glyphsData.Add(new GlyphWordData(spaceGlyph, ' ',
-                    rect,
-                    -1,
-                    lineIndex));
-                cursorPosition += spaceWidth + KernAdvance(positionInString);
-                positionInString++;
+                glyphsData.Add(new GlyphWordData(space.Glyph, ' ', rect, space.Cluster, lineIndex)
+                {
+                    PenX = cursorPosition,
+                    Advance = space.Advance,
+                });
+                cursorPosition += space.Advance;
             }
+
+            wordIndex++;
+            wordStart = wordEnd + 1;
         }
 
         // Not published yet: the render thread reads _wordData, and the alignment below still moves every glyph.
@@ -278,9 +261,16 @@ public class TextLayout : DisposableObject
 
         return CalculatedLayoutSize;
 
-        bool ProcessWord(string word)
+        bool ProcessWord(int start, int end)
         {
-            var wordWidth = GetWordWidth(scale, word);
+            double wordWidth = 0;
+            for (var k = start; k < end; k++)
+            {
+                if (items[k].Symbol != '\n')
+                {
+                    wordWidth += items[k].Glyph.BoundingRectangle.Width * scale;
+                }
+            }
 
             // Wrapped at the word boundary, before any glyph is laid: a word that does not fit starts a new line, and
             // a word wider than the line only overflows as the first on its line.
@@ -296,17 +286,19 @@ public class TextLayout : DisposableObject
             }
 
             wordStartPosition = cursorPosition;
-            for (var i = 0; i < word.Length; i++)
+            for (var i = start; i < end; i++)
             {
-                var symbol = word[i];
-                var glyph = Font.GetGlyphByCharacter(symbol);
-                switch (symbol)
+                var item = items[i];
+                switch (item.Symbol)
                 {
                     case '\n':
                         if (EmitNewlineCarets)
                         {
                             var caretRect = new RectangleF((float)cursorPosition, (float)(height + baseLine), 0f, 0f);
-                            glyphsData.Add(new GlyphWordData(glyph, '\n', caretRect, positionInString, lineIndex));
+                            glyphsData.Add(new GlyphWordData(item.Glyph, '\n', caretRect, item.Cluster, lineIndex)
+                            {
+                                PenX = cursorPosition,
+                            });
                         }
                         height += lineHeight;
                         cursorPosition = 0;
@@ -314,24 +306,27 @@ public class TextLayout : DisposableObject
                         break;
                     default:
                     {
-                        var glyphLeft = cursorPosition;
                         var glyphBase = height + baseLine;
-
-                        var glyphRect = CalculateGlyphPosition(glyph,
-                            glyphLeft,
-                            glyphBase,
+                        var glyphRect = CalculateGlyphPosition(item.Glyph,
+                            cursorPosition + item.OffsetX,
+                            glyphBase - item.OffsetY,
                             scale);
 
-                        cursorPosition += glyph.AdvanceWidth * scale + KernAdvance(positionInString);
-
-                        glyphsData.Add(new GlyphWordData(glyph, symbol, glyphRect, positionInString, lineIndex));
+                        glyphsData.Add(new GlyphWordData(item.Glyph, item.Symbol, glyphRect, item.Cluster, lineIndex)
+                        {
+                            PenX = cursorPosition,
+                            Advance = item.Advance,
+                            OffsetX = item.OffsetX,
+                            OffsetY = item.OffsetY,
+                        });
+                        cursorPosition += item.Advance;
 
                         switch (renderingParameters.TextWrapping)
                         {
                             case TextWrapping.NoWrap:
                                 if (cursorPosition > textArea.Width)
                                 {
-                                    if (!IsLastGlyph(positionInString, text.Length))
+                                    if (i < items.Count - 1)
                                     {
                                         var glyphsDataCopy = glyphsData.ToArray();
                                         PrepareDataAndTrim(glyphsDataCopy, i, glyphBase);
@@ -351,7 +346,7 @@ public class TextLayout : DisposableObject
                                             glyphBase = height + baseLine;
                                             RearrangeData(glyphsDataCopy, glyphBase);
                                         }
-                                        else if (!IsLastGlyph(positionInString, text.Length))
+                                        else if (i < items.Count - 1)
                                         {
                                             PrepareDataAndTrim(glyphsDataCopy, i, glyphBase);
                                             return false;
@@ -363,8 +358,6 @@ public class TextLayout : DisposableObject
                         break;
                     }
                 }
-                // In lockstep with layoutContainer's glyph stream, so GetAdvance(pos) lines up.
-                positionInString++;
             }
             return true;
         }
@@ -396,6 +389,7 @@ public class TextLayout : DisposableObject
                             var rect = glyphWordData.Rect;
                             rect.X += (float)diff;
                             glyphWordData.Rect = rect;
+                            glyphWordData.PenX += diff;
                         }
                     }
                 }
@@ -415,6 +409,7 @@ public class TextLayout : DisposableObject
                             var rect = glyphWordData.Rect;
                             rect.X += (float)diff;
                             glyphWordData.Rect = rect;
+                            glyphWordData.PenX += diff;
                         }
                     }
                 }
@@ -455,6 +450,7 @@ public class TextLayout : DisposableObject
                             var rect = lineGlyphs[k].Rect;
                             rect.X += (float)shift;
                             lineGlyphs[k].Rect = rect;
+                            lineGlyphs[k].PenX += shift;
                             if (k > firstInk && k < lastInk && lineGlyphs[k].Symbol == ' ')
                                 shift += perSpace;
                         }
@@ -503,7 +499,7 @@ public class TextLayout : DisposableObject
             for (int k = glyphsDataCopy.Length - 1; k >= 0; k--)
             {
                 var data = glyphsData[k];
-                cursorPosition -= data.Glyph.AdvanceWidth * scale;
+                cursorPosition -= data.Advance;
                 var wordsLeft = glyphsDataCopy.Take(k).Count(x => x.Symbol == ' ') + 1;
                 rearrangeList.Add(data);
                 if (wordIndex > 0 &&
@@ -535,13 +531,14 @@ public class TextLayout : DisposableObject
                 if (index == 0 && glyphData.Glyph == spaceGlyph) continue;
 
                 var glyphRect = CalculateGlyphPosition(glyphData.Glyph,
-                    cursorPosition,
-                    glyphBase,
+                    cursorPosition + glyphData.OffsetX,
+                    glyphBase - glyphData.OffsetY,
                     scale);
 
                 glyphData.Rect = glyphRect;
+                glyphData.PenX = cursorPosition;
                 glyphData.LineIndex = lineIndex;
-                cursorPosition += glyphData.Glyph.AdvanceWidth * scale + KernAdvance(glyphData.PositionInString);
+                cursorPosition += glyphData.Advance;
             }
         }
 
@@ -550,7 +547,7 @@ public class TextLayout : DisposableObject
             for (int k = glyphsDataCopy.Length - 1; k >= 0; k--)
             {
                 var data = glyphsData[k];
-                cursorPosition -= data.Glyph.AdvanceWidth * scale;
+                cursorPosition -= data.Advance;
                 glyphsData.RemoveAt(k);
                 if (renderingParameters.TextTrimming == TextTrimming.None &&
                     cursorPosition <= textArea.Width)
@@ -593,7 +590,11 @@ public class TextLayout : DisposableObject
                     cursorPosition,
                     glyphBase,
                     scale);
-                glyphsData.Add(new GlyphWordData(dotGlyph, '.', glyphRect, -1, lineIndex));
+                glyphsData.Add(new GlyphWordData(dotGlyph, '.', glyphRect, -1, lineIndex)
+                {
+                    PenX = cursorPosition,
+                    Advance = dotGlyph.AdvanceWidth * scale,
+                });
 
                 cursorPosition += dotGlyph.AdvanceWidth * scale;
             }
@@ -629,7 +630,7 @@ public class TextLayout : DisposableObject
 
         // Asked for, not waited for: glyphs land over the next frames and bump the atlas version (NeedsGlyphRefresh).
         var atlas = EnsureAtlas(graphicsDevice);
-        atlas.RequestAsync(Text + ".");
+        atlas.RequestAsync(_wordData.Select(x => x.Glyph).Append(dotGlyph));
         _atlasVersion = atlas.Version;
         ElementsCount = 0;
         // No vertex buffer here: only the direct draw path needs one (EnsureVertexBuffer), and one per block ran the BAR
@@ -740,21 +741,156 @@ public class TextLayout : DisposableObject
         return new FrozenGlyphRun(copy, n, FontAtlas, FontSize);
     }
 
-    private bool IsLastGlyph(int position, int count)
+    /// <summary>Where the caret stands before each UTF-16 character of <see cref="Text"/>, and after the last one.
+    /// Characters drawn by one glyph, such as a ligature, share its width.</summary>
+    public CaretStop[] GetCaretStops()
     {
-        return !(position < count - 1);
-    }
-
-    private double GetWordWidth(double scale, string word)
-    {
-        var wordGlyphs = Font.TranslateIntoGlyphs(word);
-        double wordWidth = 0;
-        for (int k = 0; k < wordGlyphs.Count; ++k)
+        var text = Text ?? string.Empty;
+        var stops = new CaretStop[text.Length + 1];
+        var data = _wordData;
+        if (data == null || data.Count == 0)
         {
-            wordWidth += wordGlyphs[k].BoundingRectangle.Width * scale;
+            return stops;
         }
 
-        return wordWidth;
+        var filled = new bool[text.Length + 1];
+        var endX = 0.0;
+        var endLine = 0;
+        var i = 0;
+        while (i < data.Count)
+        {
+            var cluster = data[i].PositionInString;
+            if (cluster < 0 || cluster >= text.Length)
+            {
+                i++;
+                continue;
+            }
+
+            var x = data[i].PenX;
+            var line = data[i].LineIndex;
+            var width = 0.0;
+            var j = i;
+            while (j < data.Count && data[j].PositionInString == cluster)
+            {
+                width += data[j].Advance;
+                j++;
+            }
+
+            var next = j < data.Count && data[j].PositionInString > cluster ? data[j].PositionInString : text.Length;
+            DistributeCluster(text, cluster, next, x, width, line, stops, filled);
+            endX = x + width;
+            endLine = line;
+            i = j;
+        }
+
+        if (text[text.Length - 1] == '\n')
+        {
+            stops[text.Length] = new CaretStop(0, endLine + 1);
+            filled[text.Length] = true;
+        }
+
+        for (var k = 0; k <= text.Length; k++)
+        {
+            if (!filled[k])
+            {
+                stops[k] = new CaretStop(endX, endLine);
+            }
+        }
+
+        return stops;
+    }
+
+    private static void DistributeCluster(string text, int start, int end, double x, double width, int line,
+        CaretStop[] stops, bool[] filled)
+    {
+        var count = 0;
+        for (var c = start; c < end; c++)
+        {
+            if (!IsTrailingSurrogate(text, c))
+            {
+                count++;
+            }
+        }
+
+        var share = width / Math.Max(count, 1);
+        var ordinal = 0;
+        for (var c = start; c < end; c++)
+        {
+            if (IsTrailingSurrogate(text, c))
+            {
+                stops[c] = new CaretStop(stops[c - 1].X, line);
+            }
+            else
+            {
+                stops[c] = new CaretStop(x + share * ordinal, line, share);
+                ordinal++;
+            }
+
+            filled[c] = true;
+        }
+    }
+
+    private static bool IsTrailingSurrogate(string text, int index)
+    {
+        return index > 0 && char.IsLowSurrogate(text[index]) && char.IsHighSurrogate(text[index - 1]);
+    }
+
+    private List<ShapedItem> Shape(string text, double scale)
+    {
+        var items = new List<ShapedItem>(text.Length);
+        var start = 0;
+        while (start <= text.Length)
+        {
+            var end = text.IndexOf('\n', start);
+            if (end < 0)
+            {
+                end = text.Length;
+            }
+
+            if (end > start)
+            {
+                foreach (var glyph in TextShaper.Shape(Font, text.Substring(start, end - start)))
+                {
+                    var cluster = start + glyph.Cluster;
+                    items.Add(new ShapedItem(Font.GetGlyphByIndex(glyph.GlyphIndex), text[cluster], cluster,
+                        glyph.XAdvance * scale, glyph.XOffset * scale, glyph.YOffset * scale));
+                }
+            }
+
+            if (end < text.Length)
+            {
+                items.Add(new ShapedItem(Font.GetGlyphByCharacter('\n'), '\n', end, 0, 0, 0));
+            }
+
+            start = end + 1;
+        }
+
+        return items;
+    }
+
+    private readonly struct ShapedItem
+    {
+        public ShapedItem(Glyph glyph, char symbol, int cluster, double advance, double offsetX, double offsetY)
+        {
+            Glyph = glyph;
+            Symbol = symbol;
+            Cluster = cluster;
+            Advance = advance;
+            OffsetX = offsetX;
+            OffsetY = offsetY;
+        }
+
+        public Glyph Glyph { get; }
+
+        public char Symbol { get; }
+
+        public int Cluster { get; }
+
+        public double Advance { get; }
+
+        public double OffsetX { get; }
+
+        public double OffsetY { get; }
     }
 
     private RectangleF CalculateGlyphPosition(

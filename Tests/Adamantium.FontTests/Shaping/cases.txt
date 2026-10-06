@@ -1,0 +1,54 @@
+# font	script	language	features	text
+# Fields are separated by tabs; {U+XXXX} in the text stands for that character. Expected results: expected.txt,
+# written from this file by Tests/Adamantium.ShapingOracle.
+TTFFonts/SourceSans3-Regular.ttf	Latn			office affluent fjord
+TTFFonts/SourceSans3-Regular.ttf	Latn			AVATAR Tomorrow LTA Wave
+TTFFonts/SourceSans3-Regular.ttf	Latn		liga=0	office affluent
+TTFFonts/SourceSans3-Regular.ttf	Latn		liga[0:6]=0	office office
+TTFFonts/SourceSans3-Regular.ttf	Latn		kern=0	AVATAR Tomorrow
+TTFFonts/SourceSans3-Regular.ttf	Latn		frac	1/2 3/4 15/16
+TTFFonts/SourceSans3-Regular.ttf	Latn		smcp	Small Caps
+TTFFonts/SourceSans3-Regular.ttf	Latn		c2sc,smcp	Small Caps
+TTFFonts/SourceSans3-Regular.ttf	Latn		onum	0123456789
+TTFFonts/SourceSans3-Regular.ttf	Latn		tnum,zero	1110 0
+TTFFonts/SourceSans3-Regular.ttf	Latn		sups	x2 H2O
+TTFFonts/SourceSans3-Regular.ttf	Latn		ss01	agy
+TTFFonts/SourceSans3-Regular.ttf	Latn			e{U+0301} a{U+0308} q{U+0307}{U+0323} n{U+0303}
+TTFFonts/SourceSans3-Regular.ttf	Latn			éÅ ệ e{U+0323}{U+0302}
+TTFFonts/SourceSans3-Regular.ttf	Latn			a{U+0300}e{U+0301}i{U+0302}o{U+0303}u{U+0308} A{U+0300}E{U+0301}I{U+0302}O{U+0303}U{U+0308} W{U+0302}y{U+0308}
+TTFFonts/SourceSans3-Regular.ttf	Latn	vi		Tiếng Việt có dấu
+TTFFonts/SourceSans3-Regular.ttf	Latn			f{U+200C}i f{U+200D}i
+TTFFonts/SourceSans3-Regular.ttf	Latn			a{U+1F600}b
+TTFFonts/SourceSans3-Regular.ttf	Latn			{U+1F468}{U+200D}{U+1F469} {U+1F1FA}{U+1F1F8} x{U+FE0F}
+TTFFonts/SourceSans3-Regular.ttf	Latn			A{U+00AD}B{U+034F}C{U+2060}D
+TTFFonts/SourceSans3-Regular.ttf	Latn			a{U+2002}b{U+00A0}c{U+2011}d
+TTFFonts/SourceSans3-Regular.ttf	Latn			1{U+2044}2 3{U+2044}4
+TTFFonts/SourceSans3-Regular.ttf	Latn	tr		fi fl
+TTFFonts/SourceSans3-Regular.ttf	Cyrl			Съешь же ещё этих мягких французских булок
+TTFFonts/SourceSans3-Regular.ttf	Cyrl	bg		бгдпт жкл
+TTFFonts/SourceSans3-Regular.ttf	Cyrl	sr		бгдпт
+TTFFonts/SourceSans3-Regular.ttf	Grek			Ξεσκεπάζω την ψυχοφθόρα
+OTFFonts/SourceSans3-Regular.otf	Latn			office affluent fjord
+OTFFonts/SourceSans3-Regular.otf	Latn			AVATAR Tomorrow LTA Wave
+OTFFonts/SourceSans3-Regular.otf	Latn			e{U+0301} a{U+0308} q{U+0307}{U+0323} n{U+0303}
+OTFFonts/SourceSans3-Regular.otf	Latn		frac	1/2 3/4
+OTFFonts/SourceSerif4Caption-Semibold.otf	Latn			office Th fjord
+OTFFonts/SourceSerif4Caption-Semibold.otf	Latn		frac,onum	1/2 2024
+OTFFonts/SourceSerif4Caption-Semibold.otf	Latn			q{U+0307}{U+0323} Ạ{U+0301}
+OTFFonts/Crimson-Italic.otf	Latn			office Th affluent
+OTFFonts/GreatVibes-Regular.otf	Latn			Great Vibes handwriting
+OTFFonts/Poppins-Medium.otf	Latn			AVATAR Tomorrow office éè
+OTFFonts/CFF/Quicksand-Regular.otf	Latn			AVATAR Tomorrow office
+OTFFonts/CFF/Glametrix-oj9A.otf	Latn			AVATAR Tomorrow office
+TTFFonts/PlayfairDisplay-Regular.ttf	Latn			office Th
+TTFFonts/PlayfairDisplay-Regular.ttf	Latn		dlig	office Th st
+TTFFonts/Sarabun-Regular.ttf	Latn			AVATAR Tomorrow office
+TTFFonts/CascadiaCode-Regular.ttf	Latn			=> != === -> <= >= :: www
+TTFFonts/CascadiaCode-Regular.ttf	Latn		calt=0	=> != === ->
+TTFFonts/CascadiaCode-Regular.ttf	Latn		ss01	fifl
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani			漢字とかな、カタカナ。
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani	ja		骨直刃
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani	zh-Hans		骨直刃
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani	zh-Hant		骨直刃
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani	zh-TW		骨直刃
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani	ko		骨直刃

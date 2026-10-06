@@ -17,6 +17,10 @@ namespace Adamantium.Fonts.Tables.GPOS
 
         public Class1Record[] Class1Records { get; set; }
 
+        public ValueFormat Value1Format { get; set; }
+
+        public ValueFormat Value2Format { get; set; }
+
         public override void PositionGlyph(
             IGlyphPositioning glyphPositioning,
             FeatureInfo feature,
