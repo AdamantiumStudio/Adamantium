@@ -6,7 +6,8 @@ namespace Adamantium.Fonts.Shaping;
 /// <summary>Turns text into positioned glyphs of a font, applying its OpenType substitutions and positioning.</summary>
 public static class TextShaper
 {
-    /// <summary>Shapes <paramref name="text"/> left to right; the result is in font design units.</summary>
+    /// <summary>Shapes <paramref name="text"/> left to right; the result is in font design units. Without a script in
+    /// <paramref name="options"/> the text is split where its script changes and each part is shaped with its own.</summary>
     public static ShapedGlyph[] Shape(IFont font, string text, ShapingOptions options = null)
     {
         options ??= ShapingOptions.Default;
@@ -15,13 +16,30 @@ public static class TextShaper
             return [];
         }
 
-        var buffer = new GlyphBuffer(text.Length);
-        AddText(buffer, text);
+        if (options.Script != null)
+        {
+            return ShapeRun(font, text, 0, text.Length, options.Script, options);
+        }
+
+        var runs = ScriptItemizer.Itemize(text);
+        if (runs.Count == 1)
+        {
+            return ShapeRun(font, text, 0, text.Length, runs[0].Script, options);
+        }
+
+        return runs.SelectMany(run => ShapeRun(font, text, run.Start, run.End, run.Script, options)).ToArray();
+    }
+
+    private static ShapedGlyph[] ShapeRun(IFont font, string text, int start, int end, string script,
+        ShapingOptions options)
+    {
+        var buffer = new GlyphBuffer(end - start);
+        AddText(buffer, text, start, end);
         UnicodeProps.SetAll(buffer);
         FormClusters(buffer);
 
         var layout = font.Layout;
-        var plan = GetPlan(layout, options.Script ?? DetectScript(buffer), options);
+        var plan = GetPlan(layout, script, options);
 
         Normalizer.Normalize(font, buffer);
         SetupMasks(buffer, plan, options);
@@ -44,13 +62,13 @@ public static class TextShaper
         return result;
     }
 
-    private static void AddText(GlyphBuffer buffer, string text)
+    private static void AddText(GlyphBuffer buffer, string text, int from, int to)
     {
-        for (var i = 0; i < text.Length; i++)
+        for (var i = from; i < to; i++)
         {
             int codepoint = text[i];
             var start = i;
-            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            if (char.IsHighSurrogate(text[i]) && i + 1 < to && char.IsLowSurrogate(text[i + 1]))
             {
                 codepoint = char.ConvertToUtf32(text[i], text[i + 1]);
                 i++;
@@ -85,19 +103,6 @@ public static class TextShaper
         }
     }
 
-    private static string DetectScript(GlyphBuffer buffer)
-    {
-        for (var i = 0; i < buffer.Length; i++)
-        {
-            var script = UnicodeData.GetScript(buffer.Info[i].Codepoint);
-            if (script is not ("Zyyy" or "Zinh" or "Zzzz"))
-            {
-                return script;
-            }
-        }
-
-        return null;
-    }
 
     private static ShapePlan GetPlan(OpenTypeLayout layout, string script, ShapingOptions options)
     {

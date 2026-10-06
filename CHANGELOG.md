@@ -21,6 +21,14 @@ All packages share one version.
 - `TextLayout.GetCaretStops` and `CaretStop`: the caret position before each character and after the last, with the
   character's width; the characters of one glyph, such as a ligature, share its width. `GlyphWordData` carries its
   `PenX`, `Advance` and positioning offsets; `FontAtlas.RequestAsync` takes glyphs as well as text.
+- `AttributedText` and `TextAttributes`: text with features, language, color, background and lines
+  (`TextDecorations`: underline, strikethrough, squiggle) over ranges, laid out by `TextLayout.ProcessText`. Each glyph
+  takes the color of its text on both text paths, a glyph without one the element's (`FontItem.HasOwnColor`).
+  `GetAdornments` gives the backgrounds and lines to draw, `GetRangeRects` the rectangles of a range line by line (for a
+  selection), and `GetLine` / `LineCount` the visual lines with their top and baseline. The fonts' underline and
+  strikeout metrics are read (`IFont.UnderlinePosition`, `UnderlineThickness`, `StrikeoutPosition`, `StrikeoutSize`).
+- `TextShaper.Shape` without a script splits the text where its script changes and shapes each part with its own, so
+  Latin and Cyrillic in one line each get their own forms.
 
 ### Fixed
 

@@ -87,6 +87,14 @@ namespace Adamantium.Fonts
         
         public Int16 Baseline { get; internal set; }
 
+        public Int16 UnderlinePosition { get; internal set; }
+
+        public Int16 UnderlineThickness { get; internal set; }
+
+        public Int16 StrikeoutPosition { get; internal set; }
+
+        public Int16 StrikeoutSize { get; internal set; }
+
         /// <summary>
         /// smallest readable size in pixels
         /// </summary>
