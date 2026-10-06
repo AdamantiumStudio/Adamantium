@@ -405,65 +405,55 @@ namespace Adamantium.Fonts.Parsers
 
         private void ProcessFeatures(IFontLayout layout, FeatureKind featureKind)
         {
-            var featureManager = CurrentFont.FeatureService;
-
-            foreach (var scriptTable in layout.ScriptList.OrderBy(ScriptPriority))
+            var catalog = CurrentFont.FeatureCatalog;
+            foreach (var scriptTable in layout.ScriptList)
             {
-                foreach (var langSysTable in LanguageSystemsOf(scriptTable))
+                var script = catalog.GetOrAddScript(scriptTable.Name);
+                if (scriptTable.DefaultLang != null)
                 {
-                    var langInfo = LanguageTags.GetMsdnLanguage(langSysTable.Name);
-                    if (!featureManager.TryGetLanguage(langInfo, out var fontLang))
-                    {
-                        fontLang = new FontLanguage(langInfo);
-                        featureManager.AddLanguage(fontLang);
-                    }
+                    AddLanguageSystem(layout, featureKind, script.GetOrAddLanguage(scriptTable.DefaultLang.Name, true),
+                        scriptTable.DefaultLang);
+                }
 
-                    for (int i = 0; i < langSysTable.FeatureIndices.Length; i++)
-                    {
-                        var featureTable = layout.FeatureList[langSysTable.FeatureIndices[i]];
-                        if (!featureManager.TryGetFeature(featureTable.Name, out var feature))
-                        {
-                            var featureInfo = FeatureInfos.GetFeature(featureTable.Name);
-                            feature = new Feature(featureInfo);
-                            feature.FeatureParameters = featureTable.FeatureParameters;
-                            featureManager.AddFeature(feature, featureKind);
-                        }
-
-                        fontLang.AddFeature(feature, featureKind);
-                        if (feature.Lookups == null)
-                        {
-                            var lookups = new List<ILookupTable>();
-                            for (int k = 0; k < featureTable.LookupListIndices.Length; ++k)
-                            {
-                                var index = featureTable.LookupListIndices[k];
-                                lookups.Add(layout.LookupList[index]);
-                            }
-
-                            feature.Lookups = lookups.ToArray();
-                        }
-                    }
+                foreach (var langSysTable in scriptTable.LangSysTables)
+                {
+                    AddLanguageSystem(layout, featureKind, script.GetOrAddLanguage(langSysTable.Name, false),
+                        langSysTable);
                 }
             }
         }
 
-        private static int ScriptPriority(ScriptTable scriptTable)
+        private void AddLanguageSystem(IFontLayout layout, FeatureKind featureKind, FontLanguage language,
+            LangSysTable langSysTable)
         {
-            switch (scriptTable.Name)
+            var catalog = CurrentFont.FeatureCatalog;
+            foreach (var index in langSysTable.FeatureIndices)
             {
-                case "latn":
-                    return 0;
-                case "DFLT":
-                    return 1;
-                default:
-                    return 2;
-            }
-        }
+                if (index >= layout.FeatureList.Length)
+                {
+                    continue;
+                }
 
-        private static IEnumerable<LangSysTable> LanguageSystemsOf(ScriptTable scriptTable)
-        {
-            return scriptTable.DefaultLang == null
-                ? scriptTable.LangSysTables
-                : scriptTable.LangSysTables.Prepend(scriptTable.DefaultLang);
+                var featureTable = layout.FeatureList[index];
+                language.AddFeature(catalog.GetOrAddFeature(featureTable.Name, featureKind,
+                    featureTable.FeatureParameters));
+            }
+
+            if (!langSysTable.HasRequireFeature || langSysTable.RequiredFeatureIndex >= layout.FeatureList.Length)
+            {
+                return;
+            }
+
+            var required = layout.FeatureList[langSysTable.RequiredFeatureIndex];
+            var feature = catalog.GetOrAddFeature(required.Name, featureKind, required.FeatureParameters);
+            if (featureKind == FeatureKind.GSUB)
+            {
+                language.RequiredGSUBFeature = feature;
+            }
+            else
+            {
+                language.RequiredGPOSFeature = feature;
+            }
         }
     }
 }

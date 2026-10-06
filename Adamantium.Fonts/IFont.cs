@@ -39,9 +39,8 @@ namespace Adamantium.Fonts
         
         #endregion
         
-        public FeatureService FeatureService { get; }
-        
-        public GlyphLayoutData NotDefLayoutData { get; }
+        /// <summary>The OpenType features this font offers, per script and language system.</summary>
+        public FeatureCatalog FeatureCatalog { get; }
         
         public IReadOnlyCollection<uint> Unicodes { get; }
         

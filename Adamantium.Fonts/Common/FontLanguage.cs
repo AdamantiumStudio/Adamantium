@@ -1,81 +1,52 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Adamantium.Fonts.Common
+namespace Adamantium.Fonts.Common;
+
+/// <summary>A language system of a script in a font: the features it offers for text in that language.</summary>
+public sealed class FontLanguage
 {
-    public class FontLanguage
+    private readonly List<Feature> _features = [];
+
+    internal FontLanguage(string tag, bool isDefault)
     {
-        private List<Feature> gposFeatures;
-        private List<Feature> gsubFeatures;
-        private Dictionary<FeatureInfo, Feature> gposFeaturesMap;
-        private Dictionary<FeatureInfo, Feature> gsubFeaturesMap;
+        Tag = tag;
+        IsDefault = isDefault;
+        Info = LanguageTags.GetMsdnLanguage(tag);
+    }
 
-        public FontLanguage(LanguageTag tag)
+    /// <summary>The OpenType language tag, such as <c>TRK </c>; <c>DFLT</c> for the script's default system.</summary>
+    public string Tag { get; }
+
+    /// <summary>The script's default language system, used when the text's language has none of its own.</summary>
+    public bool IsDefault { get; }
+
+    public LanguageTag Info { get; }
+
+    /// <summary>Substitution and positioning features in the font's order.</summary>
+    public IReadOnlyList<Feature> Features => _features;
+
+    public IEnumerable<Feature> GSUBFeatures => _features.Where(f => f.Kind == FeatureKind.GSUB);
+
+    public IEnumerable<Feature> GPOSFeatures => _features.Where(f => f.Kind == FeatureKind.GPOS);
+
+    /// <summary>A feature applied whatever the text asks for; null when there is none.</summary>
+    public Feature RequiredGSUBFeature { get; internal set; }
+
+    public Feature RequiredGPOSFeature { get; internal set; }
+
+    public bool HasFeature(string tag) => _features.Any(f => f.Info.Tag == tag);
+
+    internal void AddFeature(Feature feature)
+    {
+        if (!_features.Contains(feature))
         {
-            Info = tag;
-            gposFeatures = new List<Feature>();
-            gsubFeatures = new List<Feature>();
-            gposFeaturesMap = new Dictionary<FeatureInfo, Feature>();
-            gsubFeaturesMap = new Dictionary<FeatureInfo, Feature>();
+            _features.Add(feature);
         }
-        
-        public LanguageTag Info { get; }
-        
-        public IReadOnlyCollection<Feature> GPOSFeatures => gposFeatures.AsReadOnly();
-        
-        public IReadOnlyCollection<Feature> GSUBFeatures => gsubFeatures.AsReadOnly();
-        
-        public Feature RequiredGPOSFeature { get; internal set; }
-        
-        public Feature RequiredGSUBFeature { get; internal set; }
+    }
 
-        internal void SetFeatures(IEnumerable<Feature> inputFeatures, FeatureKind featureKind)
-        {
-            switch (featureKind)
-            {
-                case FeatureKind.GPOS:
-                    gposFeatures.AddRange(inputFeatures);
-                    gposFeaturesMap = gposFeatures.ToDictionary(x => x.Info);
-                    break;
-                case FeatureKind.GSUB:
-                    gsubFeatures.AddRange(inputFeatures);
-                    gsubFeaturesMap = gsubFeatures.ToDictionary(x => x.Info);
-                    break;
-            }
-        }
-
-        internal void AddFeature(Feature feature, FeatureKind kind)
-        {
-            switch (kind)
-            {
-                case FeatureKind.GPOS:
-                    if (!gposFeaturesMap.ContainsKey(feature.Info))
-                    {
-                        gposFeatures.Add(feature);
-                        gposFeaturesMap[feature.Info] = feature;
-                    }
-
-                    break;
-                case FeatureKind.GSUB:
-                    if (!gsubFeaturesMap.ContainsKey(feature.Info))
-                    {
-                        gsubFeatures.Add(feature);
-                        gsubFeaturesMap[feature.Info] = feature;
-                    }
-
-                    break;
-            }
-        }
-
-        public void Merge(FontLanguage language)
-        {
-            SetFeatures(language.gposFeatures, FeatureKind.GPOS);
-            SetFeatures(language.gsubFeatures, FeatureKind.GSUB);
-        }
-
-        public override string ToString()
-        {
-            return $"Short name: {Info.Tag}, Friendly name: {Info.FriendlyName}";
-        }
+    public override string ToString()
+    {
+        return $"{Tag.TrimEnd()} ({Info.FriendlyName})";
     }
 }

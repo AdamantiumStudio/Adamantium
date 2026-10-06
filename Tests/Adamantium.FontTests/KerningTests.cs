@@ -1,4 +1,6 @@
+using System.Linq;
 using Adamantium.Fonts;
+using Adamantium.Fonts.Shaping;
 using NUnit.Framework;
 
 namespace Adamantium.FontTests;
@@ -13,15 +15,10 @@ public class KerningTests
     [TestCase("TTFFonts/SourceSans3-It.ttf", ".j", 20)]
     public void KerningMatchesTheReferenceShaper(string path, string pair, int expected)
     {
-        var typeface = Typeface.LoadFont(path, 3);
-        var font = typeface.GetFont(0);
-        var container = new GlyphLayoutContainer(typeface, font);
-        var glyphs = font.TranslateIntoGlyphs(pair);
-        container.SetText(pair);
+        var font = Typeface.LoadFont(path, 3).GetFont(0);
 
-        var kerning = font.FeatureService.ApplyFeature(Features.kern, container, 0, (uint)glyphs.Count)
-            ? container.GetAdvance(0).X
-            : font.GetKerningValue((ushort)glyphs[0].Index, (ushort)glyphs[1].Index);
+        var glyphs = TextShaper.Shape(font, pair);
+        var kerning = glyphs.Sum(g => g.XAdvance) - glyphs.Sum(g => font.GetGlyphByIndex(g.GlyphIndex).AdvanceWidth);
 
         Assert.That(kerning, Is.EqualTo(expected));
     }

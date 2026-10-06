@@ -7,10 +7,5 @@ namespace Adamantium.Fonts.Tables.GPOS
     {
         public abstract GPOSLookupType Type { get; }
         public override FeatureKind OwnerType => FeatureKind.GPOS;
-
-        internal virtual bool PositionGlyphAt(IGlyphPositioning glyphPositioning, FeatureInfo featureInfo, uint index)
-        {
-            return false;
-        }
     }
 }

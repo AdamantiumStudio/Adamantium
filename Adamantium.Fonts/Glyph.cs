@@ -90,7 +90,6 @@ namespace Adamantium.Fonts
 
         public GlyphClassDefinition ClassDefinition { get; internal set; }
         internal List<CompositeGlyphComponent> CompositeGlyphComponents;
-        public GlyphLayoutData Layout { get; internal set; }
 
         public bool HasOutlines
         {
