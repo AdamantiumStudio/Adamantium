@@ -24,7 +24,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <Content Include="Shaping\*.txt;TTFFonts\CascadiaCode-Regular.ttf">
+      <Content Include="Shaping\*.txt;Unicode\*.txt;TTFFonts\CascadiaCode-Regular.ttf">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </Content>
     </ItemGroup>

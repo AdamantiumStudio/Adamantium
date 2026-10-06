@@ -60,12 +60,16 @@ JPEG 2000 — that is a different format built on wavelets, and there is no code
 
 ## Unicode Character Database
 
-**Where:** `Adamantium.Fonts/Data/` — `Scripts.ucd`, `CombiningClass.ucd`, `Decompositions.ucd` and
-`ExtendedPictographic.ucd`, embedded in `Adamantium.Fonts`.
+**Where:** `Adamantium.Fonts/Data/` — `Scripts.ucd`, `CombiningClass.ucd`, `Decompositions.ucd`,
+`ExtendedPictographic.ucd`, `GraphemeBreak.ucd`, `WordBreak.ucd` and `IndicConjunctBreak.ucd`, embedded in
+`Adamantium.Fonts`; and, for the tests only, `GraphemeBreakTest.txt` and `WordBreakTest.txt` in
+`Tests/Adamantium.FontTests/Unicode/`.
 
-Data, not code: the script, canonical combining class, canonical decomposition and Extended_Pictographic properties of
-Unicode 16.0, cut down from the UCD files (`Scripts.txt`, `DerivedCombiningClass.txt`, `UnicodeData.txt`,
-`DerivedNormalizationProps.txt`, `emoji-data.txt`) to the columns the text shaper reads, with adjacent ranges joined.
+Data, not code: the script, canonical combining class, canonical decomposition, Extended_Pictographic, grapheme and word
+break and Indic_Conjunct_Break properties of Unicode 16.0, cut down from the UCD files (`Scripts.txt`,
+`DerivedCombiningClass.txt`, `UnicodeData.txt`, `DerivedNormalizationProps.txt`, `emoji-data.txt`,
+`GraphemeBreakProperty.txt`, `WordBreakProperty.txt`, `DerivedCoreProperties.txt`) to the columns the text shaper and the
+text boundaries read, with adjacent ranges joined.
 
 ```
 UNICODE LICENSE V3
