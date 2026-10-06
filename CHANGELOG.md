@@ -36,11 +36,22 @@ All packages share one version.
   `PreviousWordStop` give words for a double click and Ctrl+arrows.
 - `TextBoundaries.LineBreaks`: where a line may or must end, by Unicode Standard Annex #14; it passes all of Unicode's
   `LineBreakTest`.
+- Typed font features: `FontFeature.Ligatures`, `Capitals`, `Numerals`, `Position` and `Kerning` (`FontFeature.Ligatures.Off`,
+  `FontFeature.Numerals.Tabular`), `StylisticSet(n)`, `CharacterVariant(n, value)`, `StylisticAlternates` and `Swash`.
+  `FontFeature.TryParseList` checks a list such as `liga=0, ss01, cv05=2` against the OpenType feature registry: a
+  lowercase tag the registry does not have is an error naming the tag most likely meant, and a private feature needs an
+  uppercase letter in its tag. `ParseList` throws with the same message.
+- `TextAttributes.FontSize`: a size per range of text. Each line is as tall as its largest text and its glyphs share its
+  baseline; `GetLine`, `HitTest`, `GetRangeRects` and `GetAdornments` follow each line's own height.
+  `GlyphWordData.FontSize` is the size a glyph is set at.
 - `TextLayout.TabSize`: a tab moves the pen to the next tab stop, a multiple of that many spaces from the line's start
   (4 by default), and draws nothing. Before, it was laid out as the font's glyph for it, usually the `.notdef` box.
 
 ### Fixed
 
+- Thin slivers of other letters at the edges of glyphs, mostly at fractional sizes. Atlas cells lie edge to edge and a
+  glyph's quad reached the very edge of its cell, so the texture filter mixed in the neighboring cell's field. The quad
+  now stops half a texel inside its cell.
 - Text in a second font drew the first font's letters. `FontAtlasStore` kept one atlas per set of rasterization
   parameters, whatever the font, and glyphs are found in it by index, so a glyph of the second font got the picture the
   first font has at that index. Each font now has its own atlas: `FontAtlasStore.GetOrCreateFrom` and the `FontAtlas`

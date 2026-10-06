@@ -16,6 +16,10 @@ public sealed class TextAttributes
     /// <summary>BCP 47 language tag, such as <c>ru</c>, <c>sr</c> or <c>zh-Hant</c>: picks the font's local forms.</summary>
     public string Language { get; init; }
 
+    /// <summary>The size of the text; unset takes the size the text is laid out at. A line is as tall as its largest
+    /// text.</summary>
+    public double? FontSize { get; init; }
+
     public Color? Foreground { get; init; }
 
     /// <summary>Fill behind the text, as high as the line.</summary>
@@ -38,6 +42,7 @@ public sealed class TextAttributes
         {
             Features = over.Features ?? Features,
             Language = over.Language ?? Language,
+            FontSize = over.FontSize ?? FontSize,
             Foreground = over.Foreground ?? Foreground,
             Background = over.Background ?? Background,
             Decorations = over.Decorations ?? Decorations,

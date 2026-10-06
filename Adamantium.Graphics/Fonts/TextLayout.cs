@@ -44,9 +44,9 @@ public class TextLayout : DisposableObject
 
     private List<GlyphWordData> _wordData;
     private AttributedText _attributed;
-    private double _lineAdvance;
-    private double _baselineInLine;
-    private double _firstLineTop;
+    private double[] _lineTops;
+    private double[] _lineHeights;
+    private double[] _lineBaselines;
     private double _verticalShift;
     private CaretStop[] _caretStops;
     private bool[] _graphemes;
@@ -225,14 +225,13 @@ public class TextLayout : DisposableObject
         var _b1 = System.GC.GetAllocatedBytesForCurrentThread();
 
         var scale = fontSize / Font.UnitsPerEm;
-        var items = Shape(text, scale);
+        var items = Shape(text, fontSize);
         _laidOutTabSize = TabSize;
         var tabStop = spaceGlyph.AdvanceWidth * scale * Math.Max(TabSize, 1);
 
         var _b2 = System.GC.GetAllocatedBytesForCurrentThread();
 
-        var lineHeight = Font.LineGap == 0 ? fontSize : Font.LineGap * scale;
-        lineHeight += fontSize;
+        var lineHeight = LineAdvance(fontSize);
         var baseLine = Font.Baseline * scale;
 
         dotGlyphsWidth = (dotGlyph.AdvanceWidth * scale * 3);
@@ -288,6 +287,7 @@ public class TextLayout : DisposableObject
                     PenX = cursorPosition,
                     Advance = advance,
                     Attributes = space.Attributes,
+                    FontSize = space.FontSize,
                 });
                 cursorPosition += advance;
             }
@@ -298,9 +298,15 @@ public class TextLayout : DisposableObject
 
         // Not published yet: the render thread reads _wordData, and the alignment below still moves every glyph.
         // The height is a font metric (last baseline plus descent), not the ink, so same-size strings measure alike and
-        // a turned label keeps its descenders.
-        var lastBaseline = height + baseLine;
-        height = lastBaseline + System.Math.Abs(Font.Descender) * scale;
+        // a turned label keeps its descenders. A line is as tall as its largest text.
+        var lineCount = Math.Max(lineIndex, glyphsData.Count > 0 ? glyphsData.Max(x => x.LineIndex) : 0) + 1;
+        var lineTops = new double[lineCount];
+        var lineHeights = new double[lineCount];
+        var lineBaselines = new double[lineCount];
+        var lineScales = new double[lineCount];
+        PlaceLines();
+        var lastBaseline = lineTops[lineCount - 1] + lineBaselines[lineCount - 1];
+        height = lastBaseline + System.Math.Abs(Font.Descender) * lineScales[lineCount - 1];
 
         var _b3 = System.GC.GetAllocatedBytesForCurrentThread();
 
@@ -320,9 +326,14 @@ public class TextLayout : DisposableObject
         }
 
         ArrangeText();
-        _lineAdvance = lineHeight;
-        _baselineInLine = baseLine;
-        _firstLineTop = textArea.Y + verticalShift;
+        for (var i = 0; i < lineCount; i++)
+        {
+            lineTops[i] += verticalShift;
+        }
+
+        _lineTops = lineTops;
+        _lineHeights = lineHeights;
+        _lineBaselines = lineBaselines;
         _verticalShift = verticalShift;
         _caretStops = null;
         _graphemes = null;
@@ -346,7 +357,7 @@ public class TextLayout : DisposableObject
             {
                 if (items[k].Symbol != '\n')
                 {
-                    wordWidth += items[k].Glyph.BoundingRectangle.Width * scale;
+                    wordWidth += items[k].Glyph.BoundingRectangle.Width * (items[k].FontSize / Font.UnitsPerEm);
                 }
             }
 
@@ -377,6 +388,7 @@ public class TextLayout : DisposableObject
                             {
                                 PenX = cursorPosition,
                                 Attributes = item.Attributes,
+                                FontSize = item.FontSize,
                             });
                         }
                         height += lineHeight;
@@ -389,7 +401,7 @@ public class TextLayout : DisposableObject
                         var glyphRect = CalculateGlyphPosition(item.Glyph,
                             cursorPosition + item.OffsetX,
                             glyphBase - item.OffsetY,
-                            scale);
+                            item.FontSize / Font.UnitsPerEm);
 
                         glyphsData.Add(new GlyphWordData(item.Glyph, item.Symbol, glyphRect, item.Cluster, lineIndex)
                         {
@@ -398,6 +410,7 @@ public class TextLayout : DisposableObject
                             OffsetX = item.OffsetX,
                             OffsetY = item.OffsetY,
                             Attributes = item.Attributes,
+                            FontSize = item.FontSize,
                         });
                         cursorPosition += item.Advance;
 
@@ -545,10 +558,11 @@ public class TextLayout : DisposableObject
                 {
                     // Centered by ascent above the baseline, not the ink: ink differs per string and made same-size
                     // text wobble. No descent reserve, so descenders hang below.
-                    var lineCount = glyphsData.Max(x => x.LineIndex) + 1;
-                    var ascent = Font.Ascender * scale;
-                    var blockHeight = (lineCount - 1) * lineHeight + ascent;
-                    var blockTop = baseLine - ascent;
+                    var lastInk = glyphsData.Max(x => x.LineIndex);
+                    var ascent = Font.Ascender * lineScales[0];
+                    var firstBaseline = lineTops[0] - textArea.Y + lineBaselines[0];
+                    var blockHeight = lineTops[lastInk] - textArea.Y + lineBaselines[lastInk] - firstBaseline + ascent;
+                    var blockTop = firstBaseline - ascent;
                     var diff = (finalRect.Height - blockHeight) / 2 - blockTop;
                     verticalShift = diff;
                     foreach (var glyphWordData in glyphsData)
@@ -572,6 +586,58 @@ public class TextLayout : DisposableObject
                     }
                 }
                 break;
+            }
+        }
+
+        void PlaceLines()
+        {
+            var mixed = false;
+            for (var i = 0; i < lineCount; i++)
+            {
+                lineScales[i] = scale;
+                lineHeights[i] = lineHeight;
+                lineBaselines[i] = baseLine;
+            }
+
+            var seen = new bool[lineCount];
+            foreach (var glyph in glyphsData)
+            {
+                var line = glyph.LineIndex;
+                var glyphScale = glyph.FontSize / Font.UnitsPerEm;
+                if (!seen[line] || glyphScale > lineScales[line])
+                {
+                    seen[line] = true;
+                    lineScales[line] = glyphScale;
+                    lineHeights[line] = LineAdvance(glyph.FontSize);
+                    lineBaselines[line] = Font.Baseline * glyphScale;
+                }
+
+                mixed |= glyph.FontSize != fontSize;
+            }
+
+            lineTops[0] = textArea.Y;
+            for (var i = 1; i < lineCount; i++)
+            {
+                lineTops[i] = lineTops[i - 1] + lineHeights[i - 1];
+            }
+
+            if (!mixed)
+            {
+                return;
+            }
+
+            foreach (var glyph in glyphsData)
+            {
+                var lineBase = lineTops[glyph.LineIndex] + lineBaselines[glyph.LineIndex];
+                if (IsBlank(glyph.Symbol) || glyph.Symbol == '\n')
+                {
+                    glyph.Rect.Y = (float)lineBase;
+                }
+                else
+                {
+                    glyph.Rect = CalculateGlyphPosition(glyph.Glyph, glyph.PenX + glyph.OffsetX,
+                        lineBase - glyph.OffsetY, glyph.FontSize / Font.UnitsPerEm);
+                }
             }
         }
 
@@ -615,7 +681,7 @@ public class TextLayout : DisposableObject
                 var glyphRect = CalculateGlyphPosition(glyphData.Glyph,
                     cursorPosition + glyphData.OffsetX,
                     glyphBase - glyphData.OffsetY,
-                    scale);
+                    glyphData.FontSize / Font.UnitsPerEm);
 
                 glyphData.Rect = glyphRect;
                 glyphData.PenX = cursorPosition;
@@ -676,6 +742,7 @@ public class TextLayout : DisposableObject
                 {
                     PenX = cursorPosition,
                     Advance = dotGlyph.AdvanceWidth * scale,
+                    FontSize = fontSize,
                 });
 
                 cursorPosition += dotGlyph.AdvanceWidth * scale;
@@ -723,22 +790,34 @@ public class TextLayout : DisposableObject
             var word = _wordData[i];
             if (word.Glyph == spaceGlyph || word.Symbol == '\n') continue;
 
-            // The full cell (body plus margin), so outline/glow/shadow have room to draw.
+            // The cell (body plus margin) less half a texel on each side: outline/glow/shadow keep the margin, and the
+            // filter never reaches the neighbor cell, whose field would draw a sliver of another glyph.
             var gd = FontAtlas.GetGlyphData(word.Glyph.Index);
             FontItem item;
             if (gd != null && gd.BoundingRect.Width > 0 && gd.BoundingRect.Height > 0)
             {
                 var rect = word.Rect;
+                var margin = gd.Margin - 0.5;
                 // Per-axis margin maps the body exactly onto the pixel-snapped rect; a zero-size side falls back to the
                 // uniform margin, or the quad collapses.
-                var uniform = gd.Margin * (double)FontSize / FontAtlas.MSDFTextureSize;
-                var mx = rect.Width > 0 ? gd.Margin * (double)rect.Width / gd.BoundingRect.Width : uniform;
-                var my = rect.Height > 0 ? gd.Margin * (double)rect.Height / gd.BoundingRect.Height : uniform;
+                var uniform = margin * word.FontSize / FontAtlas.MSDFTextureSize;
+                var mx = rect.Width > 0 ? margin * rect.Width / gd.BoundingRect.Width : uniform;
+                var my = rect.Height > 0 ? margin * rect.Height / gd.BoundingRect.Height : uniform;
+                var cell = gd.UVRectFull;
+                var halfTexelU = (cell.Right - cell.Left) / (float)gd.FullGlyphSize.Width / 2;
+                var halfTexelV = (cell.Bottom - cell.Top) / (float)gd.FullGlyphSize.Height / 2;
+                var source = new RectangleF
+                {
+                    Left = cell.Left + halfTexelU,
+                    Top = cell.Top + halfTexelV,
+                    Right = cell.Right - halfTexelU,
+                    Bottom = cell.Bottom - halfTexelV,
+                };
                 item = new FontItem
                 {
                     ArrangeRect = new Vector4F((float)(rect.X - mx), (float)(rect.Y - my),
                         (float)(rect.Width + 2 * mx), (float)(rect.Height + 2 * my)),
-                    Source = gd.UVRectFull,
+                    Source = source,
                     Layer = gd.DepthLayer,
                     Depth = 1.0f,
                     Color = GlyphColor(word)
@@ -923,9 +1002,9 @@ public class TextLayout : DisposableObject
             start = end;
         }
 
-        var top = _firstLineTop + lineIndex * _lineAdvance;
-        var baseline = Math.Round(top - _verticalShift + _baselineInLine) + _verticalShift;
-        return new TextLineMetrics(start, end, top, baseline, _lineAdvance, width);
+        var top = LineTop(lineIndex);
+        var baseline = Math.Round(top - _verticalShift + LineMetric(_lineBaselines, lineIndex)) + _verticalShift;
+        return new TextLineMetrics(start, end, top, baseline, LineMetric(_lineHeights, lineIndex), width);
     }
 
     /// <summary>Rectangles covering a UTF-16 range, one per piece of each visual line it spans, as high as the line:
@@ -933,8 +1012,8 @@ public class TextLayout : DisposableObject
     public IReadOnlyList<RectangleF> GetRangeRects(int start, int end)
     {
         return RangeSegments(start, end)
-            .Select(s => new RectangleF((float)s.Left, (float)(_firstLineTop + s.Line * _lineAdvance),
-                (float)(s.Right - s.Left), (float)_lineAdvance))
+            .Select(s => new RectangleF((float)s.Left, (float)LineTop(s.Line),
+                (float)(s.Right - s.Left), (float)LineMetric(_lineHeights, s.Line)))
             .ToList();
     }
 
@@ -948,13 +1027,7 @@ public class TextLayout : DisposableObject
             return adornments;
         }
 
-        var scale = FontSize / Font.UnitsPerEm;
         double em = Font.UnitsPerEm;
-        var thickness = (Font.UnderlineThickness > 0 ? Font.UnderlineThickness : em / 20) * scale;
-        var underline = (Font.UnderlinePosition != 0 ? Font.UnderlinePosition : -em / 10) * scale;
-        var strikeout = (Font.StrikeoutPosition != 0 ? Font.StrikeoutPosition : em / 4) * scale;
-        var strikeoutSize = Font.StrikeoutSize > 0 ? Font.StrikeoutSize * scale : thickness;
-
         foreach (var run in _attributed.Runs)
         {
             var attributes = run.Attributes;
@@ -963,6 +1036,12 @@ public class TextLayout : DisposableObject
             {
                 continue;
             }
+
+            var scale = (attributes.FontSize ?? FontSize) / em;
+            var thickness = (Font.UnderlineThickness > 0 ? Font.UnderlineThickness : em / 20) * scale;
+            var underline = (Font.UnderlinePosition != 0 ? Font.UnderlinePosition : -em / 10) * scale;
+            var strikeout = (Font.StrikeoutPosition != 0 ? Font.StrikeoutPosition : em / 4) * scale;
+            var strikeoutSize = Font.StrikeoutSize > 0 ? Font.StrikeoutSize * scale : thickness;
 
             var lineColor = attributes.DecorationColor ?? attributes.Foreground;
             foreach (var segment in RangeSegments(run.Start, run.End))
@@ -973,8 +1052,8 @@ public class TextLayout : DisposableObject
                 if (attributes.Background is { } background)
                 {
                     adornments.Add(new TextAdornment(TextAdornmentKind.Background,
-                        new RectangleF(left, (float)(_firstLineTop + segment.Line * _lineAdvance), width,
-                            (float)_lineAdvance), background));
+                        new RectangleF(left, (float)LineTop(segment.Line), width,
+                            (float)LineMetric(_lineHeights, segment.Line)), background));
                 }
 
                 if ((decorations & TextDecorations.Underline) != 0)
@@ -1060,7 +1139,7 @@ public class TextLayout : DisposableObject
 
         var stops = Stops();
         var graphemes = Graphemes();
-        var lineIndex = (int)Math.Floor((y - _firstLineTop) / _lineAdvance);
+        var lineIndex = LineAt(y);
         var insideY = lineIndex >= 0 && lineIndex < LineCount;
         lineIndex = Math.Max(0, Math.Min(lineIndex, LineCount - 1));
         var line = GetLine(lineIndex);
@@ -1100,6 +1179,56 @@ public class TextLayout : DisposableObject
     }
 
     private int Clamp(int index) => Math.Max(0, Math.Min(index, (Text ?? string.Empty).Length));
+
+    private double LineAdvance(double fontSize)
+    {
+        var lineGap = Font.LineGap == 0 ? fontSize : Font.LineGap * (fontSize / Font.UnitsPerEm);
+        return lineGap + fontSize;
+    }
+
+    private double LineTop(int line)
+    {
+        if (_lineTops == null || _lineTops.Length == 0)
+        {
+            return 0;
+        }
+
+        var last = _lineTops.Length - 1;
+        if (line < 0)
+        {
+            return _lineTops[0] + line * _lineHeights[0];
+        }
+
+        return line <= last ? _lineTops[line] : _lineTops[last] + (line - last) * _lineHeights[last];
+    }
+
+    private static double LineMetric(double[] metrics, int line)
+    {
+        if (metrics == null || metrics.Length == 0)
+        {
+            return 0;
+        }
+
+        return metrics[Math.Max(0, Math.Min(line, metrics.Length - 1))];
+    }
+
+    private int LineAt(double y)
+    {
+        if (_lineTops == null || _lineTops.Length == 0 || y < _lineTops[0])
+        {
+            return -1;
+        }
+
+        for (var i = 0; i < _lineTops.Length; i++)
+        {
+            if (y < _lineTops[i] + _lineHeights[i])
+            {
+                return i;
+            }
+        }
+
+        return _lineTops.Length;
+    }
 
     private bool[] Graphemes() => _graphemes ??= TextBoundaries.Graphemes(Text ?? string.Empty);
 
@@ -1178,7 +1307,7 @@ public class TextLayout : DisposableObject
         return index > 0 && char.IsLowSurrogate(text[index]) && char.IsHighSurrogate(text[index - 1]);
     }
 
-    private List<ShapedItem> Shape(string text, double scale)
+    private List<ShapedItem> Shape(string text, double fontSize)
     {
         var items = new List<ShapedItem>(text.Length);
         var runs = _attributed?.Runs;
@@ -1198,9 +1327,12 @@ public class TextLayout : DisposableObject
                     foreach (var glyph in TextShaper.Shape(Font, text.Substring(position, stop - position), options))
                     {
                         var cluster = position + glyph.Cluster;
+                        var glyphAttributes = AttributesAt(cluster);
+                        var size = glyphAttributes?.FontSize ?? fontSize;
+                        var scale = size / Font.UnitsPerEm;
                         items.Add(new ShapedItem(Font.GetGlyphByIndex(glyph.GlyphIndex), text[cluster], cluster,
                             glyph.XAdvance * scale, glyph.XOffset * scale, glyph.YOffset * scale,
-                            AttributesAt(cluster)));
+                            glyphAttributes, size));
                     }
                 }
 
@@ -1209,7 +1341,9 @@ public class TextLayout : DisposableObject
                     break;
                 }
 
-                items.Add(new ShapedItem(Font.GetGlyphByCharacter('\n'), '\n', newline, 0, 0, 0, AttributesAt(newline)));
+                var newlineAttributes = AttributesAt(newline);
+                items.Add(new ShapedItem(Font.GetGlyphByCharacter('\n'), '\n', newline, 0, 0, 0, newlineAttributes,
+                    newlineAttributes?.FontSize ?? fontSize));
                 position = newline + 1;
             }
         }
@@ -1266,7 +1400,7 @@ public class TextLayout : DisposableObject
     private readonly struct ShapedItem
     {
         public ShapedItem(Glyph glyph, char symbol, int cluster, double advance, double offsetX, double offsetY,
-            TextAttributes attributes)
+            TextAttributes attributes, double fontSize)
         {
             Glyph = glyph;
             Symbol = symbol;
@@ -1275,7 +1409,10 @@ public class TextLayout : DisposableObject
             OffsetX = offsetX;
             OffsetY = offsetY;
             Attributes = attributes;
+            FontSize = fontSize;
         }
+
+        public double FontSize { get; }
 
         public Glyph Glyph { get; }
 
