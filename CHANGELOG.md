@@ -34,9 +34,17 @@ All packages share one version.
   `TextLayout` uses them: `NextCaretStop` / `PreviousCaretStop` step over a whole grapheme, `HitTest` gives the grapheme
   under a point and where a click there puts the caret (`TextHit`), and `GetWordAt`, `NextWordStop` and
   `PreviousWordStop` give words for a double click and Ctrl+arrows.
+- `TextBoundaries.LineBreaks`: where a line may or must end, by Unicode Standard Annex #14; it passes all of Unicode's
+  `LineBreakTest`.
+- `TextLayout.TabSize`: a tab moves the pen to the next tab stop, a multiple of that many spaces from the line's start
+  (4 by default), and draws nothing. Before, it was laid out as the font's glyph for it, usually the `.notdef` box.
 
 ### Fixed
 
+- Text in a second font drew the first font's letters. `FontAtlasStore` kept one atlas per set of rasterization
+  parameters, whatever the font, and glyphs are found in it by index, so a glyph of the second font got the picture the
+  first font has at that index. Each font now has its own atlas: `FontAtlasStore.GetOrCreateFrom` and the `FontAtlas`
+  constructor take the `IFont`, which the atlas rasterizes instead of the typeface's first font.
 - A swapchain rebuild that failed - out of device memory, say - left the presenter without surfaces, and the next frame
   drew into them and crashed the process. `GraphicsPresenter.IsReady` now says whether the surfaces exist,
   `GraphicsDevice.BeginDraw` skips the frame while they do not, and the failed rebuild reports `OutOfDate`, so it is
@@ -56,6 +64,8 @@ All packages share one version.
 
 ### Changed
 
+- `TextLayout` with `TextWrapping.WrapByWords` wraps where Unicode allows a line to end, not only at spaces: after a
+  hyphen, between ideographs, never before a closing parenthesis or a comma, never at a no-break space.
 - `TextLayout` shapes its text with `TextShaper`: the font's ligatures, contextual alternates, mark positioning and
   kerning apply, and a character the font lacks draws its `.notdef` box instead of nothing. A glyph is no longer one
   character: `GetTextData` lists glyphs with the UTF-16 offset of their first character, and caret positions come from

@@ -33,7 +33,14 @@ public class TextLayout : DisposableObject
     /// </summary>
     public bool EmitNewlineCarets { get; set; }
 
+    /// <summary>
+    /// How many spaces wide a tab stop is: a tab moves the pen to the next multiple of that width from the line's
+    /// start. 4 by default.
+    /// </summary>
+    public int TabSize { get; set; } = 4;
+
     private TextRenderingParameters _previousRenderingParameters;
+    private int _laidOutTabSize;
 
     private List<GlyphWordData> _wordData;
     private AttributedText _attributed;
@@ -112,7 +119,7 @@ public class TextLayout : DisposableObject
         TextRenderingParameters renderingParameters)
     {
         return Text == text && MathHelper.IsZero(FontSize - fontSize) &&
-               _previousRenderingParameters == renderingParameters;
+               _previousRenderingParameters == renderingParameters && _laidOutTabSize == TabSize;
     }
 
     public Size ProcessText(string text,
@@ -219,6 +226,8 @@ public class TextLayout : DisposableObject
 
         var scale = fontSize / Font.UnitsPerEm;
         var items = Shape(text, scale);
+        _laidOutTabSize = TabSize;
+        var tabStop = spaceGlyph.AdvanceWidth * scale * Math.Max(TabSize, 1);
 
         var _b2 = System.GC.GetAllocatedBytesForCurrentThread();
 
@@ -237,11 +246,15 @@ public class TextLayout : DisposableObject
         int wordIndex = 0;
         int lineIndex = 0;
         double verticalShift = 0;
+        var lineBreaks = renderingParameters.TextWrapping == TextWrapping.WrapByWords
+            ? TextBoundaries.LineBreaks(text)
+            : null;
         var wordStart = 0;
         while (wordStart <= items.Count)
         {
             var wordEnd = wordStart;
-            while (wordEnd < items.Count && items[wordEnd].Symbol != ' ')
+            while (wordEnd < items.Count && !IsBlank(items[wordEnd].Symbol)
+                   && (wordEnd == wordStart || lineBreaks?[items[wordEnd].Cluster] != LineBreakKind.Allowed))
             {
                 wordEnd++;
             }
@@ -251,21 +264,32 @@ public class TextLayout : DisposableObject
                 break;
             }
 
+            if (wordEnd < items.Count && !IsBlank(items[wordEnd].Symbol))
+            {
+                wordIndex++;
+                wordStart = wordEnd;
+                continue;
+            }
+
             if (wordEnd < items.Count)
             {
-                // Sub-pixel like the glyphs, so the space doesn't inflate the line bounds.
+                // Sub-pixel like the glyphs, so the space doesn't inflate the line bounds. A tab draws nothing and
+                // reaches the next tab stop.
                 var space = items[wordEnd];
+                var isTab = space.Symbol == '\t';
+                var advance = isTab ? (Math.Floor(cursorPosition / tabStop) + 1) * tabStop - cursorPosition : space.Advance;
                 var rect = new RectangleF((float)cursorPosition,
                     (float)(height + baseLine),
-                    (float)space.Advance,
+                    (float)advance,
                     0f);
-                glyphsData.Add(new GlyphWordData(space.Glyph, ' ', rect, space.Cluster, lineIndex)
+                glyphsData.Add(new GlyphWordData(isTab ? spaceGlyph : space.Glyph, space.Symbol, rect, space.Cluster,
+                    lineIndex)
                 {
                     PenX = cursorPosition,
-                    Advance = space.Advance,
+                    Advance = advance,
                     Attributes = space.Attributes,
                 });
-                cursorPosition += space.Advance;
+                cursorPosition += advance;
             }
 
             wordIndex++;
@@ -434,7 +458,7 @@ public class TextLayout : DisposableObject
                         if (glyphsForLine.Length == 0) break;
 
                         // By the ink, so leading/trailing spaces don't pull the line off-center.
-                        var ink = glyphsForLine.Where(x => x.Symbol != ' ').ToArray();
+                        var ink = glyphsForLine.Where(x => !IsBlank(x.Symbol)).ToArray();
                         if (ink.Length == 0) continue;
                         minX = ink.Min(x => x.Rect.Left);
                         maxX = ink.Max(x => x.Rect.Right);
@@ -458,7 +482,7 @@ public class TextLayout : DisposableObject
                         var glyphsForLine = glyphsData.Where(x => x.LineIndex == i).ToArray();
                         if (glyphsForLine.Length == 0) break;
 
-                        maxX = glyphsForLine.Where(x=>x.Symbol != ' ').Max(x => x.Rect.Right);
+                        maxX = glyphsForLine.Where(x=>!IsBlank(x.Symbol)).Max(x => x.Rect.Right);
                         var diff = (finalRect.Width - maxX);
                         foreach (var glyphWordData in glyphsForLine)
                         {
@@ -485,7 +509,7 @@ public class TextLayout : DisposableObject
                         int firstInk = -1, lastInk = -1;
                         for (int k = 0; k < lineGlyphs.Length; k++)
                         {
-                            if (lineGlyphs[k].Symbol == ' ') continue;
+                            if (IsBlank(lineGlyphs[k].Symbol)) continue;
                             if (firstInk < 0) firstInk = k;
                             lastInk = k;
                         }
@@ -558,12 +582,12 @@ public class TextLayout : DisposableObject
             {
                 var data = glyphsData[k];
                 cursorPosition -= data.Advance;
-                var wordsLeft = glyphsDataCopy.Take(k).Count(x => x.Symbol == ' ') + 1;
+                var wordsLeft = glyphsDataCopy.Take(k).Count(x => IsBlank(x.Symbol)) + 1;
                 rearrangeList.Add(data);
                 if (wordIndex > 0 &&
                     cursorPosition <= textArea.Width &&
                     renderingParameters.TextWrapping == TextWrapping.WrapByWords &&
-                    data.Symbol == ' ')
+                    IsBlank(data.Symbol))
                 {
                     break;
                 }
@@ -674,7 +698,7 @@ public class TextLayout : DisposableObject
     {
         if (FontAtlas == null || FontAtlas.IsDisposed)
         {
-            FontAtlas = FontAtlasStore.GetOrCreateFrom(graphicsDevice, Typeface,
+            FontAtlas = FontAtlasStore.GetOrCreateFrom(graphicsDevice, Typeface, Font,
                 FontParameters.Default(sortingVariant: GlyphSortingVariant.ByIndex));
         }
 
@@ -1142,6 +1166,11 @@ public class TextLayout : DisposableObject
 
             filled[c] = true;
         }
+    }
+
+    private static bool IsBlank(char symbol)
+    {
+        return symbol == ' ' || symbol == '\t';
     }
 
     private static bool IsTrailingSurrogate(string text, int index)

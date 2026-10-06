@@ -73,12 +73,14 @@ namespace Adamantium.Graphics.Fonts
         // When the packer fills all layers it clamps to the last one (LayersExhausted) instead of the old past-256 crash.
         public const uint AtlasLayerCount = 8;
 
-        public FontAtlas(IGraphicsDevice device, Typeface typeface, FontParameters parameters, uint atlasSize = 1024) : base(device)
+        /// <summary>An atlas of <paramref name="font"/>'s glyphs, addressed by glyph index; one font of
+        /// <paramref name="typeface"/> per atlas.</summary>
+        public FontAtlas(IGraphicsDevice device, Typeface typeface, IFont font, FontParameters parameters, uint atlasSize = 1024) : base(device)
         {
             processedGlyphs = new Dictionary<uint, Glyph>();
-            
+
             Typeface = typeface;
-            Font = Typeface.GetFont(0);
+            Font = font;
             MSDFTextureSize = parameters.MsdfTextureSize;
             SampleRate = parameters.SampleRate;
             PixelRange = parameters.PixelRange;

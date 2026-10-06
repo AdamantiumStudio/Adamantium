@@ -13,6 +13,21 @@ public class TextBoundariesTests
 
     public static IEnumerable<TestCaseData> WordCases() => Cases("WordBreakTest.txt");
 
+    public static IEnumerable<TestCaseData> LineCases() => Cases("LineBreakTest.txt");
+
+    [TestCaseSource(nameof(LineCases))]
+    public void LinesBreakAsUnicodeSays(string text, bool[] expected)
+    {
+        var kinds = TextBoundaries.LineBreaks(text);
+        var breaks = new bool[kinds.Length];
+        for (var i = 0; i < kinds.Length; i++)
+        {
+            breaks[i] = kinds[i] != LineBreakKind.None;
+        }
+
+        Assert.That(breaks, Is.EqualTo(expected));
+    }
+
     [TestCaseSource(nameof(GraphemeCases))]
     public void GraphemesBreakAsUnicodeSays(string text, bool[] expected)
     {

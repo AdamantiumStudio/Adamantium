@@ -61,15 +61,15 @@ JPEG 2000 — that is a different format built on wavelets, and there is no code
 ## Unicode Character Database
 
 **Where:** `Adamantium.Fonts/Data/` — `Scripts.ucd`, `CombiningClass.ucd`, `Decompositions.ucd`,
-`ExtendedPictographic.ucd`, `GraphemeBreak.ucd`, `WordBreak.ucd` and `IndicConjunctBreak.ucd`, embedded in
-`Adamantium.Fonts`; and, for the tests only, `GraphemeBreakTest.txt` and `WordBreakTest.txt` in
-`Tests/Adamantium.FontTests/Unicode/`.
+`ExtendedPictographic.ucd`, `GraphemeBreak.ucd`, `WordBreak.ucd`, `IndicConjunctBreak.ucd`, `LineBreak.ucd` and
+`EastAsianWidth.ucd`, embedded in `Adamantium.Fonts`; and, for the tests only, `GraphemeBreakTest.txt`,
+`WordBreakTest.txt` and `LineBreakTest.txt` in `Tests/Adamantium.FontTests/Unicode/`.
 
-Data, not code: the script, canonical combining class, canonical decomposition, Extended_Pictographic, grapheme and word
-break and Indic_Conjunct_Break properties of Unicode 16.0, cut down from the UCD files (`Scripts.txt`,
-`DerivedCombiningClass.txt`, `UnicodeData.txt`, `DerivedNormalizationProps.txt`, `emoji-data.txt`,
-`GraphemeBreakProperty.txt`, `WordBreakProperty.txt`, `DerivedCoreProperties.txt`) to the columns the text shaper and the
-text boundaries read, with adjacent ranges joined.
+Data, not code: the script, canonical combining class, canonical decomposition, Extended_Pictographic, grapheme, word
+and line break, Indic_Conjunct_Break and East_Asian_Width properties of Unicode 16.0, cut down from the UCD files
+(`Scripts.txt`, `DerivedCombiningClass.txt`, `UnicodeData.txt`, `DerivedNormalizationProps.txt`, `emoji-data.txt`,
+`GraphemeBreakProperty.txt`, `WordBreakProperty.txt`, `DerivedCoreProperties.txt`, `LineBreak.txt`,
+`EastAsianWidth.txt`) to the columns the text shaper and the text boundaries read, with adjacent ranges joined.
 
 ```
 UNICODE LICENSE V3
