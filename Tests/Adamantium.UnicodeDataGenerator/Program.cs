@@ -54,6 +54,17 @@ public static class Program
 
         Write(output, "Decompositions.ucd", Decompositions(await Download(ucd + "UnicodeData.txt"), exclusions));
         Write(output, "Iso639.dat", TwoLetterLanguages(await Download(Iso639Url)));
+
+        var graphemeBreaks = ParseRanges(await Download(ucd + "auxiliary/GraphemeBreakProperty.txt"));
+        Write(output, "GraphemeBreak.ucd", FormatRanges(graphemeBreaks, true));
+
+        var wordBreaks = ParseRanges(await Download(ucd + "auxiliary/WordBreakProperty.txt"));
+        Write(output, "WordBreak.ucd", FormatRanges(wordBreaks, true));
+
+        var conjuncts = DataLines(await Download(ucd + "DerivedCoreProperties.txt"))
+            .Where(f => f.Length > 2 && f[1] == "InCB")
+            .Select(f => ParseRange(f[0], f[2]));
+        Write(output, "IndicConjunctBreak.ucd", FormatRanges(conjuncts, true));
         return 0;
     }
 
@@ -80,11 +91,16 @@ public static class Program
     {
         foreach (var fields in DataLines(text))
         {
-            var range = fields[0].Split("..");
-            var start = int.Parse(range[0], NumberStyles.HexNumber);
-            var end = range.Length == 2 ? int.Parse(range[1], NumberStyles.HexNumber) : start;
-            yield return (start, end, fields[1]);
+            yield return ParseRange(fields[0], fields[1]);
         }
+    }
+
+    private static (int Start, int End, string Value) ParseRange(string range, string value)
+    {
+        var bounds = range.Split("..");
+        var start = int.Parse(bounds[0], NumberStyles.HexNumber);
+        var end = bounds.Length == 2 ? int.Parse(bounds[1], NumberStyles.HexNumber) : start;
+        return (start, end, value);
     }
 
     private static string FormatRanges(IEnumerable<(int Start, int End, string Value)> ranges, bool withValue)

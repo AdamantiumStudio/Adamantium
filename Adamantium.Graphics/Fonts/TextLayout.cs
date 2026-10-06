@@ -4,6 +4,7 @@ using System.Linq;
 using Adamantium.Core;
 using Adamantium.Fonts;
 using Adamantium.Fonts.Shaping;
+using Adamantium.Fonts.Text;
 using Adamantium.Fonts.TextureGeneration;
 using Adamantium.Graphics.Core;
 using Adamantium.Mathematics;
@@ -41,6 +42,8 @@ public class TextLayout : DisposableObject
     private double _firstLineTop;
     private double _verticalShift;
     private CaretStop[] _caretStops;
+    private bool[] _graphemes;
+    private bool[] _words;
     private FontItem[] fontItems;
 
     public TextRenderingParameters RenderingParameters { get; private set; }
@@ -298,6 +301,8 @@ public class TextLayout : DisposableObject
         _firstLineTop = textArea.Y + verticalShift;
         _verticalShift = verticalShift;
         _caretStops = null;
+        _graphemes = null;
+        _words = null;
 
         var _b4 = System.GC.GetAllocatedBytesForCurrentThread();
 
@@ -970,6 +975,111 @@ public class TextLayout : DisposableObject
 
         return adornments;
     }
+
+    /// <summary>The next place the caret may stand after <paramref name="index"/>: the end of the grapheme there, so an
+    /// emoji or a letter with its marks is one step.</summary>
+    public int NextCaretStop(int index) => TextBoundaries.Next(Graphemes(), Clamp(index));
+
+    public int PreviousCaretStop(int index) => TextBoundaries.Previous(Graphemes(), Clamp(index));
+
+    /// <summary>The word, run of spaces or punctuation mark at <paramref name="index"/>, as a double click selects it.</summary>
+    public (int Start, int End) GetWordAt(int index)
+    {
+        var words = Words();
+        var text = Text ?? string.Empty;
+        index = Clamp(index);
+        if (index == text.Length && index > 0)
+        {
+            index--;
+        }
+
+        var start = words[index] ? index : TextBoundaries.Previous(words, index);
+        return (start, TextBoundaries.Next(words, start));
+    }
+
+    /// <summary>The start of the next word after <paramref name="index"/>, past any spaces: where Ctrl+Right goes.</summary>
+    public int NextWordStop(int index)
+    {
+        var words = Words();
+        var text = Text ?? string.Empty;
+        var stop = TextBoundaries.Next(words, Clamp(index));
+        while (stop < text.Length && char.IsWhiteSpace(text[stop]))
+        {
+            stop = TextBoundaries.Next(words, stop);
+        }
+
+        return stop;
+    }
+
+    /// <summary>The start of the word before <paramref name="index"/>: where Ctrl+Left goes.</summary>
+    public int PreviousWordStop(int index)
+    {
+        var words = Words();
+        var text = Text ?? string.Empty;
+        var stop = TextBoundaries.Previous(words, Clamp(index));
+        while (stop > 0 && char.IsWhiteSpace(text[stop]))
+        {
+            stop = TextBoundaries.Previous(words, stop);
+        }
+
+        return stop;
+    }
+
+    /// <summary>The grapheme nearest to a point in layout coordinates, and where a click there puts the caret.</summary>
+    public TextHit HitTest(double x, double y)
+    {
+        var text = Text ?? string.Empty;
+        if (text.Length == 0)
+        {
+            return new TextHit(0, false, false, 0);
+        }
+
+        var stops = Stops();
+        var graphemes = Graphemes();
+        var lineIndex = (int)Math.Floor((y - _firstLineTop) / _lineAdvance);
+        var insideY = lineIndex >= 0 && lineIndex < LineCount;
+        lineIndex = Math.Max(0, Math.Min(lineIndex, LineCount - 1));
+        var line = GetLine(lineIndex);
+
+        var last = line.Start;
+        for (var g = line.Start; g < line.End && g < text.Length; g = TextBoundaries.Next(graphemes, g))
+        {
+            if (text[g] is '\n' or '\r')
+            {
+                return new TextHit(g, false, false, g);
+            }
+
+            var next = TextBoundaries.Next(graphemes, g);
+            var left = stops[g].X;
+            var right = left;
+            for (var c = g; c < next; c++)
+            {
+                right = Math.Max(right, stops[c].X + stops[c].Width);
+            }
+
+            var inside = insideY && x >= left && x < right;
+            if (x < (left + right) / 2)
+            {
+                return new TextHit(g, false, inside, g);
+            }
+
+            if (x < right)
+            {
+                return new TextHit(g, true, inside, next);
+            }
+
+            last = g;
+        }
+
+        var end = TextBoundaries.Next(graphemes, last);
+        return new TextHit(last, true, false, Math.Min(end, line.End));
+    }
+
+    private int Clamp(int index) => Math.Max(0, Math.Min(index, (Text ?? string.Empty).Length));
+
+    private bool[] Graphemes() => _graphemes ??= TextBoundaries.Graphemes(Text ?? string.Empty);
+
+    private bool[] Words() => _words ??= TextBoundaries.Words(Text ?? string.Empty);
 
     private CaretStop[] Stops() => _caretStops ??= GetCaretStops();
 

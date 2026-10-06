@@ -29,6 +29,11 @@ All packages share one version.
   strikeout metrics are read (`IFont.UnderlinePosition`, `UnderlineThickness`, `StrikeoutPosition`, `StrikeoutSize`).
 - `TextShaper.Shape` without a script splits the text where its script changes and shapes each part with its own, so
   Latin and Cyrillic in one line each get their own forms.
+- `TextBoundaries` in `Adamantium.Fonts.Text`: grapheme and word boundaries by Unicode Standard Annex #29, emoji
+  sequences, flags and Indic conjuncts included; it passes all of Unicode's `GraphemeBreakTest` and `WordBreakTest`.
+  `TextLayout` uses them: `NextCaretStop` / `PreviousCaretStop` step over a whole grapheme, `HitTest` gives the grapheme
+  under a point and where a click there puts the caret (`TextHit`), and `GetWordAt`, `NextWordStop` and
+  `PreviousWordStop` give words for a double click and Ctrl+arrows.
 
 ### Fixed
 
