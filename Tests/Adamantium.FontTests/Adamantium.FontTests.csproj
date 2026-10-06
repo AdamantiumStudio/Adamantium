@@ -24,6 +24,12 @@
     </ItemGroup>
 
     <ItemGroup>
+      <Content Include="Shaping\*.txt;TTFFonts\CascadiaCode-Regular.ttf">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+    </ItemGroup>
+
+    <ItemGroup>
       <Content Include="OtfFontData.xml">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </Content>

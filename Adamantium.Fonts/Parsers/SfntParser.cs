@@ -1438,6 +1438,7 @@ namespace Adamantium.Fonts.Parsers
                 kernSubtables[i] = kernSubtable;
 
                 CurrentFont.KerningData = kernSubtables;
+                CurrentFont.Layout.HasKernTable = true;
             }
         }
 
@@ -1445,6 +1446,7 @@ namespace Adamantium.Fonts.Parsers
         {
             var gdef = FontReader.ReadGDEFTable(entry.Offset);
             gdef.FillData(Typeface);
+            CurrentFont.Layout.Gdef = gdef;
         }
 
         private void ParseTTFCoverage(ushort rawCoverage, KerningSubtable kerningSubtable)

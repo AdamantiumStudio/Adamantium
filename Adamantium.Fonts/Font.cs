@@ -109,6 +109,21 @@ namespace Adamantium.Fonts
         public IReadOnlyCollection<uint> Unicodes => unicodes.AsReadOnly();
         public GlyphLayoutData NotDefLayoutData { get; }
         internal KerningSubtable[] KerningData { get; set; }
+        internal OpenTypeLayout Layout { get; } = new OpenTypeLayout();
+
+        OpenTypeLayout IFont.Layout => Layout;
+
+        bool IFont.TryGetGlyphIndex(int codepoint, out uint glyphIndex)
+        {
+            if (unicodeToGlyph.TryGetValue((uint)codepoint, out var glyph))
+            {
+                glyphIndex = glyph.Index;
+                return true;
+            }
+
+            glyphIndex = 0;
+            return false;
+        }
 
         internal void SetGlyphs(IEnumerable<Glyph> inputGlyphs)
         {
@@ -193,13 +208,12 @@ namespace Adamantium.Fonts
 
         public Glyph GetGlyphByIndex(uint index)
         {
-            if (index >= glyphs.Count)
+            if (!Typeface.GetGlyphByIndex(index, out var glyph))
             {
-                Typeface.GetGlyphByIndex(0, out var glyph);
-                return glyph;
+                Typeface.GetGlyphByIndex(0, out glyph);
             }
-            
-            return glyphs[(int)index];
+
+            return glyph;
         }
 
         public Glyph GetGlyphByName(string name)

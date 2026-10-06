@@ -1,0 +1,315 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+
+namespace Adamantium.Fonts.Shaping;
+
+internal sealed class Normalizer
+{
+    private const int MaxCombiningMarks = 32;
+
+    private readonly IFont _font;
+    private readonly GlyphBuffer _buffer;
+    private readonly List<GlyphInfo> _output = [];
+
+    private Normalizer(IFont font, GlyphBuffer buffer)
+    {
+        _font = font;
+        _buffer = buffer;
+    }
+
+    public static void Normalize(IFont font, GlyphBuffer buffer)
+    {
+        new Normalizer(font, buffer).Run();
+    }
+
+    private void Run()
+    {
+        var input = new GlyphInfo[_buffer.Length];
+        Array.Copy(_buffer.Info, input, input.Length);
+
+        var allSimple = Decompose(input);
+        if (!allSimple)
+        {
+            Reorder();
+            Recompose();
+        }
+
+        _buffer.Clear();
+        foreach (var info in _output)
+        {
+            _buffer.Add(info);
+        }
+    }
+
+    private bool Decompose(GlyphInfo[] input)
+    {
+        var allSimple = true;
+        var index = 0;
+        while (index < input.Length)
+        {
+            var end = index + 1;
+            while (end < input.Length && !input[end].IsUnicodeMark)
+            {
+                end++;
+            }
+
+            if (end < input.Length)
+            {
+                end--;
+            }
+
+            for (; index < end; index++)
+            {
+                DecomposeCurrent(input[index], true);
+            }
+
+            if (index == input.Length)
+            {
+                break;
+            }
+
+            allSimple = false;
+            end = index + 1;
+            while (end < input.Length && input[end].IsUnicodeMark)
+            {
+                end++;
+            }
+
+            DecomposeCluster(input, index, end);
+            index = end;
+        }
+
+        return allSimple;
+    }
+
+    private void DecomposeCluster(GlyphInfo[] input, int start, int end)
+    {
+        if (start + 1 == end)
+        {
+            DecomposeCurrent(input[start], true);
+            return;
+        }
+
+        for (var i = start; i < end; i++)
+        {
+            if (UnicodeProps.IsVariationSelector(input[i].Codepoint))
+            {
+                for (var j = start; j < end; j++)
+                {
+                    Output(input[j], MapGlyph(input[j].Codepoint));
+                }
+
+                return;
+            }
+        }
+
+        for (var i = start; i < end; i++)
+        {
+            DecomposeCurrent(input[i], false);
+        }
+    }
+
+    private void DecomposeCurrent(GlyphInfo info, bool shortest)
+    {
+        var codepoint = info.Codepoint;
+        if (shortest && _font.TryGetGlyphIndex(codepoint, out var glyph))
+        {
+            Output(info, glyph);
+            return;
+        }
+
+        if (DecomposeInto(info, shortest, codepoint) > 0)
+        {
+            return;
+        }
+
+        if (!shortest && _font.TryGetGlyphIndex(codepoint, out glyph))
+        {
+            Output(info, glyph);
+            return;
+        }
+
+        if (info.Category == UnicodeCategory.SpaceSeparator)
+        {
+            var kind = UnicodeProps.SpaceFallback(codepoint);
+            if (kind != SpaceKind.NotSpace && _font.TryGetGlyphIndex(0x0020, out var space))
+            {
+                info.Space = kind;
+                _buffer.HasSpaceFallback = true;
+                Output(info, space);
+                return;
+            }
+        }
+
+        if (codepoint == 0x2011 && _font.TryGetGlyphIndex(0x2010, out var hyphen))
+        {
+            Output(info, hyphen);
+            return;
+        }
+
+        Output(info, 0);
+    }
+
+    private int DecomposeInto(GlyphInfo info, bool shortest, int codepoint)
+    {
+        if (!UnicodeData.TryDecompose(codepoint, out var first, out var second))
+        {
+            return 0;
+        }
+
+        uint secondGlyph = 0;
+        if (second != 0 && !_font.TryGetGlyphIndex(second, out secondGlyph))
+        {
+            return 0;
+        }
+
+        var hasFirst = _font.TryGetGlyphIndex(first, out var firstGlyph);
+        if (shortest && hasFirst)
+        {
+            return OutputPair(info, first, firstGlyph, second, secondGlyph);
+        }
+
+        var count = DecomposeInto(info, shortest, first);
+        if (count > 0)
+        {
+            if (second != 0)
+            {
+                OutputCharacter(info, second, secondGlyph);
+                return count + 1;
+            }
+
+            return count;
+        }
+
+        return hasFirst ? OutputPair(info, first, firstGlyph, second, secondGlyph) : 0;
+    }
+
+    private int OutputPair(GlyphInfo info, int first, uint firstGlyph, int second, uint secondGlyph)
+    {
+        OutputCharacter(info, first, firstGlyph);
+        if (second == 0)
+        {
+            return 1;
+        }
+
+        OutputCharacter(info, second, secondGlyph);
+        return 2;
+    }
+
+    private void OutputCharacter(GlyphInfo info, int codepoint, uint glyph)
+    {
+        info.Codepoint = codepoint;
+        info.Glyph = glyph;
+        UnicodeProps.Set(ref info, _buffer);
+        _output.Add(info);
+    }
+
+    private void Output(GlyphInfo info, uint glyph)
+    {
+        info.Glyph = glyph;
+        _output.Add(info);
+    }
+
+    private uint MapGlyph(int codepoint) => _font.TryGetGlyphIndex(codepoint, out var glyph) ? glyph : 0;
+
+    private void Reorder()
+    {
+        for (var i = 0; i < _output.Count; i++)
+        {
+            if (_output[i].CombiningClass == 0)
+            {
+                continue;
+            }
+
+            var end = i + 1;
+            while (end < _output.Count && _output[end].CombiningClass != 0)
+            {
+                end++;
+            }
+
+            if (end - i <= MaxCombiningMarks)
+            {
+                SortByCombiningClass(i, end);
+            }
+
+            i = end;
+        }
+    }
+
+    private void SortByCombiningClass(int start, int end)
+    {
+        for (var i = start + 1; i < end; i++)
+        {
+            var j = i;
+            while (j > start && _output[j - 1].CombiningClass > _output[i].CombiningClass)
+            {
+                j--;
+            }
+
+            if (j == i)
+            {
+                continue;
+            }
+
+            MergeClusters(j, i + 1);
+            var moved = _output[i];
+            _output.RemoveAt(i);
+            _output.Insert(j, moved);
+        }
+    }
+
+    private void Recompose()
+    {
+        var input = _output.ToArray();
+        _output.Clear();
+        _output.Add(input[0]);
+        var starter = 0;
+        for (var i = 1; i < input.Length; i++)
+        {
+            var current = input[i];
+            if (current.IsUnicodeMark
+                && (starter == _output.Count - 1 || _output[_output.Count - 1].CombiningClass < current.CombiningClass)
+                && UnicodeData.TryCompose(_output[starter].Codepoint, current.Codepoint, out var composed)
+                && _font.TryGetGlyphIndex(composed, out var glyph))
+            {
+                _output.Add(current);
+                MergeClusters(starter, _output.Count);
+                _output.RemoveAt(_output.Count - 1);
+                var combined = _output[starter];
+                combined.Codepoint = composed;
+                combined.Glyph = glyph;
+                UnicodeProps.Set(ref combined, _buffer);
+                _output[starter] = combined;
+                continue;
+            }
+
+            _output.Add(current);
+            if (current.CombiningClass == 0)
+            {
+                starter = _output.Count - 1;
+            }
+        }
+    }
+
+    private void MergeClusters(int start, int end)
+    {
+        if (end - start < 2)
+        {
+            return;
+        }
+
+        var cluster = _output[start].Cluster;
+        for (var i = start + 1; i < end; i++)
+        {
+            cluster = Math.Min(cluster, _output[i].Cluster);
+        }
+
+        for (var i = start; i < end; i++)
+        {
+            var info = _output[i];
+            info.Cluster = cluster;
+            _output[i] = info;
+        }
+    }
+}

@@ -78,6 +78,10 @@ namespace Adamantium.Fonts
 
         internal void SetGlyphUnicodes(Dictionary<uint, List<uint>> glyphMapping);
 
+        internal OpenTypeLayout Layout { get; }
+
+        internal bool TryGetGlyphIndex(int codepoint, out uint glyphIndex);
+
         IReadOnlyList<Glyph> TranslateIntoGlyphs(string input);
 
         Glyph GetGlyphByIndex(uint index);

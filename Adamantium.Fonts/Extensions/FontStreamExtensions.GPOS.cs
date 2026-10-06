@@ -99,6 +99,8 @@ namespace Adamantium.Fonts.Extensions
                     var pairSetOffsetArray = reader.ReadUInt16Array(pairSetCount);
                     var pairSetTables = new PairSetTable[pairSetCount];
                     var subtable = new PairAdjustmentPositioningSubTableFormat1();
+                    subtable.Value1Format = value1Format;
+                    subtable.Value2Format = value2Format;
 
                     for (int i = 0; i < pairSetCount; ++i)
                     {
@@ -144,6 +146,8 @@ namespace Adamantium.Fonts.Extensions
                     }
                     
                     var subtable = new PairAdjustmentPositioningSubTableFormat2();
+                    subtable.Value1Format = value1Format;
+                    subtable.Value2Format = value2Format;
                     subtable.Class1Records = class1Records;
                     subtable.ClassDef1 = reader.ReadClassDefTable(classDef1Offset);
                     subtable.ClassDef2 = reader.ReadClassDefTable(classDef2Offset);

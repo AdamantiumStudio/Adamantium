@@ -11,6 +11,13 @@ All packages share one version.
   module's resources, such as the application's own.
 - `Win32Interop.EnumDisplayMonitors`, `GetMonitorInfo` and `GetWindowPlacement`, with `MONITORINFOEX`,
   `WINDOWPLACEMENT` and `MonitorEnumProc`: the monitors and their work areas, and a window's restored rectangle.
+- `TextShaper.Shape` in `Adamantium.Fonts.Shaping`: text to positioned glyphs with the font's OpenType substitutions and
+  positioning applied the way HarfBuzz applies them - lookups of every enabled feature in the font's order, lookup
+  flags and mark filtering sets, ligatures across marks, mark attachment to bases, ligatures and other marks, cursive
+  attachment, contextual and chained rules of every format. Features are set per range of text (`FontFeature`,
+  parsed from `liga=0`, `ss01`, `kern[3:5]=0`), the script and language pick the font's language system, combining
+  marks are reordered and composed when the font has the precomposed glyph, and each glyph keeps the UTF-16 offset of
+  the text it came from. Not yet used by `TextLayout`.
 
 ### Fixed
 
@@ -26,6 +33,10 @@ All packages share one version.
   it. Only the line's baseline is rounded now; every glyph stands exactly where the font draws it.
 - CFF delta arrays (`BlueValues`, `OtherBlues`, `StemSnapH` and the rest) were decoded backwards: each value was taken
   as the difference from the previous one instead of their sum.
+- Every base glyph of a mark-to-base subtable got the anchors of the first one, so a mark sat where it belonged on one
+  letter only. The GDEF mark glyph sets were read from the wrong offset.
+- `Font.GetGlyphByIndex` returned the glyph at that position among the glyphs `cmap` maps, not the glyph with that
+  index, so any glyph reached through a substitution - a ligature, a small capital - came back as another one.
 
 ### Changed
 
