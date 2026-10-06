@@ -193,7 +193,7 @@ internal sealed partial class LookupApplier
             return false;
         }
 
-        var positions = new int[MaxContextLength];
+        var positions = PositionsForLevel();
         foreach (var ligature in table.LigatureSetTables[coverageIndex].Ligatures)
         {
             var components = ligature.ComponentGlypIDs;

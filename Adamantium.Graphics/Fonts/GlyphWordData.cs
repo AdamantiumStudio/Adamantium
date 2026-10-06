@@ -25,6 +25,17 @@ public class GlyphWordData
     
     public int LineIndex { get; set; }
 
+    /// <summary>The pen position the glyph is drawn from, before its bearing and offset.</summary>
+    public double PenX { get; set; }
+
+    /// <summary>How far the pen moves after this glyph, kerning and positioning included.</summary>
+    public double Advance { get; set; }
+
+    public double OffsetX { get; set; }
+
+    /// <summary>Upward from the baseline, as in the font.</summary>
+    public double OffsetY { get; set; }
+
     public override string ToString()
     {
         return $"{Symbol} [{Rect}]";

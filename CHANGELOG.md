@@ -17,7 +17,10 @@ All packages share one version.
   attachment, contextual and chained rules of every format. Features are set per range of text (`FontFeature`,
   parsed from `liga=0`, `ss01`, `kern[3:5]=0`), the script and language pick the font's language system, combining
   marks are reordered and composed when the font has the precomposed glyph, and each glyph keeps the UTF-16 offset of
-  the text it came from. Not yet used by `TextLayout`.
+  the text it came from.
+- `TextLayout.GetCaretStops` and `CaretStop`: the caret position before each character and after the last, with the
+  character's width; the characters of one glyph, such as a ligature, share its width. `GlyphWordData` carries its
+  `PenX`, `Advance` and positioning offsets; `FontAtlas.RequestAsync` takes glyphs as well as text.
 
 ### Fixed
 
@@ -40,6 +43,10 @@ All packages share one version.
 
 ### Changed
 
+- `TextLayout` shapes its text with `TextShaper`: the font's ligatures, contextual alternates, mark positioning and
+  kerning apply, and a character the font lacks draws its `.notdef` box instead of nothing. A glyph is no longer one
+  character: `GetTextData` lists glyphs with the UTF-16 offset of their first character, and caret positions come from
+  `GetCaretStops`.
 - Memory blocks in a small heap are a 64th of it, at least 4 MB, instead of an 8th: a process takes about half as much of
   the shared window as before (a designer preview 40 MB instead of 80).
 - Running out of memory in every type a buffer allows reports the size, the memory type and the heap.

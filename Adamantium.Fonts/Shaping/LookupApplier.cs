@@ -12,6 +12,7 @@ internal sealed partial class LookupApplier
 
     private readonly OpenTypeLayout _layout;
     private readonly GlyphBuffer _buffer;
+    private readonly int[][] _positions = new int[MaxNestingLevel + 1][];
     private bool _gsub;
     private int _index;
     private uint _lookupMask;
@@ -338,7 +339,7 @@ internal sealed partial class LookupApplier
         Func<int, GlyphInfo, bool> backtrack, int lookaheadCount, Func<int, GlyphInfo, bool> lookahead,
         SequenceLookupRecord[] records)
     {
-        var positions = new int[MaxContextLength];
+        var positions = PositionsForLevel();
         if (!MatchInput(inputCount, input, positions, out var end, out _)
             || !MatchLookahead(lookaheadCount, lookahead, end)
             || !MatchBacktrack(backtrackCount, backtrack))
@@ -348,6 +349,12 @@ internal sealed partial class LookupApplier
 
         ApplyNested(positions, inputCount, records, end);
         return true;
+    }
+
+    private int[] PositionsForLevel()
+    {
+        var level = MaxNestingLevel - _nestingLeft;
+        return _positions[level] ??= new int[MaxContextLength];
     }
 
     private void ApplyNested(int[] positions, int count, SequenceLookupRecord[] records, int end)
