@@ -36,6 +36,9 @@ public class GlyphWordData
     /// <summary>Upward from the baseline, as in the font.</summary>
     public double OffsetY { get; set; }
 
+    /// <summary>The attributes of the text this glyph draws; null for plain text.</summary>
+    public TextAttributes Attributes { get; set; }
+
     public override string ToString()
     {
         return $"{Symbol} [{Rect}]";

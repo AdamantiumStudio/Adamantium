@@ -61,4 +61,10 @@ public struct FontItem
     /// </summary>
     [VertexInputElement("PSIZE2")]
     public Single Layer;
+
+    /// <summary>The <see cref="Color"/> of a glyph that takes the element's foreground: a negative alpha.</summary>
+    public static readonly Vector4F InheritedColor = new(0, 0, 0, -1);
+
+    /// <summary>Whether the glyph has a color of its own rather than the element's foreground.</summary>
+    public bool HasOwnColor => Color.W >= 0;
 }

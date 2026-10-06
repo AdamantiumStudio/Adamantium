@@ -542,6 +542,8 @@ namespace Adamantium.Fonts.Parsers
             var italicAngle = FontReader.ReadUInt32();
             var underlinePosition = FontReader.ReadInt16();
             var underlineThickness = FontReader.ReadInt16();
+            CurrentFont.UnderlinePosition = underlinePosition;
+            CurrentFont.UnderlineThickness = underlineThickness;
             var isFixedPitch = FontReader.ReadUInt32(); // 0 is proportionally spaced, non-zero - font is monospaced
 
             // skip next 4 fields
@@ -1007,6 +1009,8 @@ namespace Adamantium.Fonts.Parsers
             os2.ySuperscriptYOffset = FontReader.ReadInt16();
             os2.yStrikeoutSize = FontReader.ReadInt16();
             os2.yStrikeoutPosition = FontReader.ReadInt16();
+            CurrentFont.StrikeoutSize = os2.yStrikeoutSize;
+            CurrentFont.StrikeoutPosition = os2.yStrikeoutPosition;
             os2.sFamilyClass = FontReader.ReadInt16();
             os2.panose = FontReader.ReadBytes(10, true); // array of 10 bytes
             os2.ulUnicodeRange1 = FontReader.ReadUInt32();

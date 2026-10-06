@@ -47,6 +47,8 @@ float2 MSDFAtlasSize;
 // at that size). Smoothly blended in between so there is no pop across the size threshold.
 float SdfBlendLo;
 float SdfBlendHi;
+// The element's fade, raised to 2.2, for glyphs with a color of their own; ForegroundColor already carries it.
+float GlyphFade;
 
 // Rounded ancestor clip for the per-block draw: xy origin and zw size in device pixels (zw = 0: no clip), plus corner
 // radii. One draw is one block with one clip; the batched pass reads the same values from the transform table.
@@ -185,14 +187,16 @@ float4 FontPixelShaderMsdf(PSInput input) : SV_Target
     float4 samp = Texture.Sample(TextureSampler, float3(input.UV, input.Layer));
     float sd = SampleGlyphCoverage(samp, input.UV);
     float opacity = clamp(ScreenPxRange(input.UV) * (sd - 0.5 + FontWeight) + 0.5, 0.0, 1.0);
+    // A glyph of attributed text brings its own color; a negative alpha means the element's foreground.
+    float4 color = input.Color.a < 0 ? ForegroundColor : float4(input.Color.rgb, input.Color.a * GlyphFade);
     // Gamma-boost coverage times the color's alpha so thin stems keep their color; splitting the two washed text out.
     // The element's fade arrives pre-raised to 2.2, so the boost hands it back linear.
-    float alpha = pow(ForegroundColor.a * opacity, 1.0 / 2.2);
+    float alpha = pow(color.a * opacity, 1.0 / 2.2);
     // The rounded ancestor clip, as coverage, exactly as the batch pass applies it. Both the premultiplied color and
     // the alpha are cut: this pass outputs rgb*alpha, so cutting one without the other leaves color where the glyph
     // was cut away. A zero-size box gives 1 and costs nothing.
     alpha *= ClipCoverage(input.Position.xy, input.ClipBox, input.ClipRadii);
-    return float4(ForegroundColor.rgb * alpha, alpha);
+    return float4(color.rgb * alpha, alpha);
 }
 
 // Batch variant of FontPixelShaderMsdf: the color comes per instance (input.Color), so one instanced draw renders glyphs

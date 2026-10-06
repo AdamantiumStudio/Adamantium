@@ -57,6 +57,16 @@ namespace Adamantium.Fonts
         public Int16 LineGap { get; }
         
         public Int16 Baseline { get; }
+
+        /// <summary>Top of the underline relative to the baseline, upward positive, in font units ('post').</summary>
+        public Int16 UnderlinePosition { get; }
+
+        public Int16 UnderlineThickness { get; }
+
+        /// <summary>Top of the strikeout line above the baseline, in font units ('OS/2').</summary>
+        public Int16 StrikeoutPosition { get; }
+
+        public Int16 StrikeoutSize { get; }
         /// <summary>
         /// smallest readable size in pixels
         /// </summary>

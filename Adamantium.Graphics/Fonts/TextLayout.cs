@@ -35,6 +35,12 @@ public class TextLayout : DisposableObject
     private TextRenderingParameters _previousRenderingParameters;
 
     private List<GlyphWordData> _wordData;
+    private AttributedText _attributed;
+    private double _lineAdvance;
+    private double _baselineInLine;
+    private double _firstLineTop;
+    private double _verticalShift;
+    private CaretStop[] _caretStops;
     private FontItem[] fontItems;
 
     public TextRenderingParameters RenderingParameters { get; private set; }
@@ -115,33 +121,69 @@ public class TextLayout : DisposableObject
         VerticalTextAlignment verticalTextAlignment,
         bool justifyLastLine = false)
     {
-        if (Double.IsNaN(textArea.Width))
-        {
-            textArea.Width = Int32.MaxValue;
-        }
-        if (Double.IsNaN(textArea.Height))
-        {
-            textArea.Height = Int32.MaxValue;
-        }
-        var @params = new TextRenderingParameters()
-            {
-                HorizontalTextAlignment = horizontalTextAlignment,
-                VerticalTextAlignment = verticalTextAlignment,
-                JustifyLastLine = justifyLastLine,
-                TextWrapping = textWrapping,
-                TextTrimming = textTrimming,
-                TextArea = new Rectangle(Vector2F.Zero, textArea)
-            };
+        var @params = Parameters(textArea, textWrapping, textTrimming, horizontalTextAlignment, verticalTextAlignment,
+            justifyLastLine);
 
-        if (CompareInputParameters(text, fontSize, @params))
+        if (_attributed == null && CompareInputParameters(text, fontSize, @params))
             return CalculatedLayoutSize;
 
+        _attributed = null;
         Text = text;
         FontSize = (float)fontSize;
         _previousRenderingParameters = @params;
 
         _textUpdated = true;
         return ProcessText(text, fontSize, @params);
+    }
+
+    /// <summary>Lays out text whose ranges carry their own features, language, colors, background and lines.</summary>
+    public Size ProcessText(AttributedText text,
+        double fontSize,
+        Size textArea,
+        TextWrapping textWrapping,
+        TextTrimming textTrimming,
+        HorizontalTextAlignment horizontalTextAlignment,
+        VerticalTextAlignment verticalTextAlignment,
+        bool justifyLastLine = false)
+    {
+        var @params = Parameters(textArea, textWrapping, textTrimming, horizontalTextAlignment, verticalTextAlignment,
+            justifyLastLine);
+
+        _attributed = text;
+        Text = text.Text;
+        FontSize = (float)fontSize;
+        _previousRenderingParameters = @params;
+
+        _textUpdated = true;
+        return ProcessText(text.Text, fontSize, @params);
+    }
+
+    /// <summary>The attributed text last laid out; null when it was a plain string.</summary>
+    public AttributedText AttributedText => _attributed;
+
+    private static TextRenderingParameters Parameters(Size textArea, TextWrapping textWrapping,
+        TextTrimming textTrimming, HorizontalTextAlignment horizontalTextAlignment,
+        VerticalTextAlignment verticalTextAlignment, bool justifyLastLine)
+    {
+        if (Double.IsNaN(textArea.Width))
+        {
+            textArea.Width = Int32.MaxValue;
+        }
+
+        if (Double.IsNaN(textArea.Height))
+        {
+            textArea.Height = Int32.MaxValue;
+        }
+
+        return new TextRenderingParameters
+        {
+            HorizontalTextAlignment = horizontalTextAlignment,
+            VerticalTextAlignment = verticalTextAlignment,
+            JustifyLastLine = justifyLastLine,
+            TextWrapping = textWrapping,
+            TextTrimming = textTrimming,
+            TextArea = new Rectangle(Vector2F.Zero, textArea)
+        };
     }
 
     /// <summary>What laying out one string allocates, by stage. Cumulative.</summary>
@@ -191,6 +233,7 @@ public class TextLayout : DisposableObject
         var glyphsData = new List<GlyphWordData>();
         int wordIndex = 0;
         int lineIndex = 0;
+        double verticalShift = 0;
         var wordStart = 0;
         while (wordStart <= items.Count)
         {
@@ -217,6 +260,7 @@ public class TextLayout : DisposableObject
                 {
                     PenX = cursorPosition,
                     Advance = space.Advance,
+                    Attributes = space.Attributes,
                 });
                 cursorPosition += space.Advance;
             }
@@ -249,6 +293,11 @@ public class TextLayout : DisposableObject
         }
 
         ArrangeText();
+        _lineAdvance = lineHeight;
+        _baselineInLine = baseLine;
+        _firstLineTop = textArea.Y + verticalShift;
+        _verticalShift = verticalShift;
+        _caretStops = null;
 
         var _b4 = System.GC.GetAllocatedBytesForCurrentThread();
 
@@ -298,6 +347,7 @@ public class TextLayout : DisposableObject
                             glyphsData.Add(new GlyphWordData(item.Glyph, '\n', caretRect, item.Cluster, lineIndex)
                             {
                                 PenX = cursorPosition,
+                                Attributes = item.Attributes,
                             });
                         }
                         height += lineHeight;
@@ -318,6 +368,7 @@ public class TextLayout : DisposableObject
                             Advance = item.Advance,
                             OffsetX = item.OffsetX,
                             OffsetY = item.OffsetY,
+                            Attributes = item.Attributes,
                         });
                         cursorPosition += item.Advance;
 
@@ -470,6 +521,7 @@ public class TextLayout : DisposableObject
                     var blockHeight = (lineCount - 1) * lineHeight + ascent;
                     var blockTop = baseLine - ascent;
                     var diff = (finalRect.Height - blockHeight) / 2 - blockTop;
+                    verticalShift = diff;
                     foreach (var glyphWordData in glyphsData)
                     {
                         var rect = glyphWordData.Rect;
@@ -482,6 +534,7 @@ public class TextLayout : DisposableObject
                 {
                     // The last baseline on the bottom edge, not the lowest ink, for the same reason.
                     var diff = finalRect.Height - lastBaseline;
+                    verticalShift = diff;
                     foreach (var glyphWordData in glyphsData)
                     {
                         var rect = glyphWordData.Rect;
@@ -658,7 +711,8 @@ public class TextLayout : DisposableObject
                         (float)(rect.Width + 2 * mx), (float)(rect.Height + 2 * my)),
                     Source = gd.UVRectFull,
                     Layer = gd.DepthLayer,
-                    Depth = 1.0f
+                    Depth = 1.0f,
+                    Color = GlyphColor(word)
                 };
             }
             else if (gd != null)
@@ -668,7 +722,8 @@ public class TextLayout : DisposableObject
                     ArrangeRect = word.Rect,
                     Source = FontAtlas.GetUVCoordinatesForGlyph(word.Glyph.Index),
                     Layer = gd.DepthLayer,
-                    Depth = 1.0f
+                    Depth = 1.0f,
+                    Color = GlyphColor(word)
                 };
             }
             else
@@ -725,7 +780,10 @@ public class TextLayout : DisposableObject
                 (d.Y + textAreaOffset.Y) * sy + ty,
                 d.Z * sx,
                 d.W * sy);
-            item.Color = color;
+            if (!item.HasOwnColor)
+            {
+                item.Color = color;
+            }
             dest[count++] = item;
         }
         return true;
@@ -800,6 +858,152 @@ public class TextLayout : DisposableObject
         return stops;
     }
 
+    /// <summary>How many visual lines the text takes.</summary>
+    public int LineCount => Stops().Max(s => s.LineIndex) + 1;
+
+    /// <summary>A visual line: the characters it shows and where it stands.</summary>
+    public TextLineMetrics GetLine(int lineIndex)
+    {
+        var stops = Stops();
+        var start = -1;
+        var end = stops.Length - 1;
+        var width = 0.0;
+        for (var i = 0; i < stops.Length; i++)
+        {
+            if (stops[i].LineIndex < lineIndex)
+            {
+                continue;
+            }
+
+            if (stops[i].LineIndex > lineIndex)
+            {
+                end = i;
+                break;
+            }
+
+            if (start < 0)
+            {
+                start = i;
+            }
+
+            width = Math.Max(width, stops[i].X + stops[i].Width);
+        }
+
+        if (start < 0)
+        {
+            start = end;
+        }
+
+        var top = _firstLineTop + lineIndex * _lineAdvance;
+        var baseline = Math.Round(top - _verticalShift + _baselineInLine) + _verticalShift;
+        return new TextLineMetrics(start, end, top, baseline, _lineAdvance, width);
+    }
+
+    /// <summary>Rectangles covering a UTF-16 range, one per piece of each visual line it spans, as high as the line:
+    /// for selection, search hits, backgrounds.</summary>
+    public IReadOnlyList<RectangleF> GetRangeRects(int start, int end)
+    {
+        return RangeSegments(start, end)
+            .Select(s => new RectangleF((float)s.Left, (float)(_firstLineTop + s.Line * _lineAdvance),
+                (float)(s.Right - s.Left), (float)_lineAdvance))
+            .ToList();
+    }
+
+    /// <summary>Backgrounds and lines of the attributed text last laid out: draw the backgrounds under the glyphs and the
+    /// lines over them.</summary>
+    public IReadOnlyList<TextAdornment> GetAdornments()
+    {
+        var adornments = new List<TextAdornment>();
+        if (_attributed == null)
+        {
+            return adornments;
+        }
+
+        var scale = FontSize / Font.UnitsPerEm;
+        double em = Font.UnitsPerEm;
+        var thickness = (Font.UnderlineThickness > 0 ? Font.UnderlineThickness : em / 20) * scale;
+        var underline = (Font.UnderlinePosition != 0 ? Font.UnderlinePosition : -em / 10) * scale;
+        var strikeout = (Font.StrikeoutPosition != 0 ? Font.StrikeoutPosition : em / 4) * scale;
+        var strikeoutSize = Font.StrikeoutSize > 0 ? Font.StrikeoutSize * scale : thickness;
+
+        foreach (var run in _attributed.Runs)
+        {
+            var attributes = run.Attributes;
+            var decorations = attributes.Decorations ?? TextDecorations.None;
+            if (attributes.Background == null && decorations == TextDecorations.None)
+            {
+                continue;
+            }
+
+            var lineColor = attributes.DecorationColor ?? attributes.Foreground;
+            foreach (var segment in RangeSegments(run.Start, run.End))
+            {
+                var left = (float)segment.Left;
+                var width = (float)(segment.Right - segment.Left);
+                var baseline = GetLine(segment.Line).Baseline;
+                if (attributes.Background is { } background)
+                {
+                    adornments.Add(new TextAdornment(TextAdornmentKind.Background,
+                        new RectangleF(left, (float)(_firstLineTop + segment.Line * _lineAdvance), width,
+                            (float)_lineAdvance), background));
+                }
+
+                if ((decorations & TextDecorations.Underline) != 0)
+                {
+                    adornments.Add(new TextAdornment(TextAdornmentKind.Underline,
+                        new RectangleF(left, (float)(baseline - underline), width, (float)thickness), lineColor));
+                }
+
+                if ((decorations & TextDecorations.Strikethrough) != 0)
+                {
+                    adornments.Add(new TextAdornment(TextAdornmentKind.Strikethrough,
+                        new RectangleF(left, (float)(baseline - strikeout), width, (float)strikeoutSize), lineColor));
+                }
+
+                if ((decorations & TextDecorations.Squiggle) != 0)
+                {
+                    adornments.Add(new TextAdornment(TextAdornmentKind.Squiggle,
+                        new RectangleF(left, (float)(baseline - underline), width, (float)(thickness * 3)), lineColor));
+                }
+            }
+        }
+
+        return adornments;
+    }
+
+    private CaretStop[] Stops() => _caretStops ??= GetCaretStops();
+
+    private IEnumerable<(int Line, double Left, double Right)> RangeSegments(int start, int end)
+    {
+        var stops = Stops();
+        start = Math.Max(0, start);
+        end = Math.Min(end, stops.Length - 1);
+        var line = -1;
+        double left = 0;
+        double right = 0;
+        for (var i = start; i < end; i++)
+        {
+            if (stops[i].LineIndex != line)
+            {
+                if (line >= 0)
+                {
+                    yield return (line, left, right);
+                }
+
+                line = stops[i].LineIndex;
+                left = stops[i].X;
+                right = left;
+            }
+
+            right = Math.Max(right, stops[i].X + stops[i].Width);
+        }
+
+        if (line >= 0)
+        {
+            yield return (line, left, right);
+        }
+    }
+
     private static void DistributeCluster(string text, int start, int end, double x, double width, int line,
         CaretStop[] stops, bool[] filled)
     {
@@ -838,39 +1042,92 @@ public class TextLayout : DisposableObject
     private List<ShapedItem> Shape(string text, double scale)
     {
         var items = new List<ShapedItem>(text.Length);
-        var start = 0;
-        while (start <= text.Length)
+        var runs = _attributed?.Runs;
+        var runIndex = 0;
+        foreach (var (start, end, attributes) in ShapingSegments(text))
         {
-            var end = text.IndexOf('\n', start);
-            if (end < 0)
+            var options = attributes == null
+                ? ShapingOptions.Default
+                : new ShapingOptions(null, attributes.Language, attributes.Features);
+            var position = start;
+            while (position < end)
             {
-                end = text.Length;
-            }
-
-            if (end > start)
-            {
-                foreach (var glyph in TextShaper.Shape(Font, text.Substring(start, end - start)))
+                var newline = text.IndexOf('\n', position, end - position);
+                var stop = newline < 0 ? end : newline;
+                if (stop > position)
                 {
-                    var cluster = start + glyph.Cluster;
-                    items.Add(new ShapedItem(Font.GetGlyphByIndex(glyph.GlyphIndex), text[cluster], cluster,
-                        glyph.XAdvance * scale, glyph.XOffset * scale, glyph.YOffset * scale));
+                    foreach (var glyph in TextShaper.Shape(Font, text.Substring(position, stop - position), options))
+                    {
+                        var cluster = position + glyph.Cluster;
+                        items.Add(new ShapedItem(Font.GetGlyphByIndex(glyph.GlyphIndex), text[cluster], cluster,
+                            glyph.XAdvance * scale, glyph.XOffset * scale, glyph.YOffset * scale,
+                            AttributesAt(cluster)));
+                    }
                 }
-            }
 
-            if (end < text.Length)
-            {
-                items.Add(new ShapedItem(Font.GetGlyphByCharacter('\n'), '\n', end, 0, 0, 0));
-            }
+                if (newline < 0)
+                {
+                    break;
+                }
 
-            start = end + 1;
+                items.Add(new ShapedItem(Font.GetGlyphByCharacter('\n'), '\n', newline, 0, 0, 0, AttributesAt(newline)));
+                position = newline + 1;
+            }
         }
 
         return items;
+
+        TextAttributes AttributesAt(int index)
+        {
+            if (runs == null)
+            {
+                return null;
+            }
+
+            while (runIndex < runs.Count - 1 && index >= runs[runIndex].End)
+            {
+                runIndex++;
+            }
+
+            return runs[runIndex].Attributes;
+        }
+    }
+
+    private IEnumerable<(int Start, int End, TextAttributes Attributes)> ShapingSegments(string text)
+    {
+        if (_attributed == null || _attributed.Runs.Count == 0)
+        {
+            yield return (0, text.Length, null);
+            yield break;
+        }
+
+        var runs = _attributed.Runs;
+        var start = runs[0].Start;
+        var attributes = runs[0].Attributes;
+        for (var i = 1; i < runs.Count; i++)
+        {
+            if (runs[i].Attributes.ShapesLike(attributes))
+            {
+                continue;
+            }
+
+            yield return (start, runs[i].Start, attributes);
+            start = runs[i].Start;
+            attributes = runs[i].Attributes;
+        }
+
+        yield return (start, text.Length, attributes);
+    }
+
+    private static Vector4F GlyphColor(GlyphWordData word)
+    {
+        return word.Attributes?.Foreground is { } color ? color.ToVector4() : FontItem.InheritedColor;
     }
 
     private readonly struct ShapedItem
     {
-        public ShapedItem(Glyph glyph, char symbol, int cluster, double advance, double offsetX, double offsetY)
+        public ShapedItem(Glyph glyph, char symbol, int cluster, double advance, double offsetX, double offsetY,
+            TextAttributes attributes)
         {
             Glyph = glyph;
             Symbol = symbol;
@@ -878,6 +1135,7 @@ public class TextLayout : DisposableObject
             Advance = advance;
             OffsetX = offsetX;
             OffsetY = offsetY;
+            Attributes = attributes;
         }
 
         public Glyph Glyph { get; }
@@ -891,6 +1149,8 @@ public class TextLayout : DisposableObject
         public double OffsetX { get; }
 
         public double OffsetY { get; }
+
+        public TextAttributes Attributes { get; }
     }
 
     private RectangleF CalculateGlyphPosition(

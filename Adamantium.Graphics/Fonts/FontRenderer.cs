@@ -58,6 +58,7 @@ public class FontRenderer : GraphicsResource
     private EffectParameter effectAtlasSize;
     private EffectParameter effectSdfBlendLo;
     private EffectParameter effectSdfBlendHi;
+    private EffectParameter effectGlyphFade;
     private EffectParameter effectDirectClipBox;
     private EffectParameter effectDirectClipRadii;
     private EffectParameter effectGlyphInstances;   // BDA address of the per-instance GlyphItem storage buffer (instanced batch)
@@ -91,6 +92,7 @@ public class FontRenderer : GraphicsResource
         effectAtlasSize = fontEffect.MSDFAtlasSize;
         effectSdfBlendLo = fontEffect.SdfBlendLo;
         effectSdfBlendHi = fontEffect.SdfBlendHi;
+        effectGlyphFade = fontEffect.GlyphFade;
         effectDirectClipBox = fontEffect.DirectClipBox;
         effectDirectClipRadii = fontEffect.DirectClipRadii;
         effectGlyphInstances = fontEffect.GlyphInstancesAddress;
@@ -179,6 +181,7 @@ public class FontRenderer : GraphicsResource
         effectMatrixTransform.SetValue(finalMatrix);
         effectUVCornerCoords.SetValue(UVCornerCoords);
         effectForegroundColor.SetValue(foreground.ToVector4());
+        effectGlyphFade.SetValue(1f);
         effectFontSize.SetValue(fontSize);
         effectFontSizeThreshold.SetValue(FontSizeThreshold);
         effectFontWeight.SetValue(FontWeight);
@@ -225,6 +228,7 @@ public class FontRenderer : GraphicsResource
         effectMatrixTransform.SetValue(mvp);
         effectUVCornerCoords.SetValue(UVCornerCoords);
         effectForegroundColor.SetValue(fg);
+        effectGlyphFade.SetValue(MathF.Pow(opacity, 2.2f));
         effectFontSize.SetValue(fontSize);
         effectFontSizeThreshold.SetValue(FontSizeThreshold);
         effectFontWeight.SetValue(FontWeight);
