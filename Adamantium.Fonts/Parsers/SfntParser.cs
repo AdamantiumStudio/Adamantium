@@ -891,7 +891,9 @@ namespace Adamantium.Fonts.Parsers
             hhea.MetricDataFormat = FontReader.ReadInt16();
             hhea.NumberOfHMetrics = FontReader.ReadUInt16();
 
-            //CurrentFont.Ascender = hhea.Ascender;
+            CurrentFont.LineAscent = hhea.Ascender;
+            CurrentFont.LineDescent = (Int16)Math.Abs(hhea.Descender);
+            CurrentFont.LineGap = hhea.LineGap;
             CurrentFont.LineSpacingMultiplier = (hhea.Ascender - hhea.Descender + hhea.LineGap)/(float)CurrentFont.UnitsPerEm;
         }
 
@@ -1042,15 +1044,21 @@ namespace Adamantium.Fonts.Parsers
             CurrentFont.Ascender = os2.sTypoAscender;
             CurrentFont.Descender = os2.sTypoDescender;
             CurrentFont.CapsHeight = os2.sCapHeight;
-            CurrentFont.LineGap = os2.sTypoLineGap;
-            
-            if (CurrentFont.LineGap == 0)
+
+            const UInt16 useTypoMetrics = 1 << 7;
+            if ((os2.fsSelection & useTypoMetrics) != 0 || CurrentFont.LineAscent + CurrentFont.LineDescent == 0)
             {
-                CurrentFont.LineGap = (short)(CurrentFont.Ascender - CurrentFont.Descender);
+                CurrentFont.LineAscent = os2.sTypoAscender;
+                CurrentFont.LineDescent = (Int16)Math.Abs(os2.sTypoDescender);
+                CurrentFont.LineGap = os2.sTypoLineGap;
             }
 
-            CurrentFont.Baseline = (Int16)((CurrentFont.UnitsPerEm - CurrentFont.Ascender) + CurrentFont.LineGap +
-                                    CurrentFont.CapsHeight);
+            if (CurrentFont.LineAscent + CurrentFont.LineDescent == 0)
+            {
+                CurrentFont.LineAscent = (Int16)os2.usWinAscent;
+                CurrentFont.LineDescent = (Int16)os2.usWinDescent;
+                CurrentFont.LineGap = 0;
+            }
         }
 
         protected virtual void ReadTTFGlyphs(TableEntry entry)

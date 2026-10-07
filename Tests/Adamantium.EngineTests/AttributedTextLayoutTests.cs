@@ -117,6 +117,60 @@ public class AttributedTextLayoutTests
     }
 
     [Test]
+    public void LargerTextOnARange_IsWiderAndSetsItsLine()
+    {
+        var plain = NewLayout();
+        Process(plain, new AttributedText("ab"));
+        var large = NewLayout();
+        large.ProcessText(new AttributedText("ab"), 40, new Size(double.NaN, double.NaN), TextWrapping.NoWrap,
+            TextTrimming.None, HorizontalTextAlignment.Left, VerticalTextAlignment.Top);
+        var layout = NewLayout();
+        layout.EmitNewlineCarets = true;
+        var text = new AttributedText("ab ab\nab").Apply(3, 2, new TextAttributes { FontSize = 40 });
+
+        Process(layout, text);
+        var stops = layout.GetCaretStops();
+        var first = layout.GetLine(0);
+        var second = layout.GetLine(1);
+
+        Assert.That(stops[5].X - stops[3].X, Is.EqualTo(large.GetCaretStops()[2].X).Within(Tolerance),
+            "the large word is as wide as at 40");
+        Assert.That(first.Height, Is.EqualTo(large.GetLine(0).Height).Within(Tolerance), "the line is as tall");
+        Assert.That(first.Baseline, Is.EqualTo(large.GetLine(0).Baseline).Within(Tolerance));
+        Assert.That(second.Top, Is.EqualTo(first.Top + first.Height).Within(Tolerance));
+        Assert.That(second.Height, Is.EqualTo(plain.GetLine(0).Height).Within(Tolerance), "the next line is plain");
+
+        var glyphs = layout.GetTextData();
+        var small = glyphs.Single(g => g.PositionInString == 1);
+        var big = glyphs.Single(g => g.PositionInString == 4);
+        Assert.That(small.Rect.Bottom, Is.EqualTo(first.Baseline).Within(1), "the small b stands on the line's baseline");
+        Assert.That(big.Rect.Bottom, Is.EqualTo(first.Baseline).Within(1), "and so does the large one");
+        Assert.That(layout.HitTest(stops[6].X + 1, second.Top + 1).Index, Is.EqualTo(6), "a click finds the second line");
+    }
+
+    [Test]
+    public void ALineHoldsItsDescenders()
+    {
+        var layout = NewLayout();
+        layout.EmitNewlineCarets = true;
+        var text = new AttributedText("gy\ngy").Apply(0, 5, new TextAttributes { Background = Colors.Yellow });
+
+        Process(layout, text);
+        var font = layout.Font;
+        var scale = 20.0 / font.UnitsPerEm;
+        var first = layout.GetLine(0);
+        var second = layout.GetLine(1);
+        var g = layout.GetTextData().First(x => x.Symbol == 'g');
+        var background = layout.GetAdornments().First(a => a.Kind == TextAdornmentKind.Background);
+
+        Assert.That(first.Height, Is.EqualTo((font.LineAscent + font.LineDescent + font.LineGap) * scale).Within(Tolerance));
+        Assert.That(g.Rect.Bottom, Is.LessThanOrEqualTo(background.Rect.Bottom + Tolerance), "the background holds the tail");
+        Assert.That(g.Rect.Bottom, Is.LessThanOrEqualTo(second.Top + 1), "and the tail stays out of the next line");
+        Assert.That(first.Baseline - first.Top,
+            Is.EqualTo((font.LineGap / 2.0 + font.LineAscent) * scale).Within(1), "the baseline sits at the ascent");
+    }
+
+    [Test]
     public void TheRangeRectsOfASelection_FollowTheCaretStops()
     {
         var layout = NewLayout();

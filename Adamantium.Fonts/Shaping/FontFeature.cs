@@ -2,11 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using Adamantium.Fonts.Common;
 
 namespace Adamantium.Fonts.Shaping;
 
 /// <summary>An OpenType feature set to a value over a range of text, in UTF-16 offsets with an exclusive end.</summary>
-public readonly struct FontFeature : IEquatable<FontFeature>
+public readonly partial struct FontFeature : IEquatable<FontFeature>
 {
     public const int GlobalStart = 0;
     public const int GlobalEnd = int.MaxValue;
@@ -102,21 +103,54 @@ public readonly struct FontFeature : IEquatable<FontFeature>
         return true;
     }
 
-    /// <summary>Parses a comma-separated list, such as <c>liga=0, ss03, cv05=2</c>.</summary>
+    /// <summary>Parses a comma-separated list, such as <c>liga=0, ss03, cv05=2</c>, checked as
+    /// <see cref="TryParseList"/> checks it.</summary>
     public static IReadOnlyList<FontFeature> ParseList(string text)
     {
-        var features = new List<FontFeature>();
+        if (!TryParseList(text, out var features, out var error))
+        {
+            throw new FormatException(error);
+        }
+
+        return features;
+    }
+
+    /// <summary>
+    /// Parses a comma-separated list and checks every tag against the OpenType feature registry. A lowercase tag the
+    /// registry does not have is a mistake, reported with the registered tag it most likely meant; a private feature
+    /// must have an uppercase letter in its tag, as OpenType requires.
+    /// </summary>
+    public static bool TryParseList(string text, out IReadOnlyList<FontFeature> features, out string error)
+    {
+        var list = new List<FontFeature>();
+        features = list;
+        error = null;
         if (string.IsNullOrWhiteSpace(text))
         {
-            return features;
+            return true;
         }
 
         foreach (var part in text.Split(','))
         {
-            features.Add(Parse(part));
+            if (!TryParse(part, out var feature))
+            {
+                error = $"'{part.Trim()}' is not a font feature: expected a tag with an optional value, such as liga, " +
+                        "-kern, ss01 or cv05=2.";
+                return false;
+            }
+
+            var tag = feature.Tag.TrimEnd();
+            if (!IsPrivateTag(tag) && !FeatureInfos.IsRegistered(tag))
+            {
+                error = $"'{tag}' is not a registered OpenType feature.{Suggestion(tag)} A private feature needs an " +
+                        "uppercase letter in its tag.";
+                return false;
+            }
+
+            list.Add(feature);
         }
 
-        return features;
+        return true;
     }
 
     public bool Equals(FontFeature other)
@@ -157,6 +191,65 @@ public readonly struct FontFeature : IEquatable<FontFeature>
         }
 
         return text.ToString();
+    }
+
+    private static bool IsPrivateTag(string tag)
+    {
+        foreach (var c in tag)
+        {
+            if (c is >= 'A' and <= 'Z')
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string Suggestion(string tag)
+    {
+        string best = null;
+        var bestDistance = int.MaxValue;
+        foreach (var candidate in FeatureInfos.RegisteredTags())
+        {
+            var distance = EditDistance(tag, candidate);
+            if (distance < bestDistance || (distance == bestDistance && string.CompareOrdinal(candidate, best) < 0))
+            {
+                best = candidate;
+                bestDistance = distance;
+            }
+        }
+
+        return best != null && bestDistance <= 2 ? $" Did you mean '{best}'?" : string.Empty;
+    }
+
+    private static int EditDistance(string a, string b)
+    {
+        var d = new int[a.Length + 1, b.Length + 1];
+        for (var i = 0; i <= a.Length; i++)
+        {
+            d[i, 0] = i;
+        }
+
+        for (var j = 0; j <= b.Length; j++)
+        {
+            d[0, j] = j;
+        }
+
+        for (var i = 1; i <= a.Length; i++)
+        {
+            for (var j = 1; j <= b.Length; j++)
+            {
+                var cost = a[i - 1] == b[j - 1] ? 0 : 1;
+                d[i, j] = Math.Min(Math.Min(d[i - 1, j] + 1, d[i, j - 1] + 1), d[i - 1, j - 1] + cost);
+                if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1])
+                {
+                    d[i, j] = Math.Min(d[i, j], d[i - 2, j - 2] + 1);
+                }
+            }
+        }
+
+        return d[a.Length, b.Length];
     }
 
     private static bool TryParseRange(string text, out int start, out int end)

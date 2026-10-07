@@ -181,11 +181,13 @@ namespace Adamantium.Fonts.Common
             features["medi"] = FeatureInfo.Create("medi", "Medial Forms", FeatureRegistration.MicrosoftAdobe, "Replaces glyphs for characters that have applicable joining properties with an alternate form when occurring in a medial context. This applies to characters that have the Unicode Joining_Type property value Dual_Joining.");
             features["mgrk"] = FeatureInfo.Create("mgrk", "Mathematical Greek", FeatureRegistration.Adobe, "Replaces standard typographic forms of Greek glyphs with corresponding forms commonly used in mathematical notation (which are a subset of the Greek alphabet).");
             features["mkmk"] = FeatureInfo.Create("mkmk", "Mark to Mark Positioning", FeatureRegistration.Microsoft, "Positions marks with respect to other marks. Required in various non-Latin scripts like Arabic.", FeatureState.On);
+            features["mset"] = FeatureInfo.Create("mset", "Mark Positioning via Substitution", FeatureRegistration.Microsoft, "Positions Arabic combining marks in fonts for Windows 95 using glyph substitution.");
             features["nalt"] = FeatureInfo.Create("nalt", "Alternate Annotation Forms", FeatureRegistration.Adobe, "Replaces default glyphs with various notational forms (e.g. glyphs placed in open or solid circles, squares, parentheses, diamonds or rounded boxes). In some cases an annotation form may already be present, but the user may want a different one.", overridesAllOtherFeatures: true, allowedFeatures: new []{"vert", "vrt2"});
             features["nlck"] = FeatureInfo.Create("nlck", "NLC Kanji Forms", FeatureRegistration.Adobe, "The National Language Council (NLC) of Japan has defined new glyph shapes for a number of JIS characters in 2000. The 'nlck' feature is used to access those glyphs.");
             features["nukt"] = FeatureInfo.Create("nukt", "Nukta Forms", FeatureRegistration.Microsoft, "Produces Nukta forms in Indic scripts.");
             features["numr"] = FeatureInfo.Create("numr", "Numerators", FeatureRegistration.Adobe, "Replaces selected figures (digits) which precede a slash with numerator figures, and replaces the typographic slash with the fraction slash.");
             features["onum"] = FeatureInfo.Create("onum", "Oldstyle Figures", FeatureRegistration.MicrosoftAdobe, "This feature changes selected figures from the default or lining style to oldstyle form.");
+            features["opbd"] = FeatureInfo.Create("opbd", "Optical Bounds", FeatureRegistration.Adobe, "Aligns glyphs by their optical edge rather than by their side bearings, so a line's edge looks straight.");
             features["ordn"] = FeatureInfo.Create("ordn", "Ordinals", FeatureRegistration.Adobe, "Replaces default alphabetic glyphs with the corresponding ordinal forms for use after figures. One exception to the follows-a-figure rule is the numero character (U+2116), which is actually a ligature substitution, but is best accessed through this feature.");
             features["ornm"] = FeatureInfo.Create("ornm", "Ornaments", FeatureRegistration.Adobe, "This is a dual-function feature, which uses two input methods to give the user access to ornament glyphs (e.g. fleurons, dingbats and border elements) in the font. One method replaces the bullet character with a selection from the full set of available ornaments; the other replaces specific “lower ASCII” characters with ornaments assigned to them. The first approach supports the general or browsing user; the second supports the power user.", overridesAllOtherFeatures: true);
             
@@ -262,6 +264,32 @@ namespace Adamantium.Fonts.Common
             features["vrtr"] = FeatureInfo.Create("vrtr", "Vertical Alternates for Rotation", FeatureRegistration.AdobeMicrosoftW3C, "Transforms default glyphs into glyphs that are appropriate for sideways presentation in vertical writing mode. While the glyphs for most characters in East Asian writing systems remain upright when set in vertical writing mode, glyphs for other characters — such as those of other scripts or for particular Western-style punctuation — are expected to be presented sideways in vertical writing.");
             features["zero"] = FeatureInfo.Create("zero", "Slashed Zero", FeatureRegistration.Adobe, "Some fonts contain both a default form of zero, and an alternative form which uses a diagonal slash through the counter. Especially in condensed designs, it can be difficult to distinguish between 0 and O (zero and capital O) in any situation where capitals and lining figures may be arbitrarily mixed. This feature allows the user to change from the default 0 to a slashed form.");
             
+        }
+
+        internal static bool IsRegistered(string tag)
+        {
+            lock (features)
+            {
+                return features.TryGetValue(tag, out var feature)
+                       && feature.RegisteredBy != FeatureRegistration.Unregistered;
+            }
+        }
+
+        internal static List<string> RegisteredTags()
+        {
+            lock (features)
+            {
+                var tags = new List<string>();
+                foreach (var feature in features.Values)
+                {
+                    if (feature.RegisteredBy != FeatureRegistration.Unregistered)
+                    {
+                        tags.Add(feature.Tag);
+                    }
+                }
+
+                return tags;
+            }
         }
 
         /// <summary>The registered feature with this tag; a tag that is not registered gets an entry named after itself.</summary>
