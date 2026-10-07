@@ -85,6 +85,10 @@ All packages share one version.
   whose fallback font is still loading takes the room of the missing glyph and draws nothing; `HasPendingFonts` says
   to lay the text out again when the font arrives.
 - `TextureAtlasGenerator.GenerateTextureForGlyphs(glyphs, ready)` hands each glyph over as soon as it is rasterized.
+- Color glyphs from 'COLR' version 0 and 'CPAL': a color glyph is drawn as its layers, bottom first, each an ordinary
+  glyph of its font in a color of the font's first palette, or in the text's color for the foreground entry
+  (`IFont.GetColorLayers`, `ColorLayer`). The layers take places in the shared atlas and draw in the same batch as the
+  text around them, so Segoe UI Emoji's emoji come out in color at any size.
 - Synthesized bold and italic for a face a family lacks (`FontSynthesis`, `TextAttributes.Synthesis`): a bold moves
   the glyph's edge out in the distance field, by a 48th of the size per side at 9 pixels down to a 64th at 36, and
   advances it further by twice that; an italic slants the glyph's quad about its baseline by a quarter of its height
@@ -94,6 +98,9 @@ All packages share one version.
 
 ### Fixed
 
+- A line holding nothing but text of another font (a fallback emoji, a run in a smaller font) took that font's height
+  and baseline: a line of emoji sat 4 pixels higher than its neighbours. A line starts from the text's own font, as a
+  CSS line box starts from its strut, and only grows for taller text.
 - The fonts of a collection file after the first one skipped every table they share with it, their character maps
   included, so NSimSun of simsun.ttc had no characters at all. Only outline data (`glyf`, `loca`, `CFF`) is shared now;
   each font reads its own character map, metrics, names and layout tables, and its advances and bearings come from

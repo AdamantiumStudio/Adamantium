@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -22,6 +23,7 @@ namespace Adamantium.Fonts
         private Font baseFont;
         private float[] coordinates;
         private int[] variedAdvances;
+        private readonly ConcurrentDictionary<uint, ColorLayer[]> colorLayerCache = new();
         public Typeface Typeface { get; private set; }
         internal VariationStore VariationData { get; set; }
         internal List<InstanceRecord> InstanceData { get; set; }
@@ -167,6 +169,21 @@ namespace Adamantium.Fonts
         internal GlyphVariationTable GlyphVariations { get; set; }
 
         internal HorizontalMetricsVariationTable MetricsVariations { get; set; }
+
+        internal ColorLayerTable ColorLayers { get; set; }
+
+        internal ColorPaletteTable ColorPalettes { get; set; }
+
+        /// <inheritdoc />
+        public IReadOnlyList<ColorLayer> GetColorLayers(uint glyphIndex)
+        {
+            if (ColorLayers == null)
+            {
+                return [];
+            }
+
+            return colorLayerCache.GetOrAdd(glyphIndex, g => ColorLayers.GetLayers(g, ColorPalettes, 0));
+        }
 
         /// <inheritdoc />
         public IFont GetInstance(IReadOnlyList<FontVariation> variations)
