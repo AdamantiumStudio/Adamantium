@@ -144,6 +144,12 @@ namespace Adamantium.Fonts.Parsers
                 case TableNames.HVAR:
                     CurrentFont.MetricsVariations = HorizontalMetricsVariationTable.Read(FontReader, entry.Offset);
                     break;
+                case TableNames.COLR:
+                    CurrentFont.ColorLayers = ColorLayerTable.Read(FontReader, entry.Offset);
+                    break;
+                case TableNames.CPAL:
+                    CurrentFont.ColorPalettes = ColorPaletteTable.Read(FontReader, entry.Offset);
+                    break;
                 case TableNames.CFF:
                 case TableNames.CFF2:
                     DetermineCFFVersion(CurrentTableDirectory);

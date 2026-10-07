@@ -69,6 +69,10 @@ namespace Adamantium.Fonts
         /// does not vary, or values that are all defaults, give this font.</summary>
         public IFont GetInstance(IReadOnlyList<FontVariation> variations);
 
+        /// <summary>The layers a color glyph is drawn as, bottom first, each an ordinary glyph in a color of the font's
+        /// first palette ('COLR' and 'CPAL'); empty for a glyph drawn as its own outline.</summary>
+        public IReadOnlyList<ColorLayer> GetColorLayers(uint glyphIndex);
+
         /// <summary>The OpenType features this font offers, per script and language system.</summary>
         public FeatureCatalog FeatureCatalog { get; }
         
