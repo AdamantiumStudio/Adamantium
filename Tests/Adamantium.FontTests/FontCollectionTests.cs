@@ -137,6 +137,24 @@ public class FontCollectionTests
         Assert.That(fonts.Match("Segoe UI", FontWeight.Normal, FontStyle.Italic).Style, Is.EqualTo(FontStyle.Italic));
     }
 
+    [Test]
+    public void TheSecondFontOfACollection_ReadsItsOwnTables()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            Assert.Ignore("SimSun is a Windows font");
+        }
+
+        var face = FontCollection.System.Match("NSimSun");
+        var font = FontCollection.Load(face);
+
+        Assert.That(face.CollectionIndex, Is.EqualTo(1), "NSimSun is the second font of simsun.ttc");
+        Assert.That(font.TryGetGlyphIndex(0x4E2D, out var glyph) && glyph != 0, "its character map, not left out as shared");
+        Assert.That(font.GetAdvanceWidth(glyph), Is.GreaterThan(0));
+        Assert.That(FontCollection.Load(FontCollection.System.Match("Segoe UI", FontWeight.Bold)).Weight,
+            Is.EqualTo(FontWeight.Bold));
+    }
+
     [TestCase("SemiBold", 600)]
     [TestCase("650", 650)]
     [TestCase("regular", 400)]

@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+
 namespace Adamantium.Fonts;
 
 /// <summary>
@@ -6,6 +10,9 @@ namespace Adamantium.Fonts;
 /// </summary>
 public sealed class FontFace
 {
+    private readonly object _coverageGate = new();
+    private List<(int Start, int End)> _coverage;
+
     public FontFace(string family, string legacyFamily, string faceName, string fullName, FontWeight weight,
         FontStyle style, FontStretch stretch, string path, int collectionIndex,
         FontWeight minWeight = default, FontWeight maxWeight = default,
@@ -58,6 +65,50 @@ public sealed class FontFace
 
     /// <summary>Which font of a collection file (.ttc) this is; 0 for a single font.</summary>
     public int CollectionIndex { get; }
+
+    /// <summary>Whether the face maps <paramref name="codepoint"/> to a glyph, by its character map alone: answered
+    /// without loading the font, which costs a large face hundreds of milliseconds.</summary>
+    public bool HasCharacter(int codepoint)
+    {
+        List<(int Start, int End)> coverage;
+        lock (_coverageGate)
+        {
+            if (_coverage == null)
+            {
+                try
+                {
+                    _coverage = FontFaceReader.ReadCoverage(Path, CollectionIndex);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException or EndOfStreamException)
+                {
+                    _coverage = [];
+                }
+            }
+
+            coverage = _coverage;
+        }
+
+        var low = 0;
+        var high = coverage.Count - 1;
+        while (low <= high)
+        {
+            var middle = (low + high) / 2;
+            if (codepoint < coverage[middle].Start)
+            {
+                high = middle - 1;
+            }
+            else if (codepoint > coverage[middle].End)
+            {
+                low = middle + 1;
+            }
+            else
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public override string ToString() => $"{Family} {FaceName} ({Weight}, {Style}, {Stretch})";
 }

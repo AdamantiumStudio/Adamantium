@@ -43,6 +43,92 @@ internal static class FontFaceReader
         return faces;
     }
 
+    /// <summary>The characters the font at <paramref name="collectionIndex"/> of the file maps, as sorted ranges, read from
+    /// its 'cmap' alone: the best Unicode subtable of format 4, 12 or 13.</summary>
+    public static List<(int Start, int End)> ReadCoverage(string path, int collectionIndex)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096,
+            FileOptions.RandomAccess);
+        long offset = 0;
+        if (ReadTag(stream, 0) == "ttcf")
+        {
+            offset = ReadUInt32(stream, 12 + 4 * collectionIndex);
+        }
+
+        long cmap = -1;
+        var count = ReadUInt16(stream, offset + 4);
+        for (var i = 0; i < count; i++)
+        {
+            var record = offset + 12 + 16 * i;
+            if (ReadTag(stream, record) == "cmap")
+            {
+                cmap = ReadUInt32(stream, record + 8);
+            }
+        }
+
+        var ranges = new List<(int Start, int End)>();
+        if (cmap < 0)
+        {
+            return ranges;
+        }
+
+        long best = -1;
+        var bestRank = -1;
+        var subtables = ReadUInt16(stream, cmap + 2);
+        for (var i = 0; i < subtables; i++)
+        {
+            var record = cmap + 4 + 8 * i;
+            var platform = ReadUInt16(stream, record);
+            var encoding = ReadUInt16(stream, record + 2);
+            var subtable = cmap + ReadUInt32(stream, record + 4);
+            var format = ReadUInt16(stream, subtable);
+            var rank = (platform, encoding, format) switch
+            {
+                (3, 10, 12) or (0, 4, 12) or (0, 6, 13) => 3,
+                (0, _, 12) => 2,
+                (3, 1, 4) or (0, 3, 4) => 1,
+                (0, _, 4) or (3, 0, 4) => 0,
+                _ => -1,
+            };
+            if (rank > bestRank)
+            {
+                best = subtable;
+                bestRank = rank;
+            }
+        }
+
+        if (best < 0)
+        {
+            return ranges;
+        }
+
+        if (ReadUInt16(stream, best) == 4)
+        {
+            var segments = ReadUInt16(stream, best + 6) / 2;
+            for (var i = 0; i < segments; i++)
+            {
+                var end = ReadUInt16(stream, best + 14 + 2 * i);
+                var start = ReadUInt16(stream, best + 16 + 2 * segments + 2 * i);
+                if (start != 0xFFFF)
+                {
+                    ranges.Add((start, end));
+                }
+            }
+        }
+        else
+        {
+            var groups = ReadUInt32(stream, best + 12);
+            for (var i = 0; i < groups; i++)
+            {
+                var group = best + 16 + 12 * i;
+                ranges.Add(((int)ReadUInt32(stream, group), (int)ReadUInt32(stream, group + 4)));
+            }
+        }
+
+        ranges.Sort((left, right) => left.Start.CompareTo(right.Start));
+        return ranges;
+    }
+
     private static FontFace ReadFace(Stream stream, long offset, string path, int index)
     {
         var tables = new Dictionary<string, long>();

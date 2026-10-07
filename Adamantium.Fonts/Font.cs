@@ -14,6 +14,8 @@ namespace Adamantium.Fonts
         private Dictionary<string, Glyph> nameToGlyph;
         private Dictionary<UInt32, Glyph> unicodeToGlyph;
         private Dictionary<string, List<Feature>> featuresMap;
+        private ushort[] advanceWidths;
+        private short[] leftSideBearings;
         public Typeface Typeface { get; }
         internal VariationStore VariationData { get; set; }
         internal List<InstanceRecord> InstanceData { get; set; }
@@ -134,6 +136,38 @@ namespace Adamantium.Fonts
         {
             glyphs.Clear();
             glyphs.AddRange(inputGlyphs);
+        }
+
+        internal void SetHorizontalMetrics(ushort[] advances, short[] bearings)
+        {
+            advanceWidths = advances;
+            leftSideBearings = bearings;
+        }
+
+        public FontWeight Weight { get; internal set; } = FontWeight.Normal;
+
+        public FontStyle Style { get; internal set; }
+
+        public FontStretch Stretch { get; internal set; } = FontStretch.Normal;
+
+        public ushort GetAdvanceWidth(uint glyphIndex)
+        {
+            if (advanceWidths != null && glyphIndex < advanceWidths.Length)
+            {
+                return advanceWidths[glyphIndex];
+            }
+
+            return Typeface.GetGlyphByIndex(glyphIndex, out var glyph) ? glyph.AdvanceWidth : (ushort)0;
+        }
+
+        public short GetLeftSideBearing(uint glyphIndex)
+        {
+            if (leftSideBearings != null && glyphIndex < leftSideBearings.Length)
+            {
+                return leftSideBearings[glyphIndex];
+            }
+
+            return Typeface.GetGlyphByIndex(glyphIndex, out var glyph) ? glyph.LeftSideBearing : (short)0;
         }
 
         void IFont.UpdateGlyphNamesCache()

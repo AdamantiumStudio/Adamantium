@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Adamantium.Core;
 using Adamantium.Fonts;
@@ -39,8 +40,24 @@ public class TextLayout : DisposableObject
     /// </summary>
     public int TabSize { get; set; } = 4;
 
+    /// <summary>
+    /// Where a character the text's font lacks is drawn from: the operating system's fallback fonts unless set; null
+    /// draws the font's own missing-glyph box instead.
+    /// </summary>
+    public FontFallback Fallback
+    {
+        get => _fallbackSet ? _fallback : FontFallback.System;
+        set
+        {
+            _fallback = value;
+            _fallbackSet = true;
+        }
+    }
+
     private TextRenderingParameters _previousRenderingParameters;
     private int _laidOutTabSize;
+    private FontFallback _fallback;
+    private bool _fallbackSet;
 
     private List<GlyphWordData> _wordData;
     private AttributedText _attributed;
@@ -227,14 +244,14 @@ public class TextLayout : DisposableObject
         var scale = fontSize / Font.UnitsPerEm;
         var items = Shape(text, fontSize);
         _laidOutTabSize = TabSize;
-        var tabStop = spaceGlyph.AdvanceWidth * scale * Math.Max(TabSize, 1);
+        var tabStop = Font.GetAdvanceWidth(spaceGlyph.Index) * scale * Math.Max(TabSize, 1);
 
         var _b2 = System.GC.GetAllocatedBytesForCurrentThread();
 
         var lineHeight = LineAdvance(Font, fontSize);
         var baseLine = BaselineInLine(Font, scale);
 
-        dotGlyphsWidth = (dotGlyph.AdvanceWidth * scale * 3);
+        dotGlyphsWidth = Font.GetAdvanceWidth(dotGlyph.Index) * scale * 3;
 
         var textArea = renderingParameters.TextArea;
         double width = 0;
@@ -401,7 +418,7 @@ public class TextLayout : DisposableObject
                     default:
                     {
                         var glyphBase = height + baseLine;
-                        var glyphRect = CalculateGlyphPosition(item.Glyph,
+                        var glyphRect = CalculateGlyphPosition(item.Font, item.Glyph,
                             cursorPosition + item.OffsetX,
                             glyphBase - item.OffsetY,
                             item.FontSize / item.Font.UnitsPerEm);
@@ -654,7 +671,7 @@ public class TextLayout : DisposableObject
                 }
                 else
                 {
-                    glyph.Rect = CalculateGlyphPosition(glyph.Glyph, glyph.PenX + glyph.OffsetX,
+                    glyph.Rect = CalculateGlyphPosition(glyph.Font, glyph.Glyph, glyph.PenX + glyph.OffsetX,
                         lineBase - glyph.OffsetY, glyph.FontSize / glyph.Font.UnitsPerEm);
                 }
             }
@@ -697,7 +714,7 @@ public class TextLayout : DisposableObject
                 var glyphData = rearrangeList[index];
                 if (index == 0 && IsBlank(glyphData.Symbol)) continue;
 
-                var glyphRect = CalculateGlyphPosition(glyphData.Glyph,
+                var glyphRect = CalculateGlyphPosition(glyphData.Font, glyphData.Glyph,
                     cursorPosition + glyphData.OffsetX,
                     glyphBase - glyphData.OffsetY,
                     glyphData.FontSize / glyphData.Font.UnitsPerEm);
@@ -753,19 +770,19 @@ public class TextLayout : DisposableObject
         {
             for (int j = 0; j < 3; j++)
             {
-                var glyphRect = CalculateGlyphPosition(dotGlyph,
+                var glyphRect = CalculateGlyphPosition(Font, dotGlyph,
                     cursorPosition,
                     glyphBase,
                     scale);
                 glyphsData.Add(new GlyphWordData(dotGlyph, '.', glyphRect, -1, lineIndex)
                 {
                     PenX = cursorPosition,
-                    Advance = dotGlyph.AdvanceWidth * scale,
+                    Advance = Font.GetAdvanceWidth(dotGlyph.Index) * scale,
                     Font = Font,
                     FontSize = fontSize,
                 });
 
-                cursorPosition += dotGlyph.AdvanceWidth * scale;
+                cursorPosition += Font.GetAdvanceWidth(dotGlyph.Index) * scale;
             }
         }
     }
@@ -1369,17 +1386,18 @@ public class TextLayout : DisposableObject
             {
                 var newline = text.IndexOf('\n', position, end - position);
                 var stop = newline < 0 ? end : newline;
-                if (stop > position)
+                foreach (var (runStart, runEnd, runFont) in FontRuns(text, position, stop, font, attributes?.Language))
                 {
-                    foreach (var glyph in TextShaper.Shape(font, text.Substring(position, stop - position), options))
+                    var piece = text.Substring(runStart, runEnd - runStart);
+                    foreach (var glyph in TextShaper.Shape(runFont, piece, options))
                     {
-                        var cluster = position + glyph.Cluster;
+                        var cluster = runStart + glyph.Cluster;
                         var glyphAttributes = AttributesAt(cluster);
                         var size = glyphAttributes?.FontSize ?? fontSize;
-                        var scale = size / font.UnitsPerEm;
-                        items.Add(new ShapedItem(font.GetGlyphByIndex(glyph.GlyphIndex), text[cluster], cluster,
+                        var scale = size / runFont.UnitsPerEm;
+                        items.Add(new ShapedItem(runFont.GetGlyphByIndex(glyph.GlyphIndex), text[cluster], cluster,
                             glyph.XAdvance * scale, glyph.XOffset * scale, glyph.YOffset * scale,
-                            glyphAttributes, font, size));
+                            glyphAttributes, runFont, size));
                     }
                 }
 
@@ -1411,6 +1429,71 @@ public class TextLayout : DisposableObject
 
             return runs[runIndex].Attributes;
         }
+    }
+
+    private IEnumerable<(int Start, int End, IFont Font)> FontRuns(string text, int start, int end, IFont font,
+        string language)
+    {
+        if (end <= start)
+        {
+            yield break;
+        }
+
+        var runStart = start;
+        IFont runFont = null;
+        var index = start;
+        while (index < end)
+        {
+            var codepoint = char.IsHighSurrogate(text[index]) && index + 1 < end && char.IsLowSurrogate(text[index + 1])
+                ? char.ConvertToUtf32(text[index], text[index + 1])
+                : text[index];
+            IFont chosen;
+            if (runFont != null && (JoinsPrevious(codepoint) || IsSpaceOrControl(codepoint)))
+            {
+                chosen = runFont;
+            }
+            else if (IsSpaceOrControl(codepoint) || font.TryGetGlyphIndex(codepoint, out _))
+            {
+                chosen = font;
+            }
+            else
+            {
+                chosen = Fallback?.FontFor(codepoint, font, language) ?? font;
+            }
+
+            if (runFont == null)
+            {
+                runFont = chosen;
+            }
+            else if (!ReferenceEquals(chosen, runFont))
+            {
+                yield return (runStart, index, runFont);
+                runStart = index;
+                runFont = chosen;
+            }
+
+            index += codepoint > 0xFFFF ? 2 : 1;
+        }
+
+        yield return (runStart, end, runFont);
+    }
+
+    private static bool JoinsPrevious(int codepoint)
+    {
+        if (codepoint is 0x200C or 0x200D or >= 0xFE00 and <= 0xFE0F or >= 0x1F3FB and <= 0x1F3FF
+            or >= 0xE0020 and <= 0xE007F or >= 0xE0100 and <= 0xE01EF)
+        {
+            return true;
+        }
+
+        return CharUnicodeInfo.GetUnicodeCategory(codepoint) is UnicodeCategory.NonSpacingMark
+            or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark;
+    }
+
+    private static bool IsSpaceOrControl(int codepoint)
+    {
+        return CharUnicodeInfo.GetUnicodeCategory(codepoint) is UnicodeCategory.SpaceSeparator
+            or UnicodeCategory.Control or UnicodeCategory.Format;
     }
 
     private IEnumerable<(int Start, int End, TextAttributes Attributes)> ShapingSegments(string text)
@@ -1479,14 +1562,15 @@ public class TextLayout : DisposableObject
         public TextAttributes Attributes { get; }
     }
 
-    private RectangleF CalculateGlyphPosition(
+    private static RectangleF CalculateGlyphPosition(
+        IFont font,
         Glyph glyph,
         double glyphLeft,
         double glyphBase,
         double scale)
     {
         var verticalShift = -glyph.BoundingRectangle.Y * scale;
-        var horizontalShift = glyph.LeftSideBearing * scale;
+        var horizontalShift = font.GetLeftSideBearing(glyph.Index) * scale;
 
         var glyphWidth = glyph.BoundingRectangle.Width * scale;
         var glyphHeight = glyph.BoundingRectangle.Height * scale;

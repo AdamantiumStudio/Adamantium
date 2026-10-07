@@ -17,6 +17,14 @@ All packages share one version.
 - `TextAttributes.Font`: a face per range, such as a bold word in a regular line; each line takes the largest ascent
   and descent of its fonts. `GlyphWordData.Font`, `TextLayout.GetGlyphs`.
 - `TypeParser` parses a type that has its own public static `Parse(string)` without a registered parser.
+- Font fallback: a character the text's font lacks is drawn from another font, in the weight, slant and width of the
+  text's (`FontFallback`, `TextLayout.Fallback`; the operating system's fallback families unless set, none with null).
+  Han, kana and Hangul take the family of the text's language first (Japanese, Korean, Traditional or Simplified
+  Chinese), pictographs the emoji family; marks, joiners, variation selectors and emoji modifiers stay with the
+  character before them. A family's character map is read without loading the font (`FontFace.HasCharacter`), so only
+  the font chosen is loaded. A character no font has draws the font's missing-glyph box.
+- `IFont.Weight`, `Style` and `Stretch` from 'OS/2'; `IFont.GetAdvanceWidth` and `GetLeftSideBearing` from the font's own
+  'hmtx'; `IFont.TryGetGlyphIndex` is public.
 - `GrowingTextureArray`: a 2D texture array that grows as its layers are taken, the way a list does: `Count`,
   `Capacity`, `MaxCapacity` (the device's limit), `TryAdd`, `EnsureCapacity`; a full array is replaced by one twice as
   deep with the layers in use copied on the GPU, and the old texture is retired once no frame in flight reads it.
@@ -63,6 +71,12 @@ All packages share one version.
 
 ### Fixed
 
+- The fonts of a collection file after the first one skipped every table they share with it, their character maps
+  included, so NSimSun of simsun.ttc had no characters at all. Only outline data (`glyf`, `loca`, `CFF`) is shared now;
+  each font reads its own character map, metrics, names and layout tables, and its advances and bearings come from
+  its own 'hmtx' instead of the glyphs the fonts share.
+- A `cmap` of format 13 (a range of characters to one glyph, as last-resort fonts map) failed the font's loading, and
+  its lookup found only the first character of a range.
 - Letters drawn from overlapping contours lost pieces: in Cascadia Code and Mono `n h m u a r 3 4 5` were cut and `w`
   vanished. Variable fonts and the static fonts made from them draw a stem and an arch as separate contours, and the
   overlaps were removed by flipping an "inside" flag at each crossing. A contour piece is now kept where the glyph is

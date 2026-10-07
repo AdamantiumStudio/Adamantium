@@ -21,23 +21,23 @@ public readonly struct FontWeight : IEquatable<FontWeight>, IComparable<FontWeig
         _value = value;
     }
 
-    public static FontWeight Thin => new(100);
+    public static readonly FontWeight Thin = new(100);
 
-    public static FontWeight ExtraLight => new(200);
+    public static readonly FontWeight ExtraLight = new(200);
 
-    public static FontWeight Light => new(300);
+    public static readonly FontWeight Light = new(300);
 
-    public static FontWeight Normal => new(400);
+    public static readonly FontWeight Normal = new(400);
 
-    public static FontWeight Medium => new(500);
+    public static readonly FontWeight Medium = new(500);
 
-    public static FontWeight SemiBold => new(600);
+    public static readonly FontWeight SemiBold = new(600);
 
-    public static FontWeight Bold => new(700);
+    public static readonly FontWeight Bold = new(700);
 
-    public static FontWeight ExtraBold => new(800);
+    public static readonly FontWeight ExtraBold = new(800);
 
-    public static FontWeight Black => new(900);
+    public static readonly FontWeight Black = new(900);
 
     /// <summary>From 1 to 1000; a weight never set reads as 400.</summary>
     public int Value => _value == 0 ? 400 : _value;

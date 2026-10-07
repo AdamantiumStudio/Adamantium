@@ -473,11 +473,11 @@ namespace Adamantium.Fonts.Parsers
 
             foreach (var tableEntry in tableDirectory.Tables)
             {
-                if (ReadTables.Contains(tableEntry.Offset))
+                if (!ReadTables.Add(tableEntry.Offset) && IsSharedGlyphData(tableEntry.Name))
+                {
                     continue;
-                
-                ReadTables.Add(tableEntry.Offset);
-                
+                }
+
                 switch (tableEntry.Name)
                 {
                     case TableNames.head:
@@ -767,6 +767,11 @@ namespace Adamantium.Fonts.Parsers
             Name = nameTable;
         }
 
+        private static bool IsSharedGlyphData(string table)
+        {
+            return table is TableNames.glyf or TableNames.loca or TableNames.CFF or TableNames.CFF2;
+        }
+
         private static int NameRecordRank(NameRecord record)
         {
             return record.PlatformId switch
@@ -945,10 +950,14 @@ namespace Adamantium.Fonts.Parsers
 
                 var leftSideBearing = FontReader.ReadInt16();
                 hmtx.LeftSideBearings[i] = leftSideBearing;
-                Typeface.GetGlyphByIndex((uint)i, out  var glyph);
-                glyph.AdvanceWidth = lastAdvanceWidth;
-                glyph.LeftSideBearing = leftSideBearing;
+                if (ReferenceEquals(CurrentFont, Typeface.Fonts[0]) && Typeface.GetGlyphByIndex((uint)i, out var glyph))
+                {
+                    glyph.AdvanceWidth = lastAdvanceWidth;
+                    glyph.LeftSideBearing = leftSideBearing;
+                }
             }
+
+            CurrentFont.SetHorizontalMetrics(hmtx.AdvanceWidths, hmtx.LeftSideBearings);
         }
         
         protected virtual void ReadVerticalHeaderTable(TableEntry entry)
@@ -1065,6 +1074,12 @@ namespace Adamantium.Fonts.Parsers
             CurrentFont.Ascender = os2.sTypoAscender;
             CurrentFont.Descender = os2.sTypoDescender;
             CurrentFont.CapsHeight = os2.sCapHeight;
+            var weightClass = os2.usWeightClass is > 0 and < 10 ? os2.usWeightClass * 100 : os2.usWeightClass;
+            CurrentFont.Weight = new FontWeight(Math.Max(1, Math.Min(1000, (int)weightClass)));
+            CurrentFont.Stretch = FontStretch.FromWidthClass(os2.usWidthClass);
+            CurrentFont.Style = (os2.fsSelection & (1 << 9)) != 0 ? FontStyle.Oblique
+                : (os2.fsSelection & 1) != 0 ? FontStyle.Italic
+                : FontStyle.Normal;
 
             const UInt16 useTypoMetrics = 1 << 7;
             if ((os2.fsSelection & useTypoMetrics) != 0 || CurrentFont.LineAscent + CurrentFont.LineDescent == 0)
