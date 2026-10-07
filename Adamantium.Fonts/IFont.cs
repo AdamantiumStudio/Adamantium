@@ -54,9 +54,18 @@ namespace Adamantium.Fonts
         
         public Int16 CapsHeight { get; }
         
+        /// <summary>How far a line reaches above its baseline, in font units: the typographic ascender when the font
+        /// asks for its typographic metrics (OS/2 USE_TYPO_METRICS), otherwise the horizontal header's ('hhea').</summary>
+        public Int16 LineAscent { get; }
+
+        /// <summary>How far a line reaches below its baseline, in font units, positive; from the same table as
+        /// <see cref="LineAscent"/>.</summary>
+        public Int16 LineDescent { get; }
+
+        /// <summary>The space the font adds between lines, in font units, from the same table as
+        /// <see cref="LineAscent"/>. A line is <see cref="LineAscent"/> + <see cref="LineDescent"/> + this tall, with half
+        /// of this above the ascent and half below the descent.</summary>
         public Int16 LineGap { get; }
-        
-        public Int16 Baseline { get; }
 
         /// <summary>Top of the underline relative to the baseline, upward positive, in font units ('post').</summary>
         public Int16 UnderlinePosition { get; }

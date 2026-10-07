@@ -75,6 +75,12 @@ All packages share one version.
 
 ### Changed
 
+- Lines are as tall as the font says: ascent plus descent plus line gap (`IFont.LineAscent`, `LineDescent`, `LineGap`),
+  the baseline half the gap and the ascent below the line's top, taken as HarfBuzz and the browsers take them (the
+  typographic metrics when the font sets USE_TYPO_METRICS, the horizontal header's otherwise). Before, the baseline
+  stood almost at the bottom of the line and descenders hung below it, so a background or a selection stopped at the
+  baseline; and a font with no line gap was laid out with a gap as tall as the font - Source Sans and Cascadia Code at
+  more than twice their size. Segoe UI's lines are now 1.33 of its size apart, as on Windows, instead of 1.13.
 - `TextLayout` with `TextWrapping.WrapByWords` wraps where Unicode allows a line to end, not only at spaces: after a
   hyphen, between ideographs, never before a closing parenthesis or a comma, never at a no-break space.
 - `TextLayout` shapes its text with `TextShaper`: the font's ligatures, contextual alternates, mark positioning and
@@ -92,6 +98,8 @@ All packages share one version.
 
 ### Removed
 
+- `IFont.Baseline`: a made-up metric (`UnitsPerEm - Ascender + LineGap + CapsHeight`); the baseline of a line is
+  `LineGap / 2 + LineAscent` below its top.
 - The feature application `TextShaper` replaced: `GlyphLayoutContainer`, `IGlyphSubstitutions`, `IGlyphPositioning`,
   `GlyphLayoutData`, `GlyphPosition`, `Glyph.Layout`, `IFont.NotDefLayoutData`, `Feature.Apply`, `Feature.IsEnabled`,
   `FeatureService.EnableFeature` / `ApplyFeature`, and the `SubstituteGlyphs` / `PositionGlyph` methods of lookup

@@ -149,6 +149,28 @@ public class AttributedTextLayoutTests
     }
 
     [Test]
+    public void ALineHoldsItsDescenders()
+    {
+        var layout = NewLayout();
+        layout.EmitNewlineCarets = true;
+        var text = new AttributedText("gy\ngy").Apply(0, 5, new TextAttributes { Background = Colors.Yellow });
+
+        Process(layout, text);
+        var font = layout.Font;
+        var scale = 20.0 / font.UnitsPerEm;
+        var first = layout.GetLine(0);
+        var second = layout.GetLine(1);
+        var g = layout.GetTextData().First(x => x.Symbol == 'g');
+        var background = layout.GetAdornments().First(a => a.Kind == TextAdornmentKind.Background);
+
+        Assert.That(first.Height, Is.EqualTo((font.LineAscent + font.LineDescent + font.LineGap) * scale).Within(Tolerance));
+        Assert.That(g.Rect.Bottom, Is.LessThanOrEqualTo(background.Rect.Bottom + Tolerance), "the background holds the tail");
+        Assert.That(g.Rect.Bottom, Is.LessThanOrEqualTo(second.Top + 1), "and the tail stays out of the next line");
+        Assert.That(first.Baseline - first.Top,
+            Is.EqualTo((font.LineGap / 2.0 + font.LineAscent) * scale).Within(1), "the baseline sits at the ascent");
+    }
+
+    [Test]
     public void TheRangeRectsOfASelection_FollowTheCaretStops()
     {
         var layout = NewLayout();

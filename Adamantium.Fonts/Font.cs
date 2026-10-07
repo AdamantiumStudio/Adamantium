@@ -83,9 +83,11 @@ namespace Adamantium.Fonts
         public Int16 Descender { get; internal set; }
         public Int16 CapsHeight { get; internal set; }
         
+        public Int16 LineAscent { get; internal set; }
+
+        public Int16 LineDescent { get; internal set; }
+
         public short LineGap { get; internal set; }
-        
-        public Int16 Baseline { get; internal set; }
 
         public Int16 UnderlinePosition { get; internal set; }
 

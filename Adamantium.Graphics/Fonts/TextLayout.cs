@@ -232,7 +232,7 @@ public class TextLayout : DisposableObject
         var _b2 = System.GC.GetAllocatedBytesForCurrentThread();
 
         var lineHeight = LineAdvance(fontSize);
-        var baseLine = Font.Baseline * scale;
+        var baseLine = BaselineInLine(scale);
 
         dotGlyphsWidth = (dotGlyph.AdvanceWidth * scale * 3);
 
@@ -297,8 +297,8 @@ public class TextLayout : DisposableObject
         }
 
         // Not published yet: the render thread reads _wordData, and the alignment below still moves every glyph.
-        // The height is a font metric (last baseline plus descent), not the ink, so same-size strings measure alike and
-        // a turned label keeps its descenders. A line is as tall as its largest text.
+        // The height is a font metric (the bottom of the last line, its descent included), not the ink, so same-size
+        // strings measure alike and a turned label keeps its descenders. A line is as tall as its largest text.
         var lineCount = Math.Max(lineIndex, glyphsData.Count > 0 ? glyphsData.Max(x => x.LineIndex) : 0) + 1;
         var lineTops = new double[lineCount];
         var lineHeights = new double[lineCount];
@@ -306,7 +306,7 @@ public class TextLayout : DisposableObject
         var lineScales = new double[lineCount];
         PlaceLines();
         var lastBaseline = lineTops[lineCount - 1] + lineBaselines[lineCount - 1];
-        height = lastBaseline + System.Math.Abs(Font.Descender) * lineScales[lineCount - 1];
+        height = lineTops[lineCount - 1] + lineHeights[lineCount - 1];
 
         var _b3 = System.GC.GetAllocatedBytesForCurrentThread();
 
@@ -609,7 +609,7 @@ public class TextLayout : DisposableObject
                     seen[line] = true;
                     lineScales[line] = glyphScale;
                     lineHeights[line] = LineAdvance(glyph.FontSize);
-                    lineBaselines[line] = Font.Baseline * glyphScale;
+                    lineBaselines[line] = BaselineInLine(glyphScale);
                 }
 
                 mixed |= glyph.FontSize != fontSize;
@@ -1182,8 +1182,12 @@ public class TextLayout : DisposableObject
 
     private double LineAdvance(double fontSize)
     {
-        var lineGap = Font.LineGap == 0 ? fontSize : Font.LineGap * (fontSize / Font.UnitsPerEm);
-        return lineGap + fontSize;
+        return (Font.LineAscent + Font.LineDescent + Font.LineGap) * (fontSize / Font.UnitsPerEm);
+    }
+
+    private double BaselineInLine(double scale)
+    {
+        return (Font.LineGap / 2.0 + Font.LineAscent) * scale;
     }
 
     private double LineTop(int line)
