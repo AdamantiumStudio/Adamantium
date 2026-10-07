@@ -13,7 +13,7 @@ namespace Adamantium.Fonts.TextureGeneration
         private List<GlyphTextureData> glyphData { get; }
 
         public IReadOnlyList<GlyphTextureData> GlyphData => glyphData.AsReadOnly();
-        private Dictionary<uint, GlyphTextureData> glyphDataMap;
+        private Dictionary<ulong, GlyphTextureData> glyphDataMap;
         public byte[] ImageData { get; set; }
         public byte[] FontData { get; set; }
         public string Name { get; set; }
@@ -52,7 +52,7 @@ namespace Adamantium.Fonts.TextureGeneration
         {
             GlyphTextureSize = glyphTextureSize;
             glyphData = new List<GlyphTextureData>();
-            glyphDataMap = new Dictionary<uint, GlyphTextureData>();
+            glyphDataMap = new Dictionary<ulong, GlyphTextureData>();
             LayerCount = Math.Max(1, layerCount);
             CurrentDepthLayer = 0;
         }
@@ -64,7 +64,7 @@ namespace Adamantium.Fonts.TextureGeneration
 
         public void GenerateGlyphDataMap()
         {
-            glyphDataMap = GlyphData.ToDictionary(x => x.GlyphIndex);
+            glyphDataMap = GlyphData.ToDictionary(x => x.Key);
         }
 
         public void AddGlyphData(GlyphTextureData glyphTextureData)
@@ -72,27 +72,28 @@ namespace Adamantium.Fonts.TextureGeneration
             lock (lockObject)
             {
                 glyphData.Add(glyphTextureData);
-                glyphDataMap[glyphTextureData.GlyphIndex] = glyphTextureData;
+                glyphDataMap[glyphTextureData.Key] = glyphTextureData;
             }
         }
 
-        public GlyphTextureData GetGlyphData(uint index)
+        /// <summary>The glyph with this key (<see cref="GlyphTextureData.Key"/>): its index in an atlas of one font.</summary>
+        public GlyphTextureData GetGlyphData(ulong key)
         {
             lock (lockObject)
             {
-                glyphDataMap.TryGetValue(index, out var data);
+                glyphDataMap.TryGetValue(key, out var data);
                 return data;
             }
         }
 
-        public GlyphTextureData[] GetGlyphData(params uint[] glyphIndices)
+        public GlyphTextureData[] GetGlyphData(params ulong[] keys)
         {
             var datas = new List<GlyphTextureData>();
             lock (lockObject)
             {
-                for (int i = 0; i < glyphIndices.Length; i++)
+                for (int i = 0; i < keys.Length; i++)
                 {
-                    if (glyphDataMap.TryGetValue(glyphIndices[i], out var data))
+                    if (glyphDataMap.TryGetValue(keys[i], out var data))
                     {
                         datas.Add(data);
                     }
@@ -102,11 +103,11 @@ namespace Adamantium.Fonts.TextureGeneration
             return datas.ToArray();
         }
 
-        public RectangleF GetUVCoordinatesForGlyph(uint index)
+        public RectangleF GetUVCoordinatesForGlyph(ulong key)
         {
             lock (lockObject)
             {
-                if (glyphDataMap.TryGetValue(index, out var data))
+                if (glyphDataMap.TryGetValue(key, out var data))
                 {
                     return data.UVRect;
                 }

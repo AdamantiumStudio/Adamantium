@@ -15,6 +15,8 @@ namespace Adamantium.Fonts
 {
     public class Glyph
     {
+        private const double SideProbe = 1e-3;
+
         private readonly object lockObject = new object();
 
         private HashSet<UInt32> uniqueUnicodes;
@@ -483,76 +485,94 @@ namespace Adamantium.Fonts
             return this;
         }
 
-        private struct DistancedPoint
-        {
-            public DistancedPoint(Vector2 point, double distance)
-            {
-                Point = point;
-                Distance = distance;
-            }
-            
-            public Vector2 Point;
-
-            public Double Distance;
-        }
-        
         private Vector3F[] RemoveSelfIntersections(in SampledOutline[] outlines)
         {
-            bool isPointInside = false;
             mergedOutlinesSegments = new List<LineSegment2D>();
-            var localSegments = new List<LineSegment2D>();
-            var intersections = new List<DistancedPoint>();
+            var contours = outlines.Where(x => x.Segments is { Length: > 0 }).Select(x => x.Segments).ToArray();
+            var segments = contours.SelectMany(x => x).ToArray();
+            var contourOf = contours.SelectMany((x, index) => Enumerable.Repeat(index, x.Length)).ToArray();
+            var cuts = new List<(double At, Vector2 Point)>[segments.Length];
+            var crossed = new bool[contours.Length];
 
-            foreach (var outline in outlines)
+            for (var i = 0; i < segments.Length; i++)
             {
-                if (outline.Segments != null)
+                for (var j = i + 1; j < segments.Length; j++)
                 {
-                    foreach (var segment in outline.Segments)
+                    var first = segments[i];
+                    var second = segments[j];
+                    if (Collision2D.SegmentSegmentIntersection(ref first, ref second, out var point))
                     {
-                        localSegments.Add(segment);
+                        if (AddCut(cuts, segments, i, point) | AddCut(cuts, segments, j, point))
+                        {
+                            crossed[contourOf[i]] = crossed[contourOf[j]] = true;
+                        }
+                    }
+                    else if (Overlap(first, second))
+                    {
+                        AddCut(cuts, segments, i, second.Start);
+                        AddCut(cuts, segments, i, second.End);
+                        AddCut(cuts, segments, j, first.Start);
+                        AddCut(cuts, segments, j, first.End);
+                        crossed[contourOf[i]] = crossed[contourOf[j]] = true;
                     }
                 }
             }
-            
-            for (var i = 0; i < localSegments.Count; i++)
+
+            var whole = new bool?[contours.Length];
+            for (var c = 0; c < contours.Length; c++)
             {
-                var checkedSegment = localSegments[i];
-                intersections.Clear();
-                for (var j = i+1; j < localSegments.Count; j++)
+                if (!crossed[c])
                 {
-                    // find all intersections of checked segment with the rest of segments
-                    var currentSegment = localSegments[j];
-                    if (Collision2D.SegmentSegmentIntersection(ref checkedSegment, ref currentSegment, out var point) && 
-                        (point != checkedSegment.Start &&
-                        point != checkedSegment.End))
+                    var longest = contours[c][0];
+                    foreach (var segment in contours[c])
                     {
-                        var distance = (point - checkedSegment.Start).Length();
-                        intersections.Add(new DistancedPoint(point, distance));
+                        if (segment.Direction.Length() > longest.Direction.Length())
+                        {
+                            longest = segment;
+                        }
                     }
+
+                    whole[c] = IsBoundary(segments, longest.Start, longest.End);
+                }
+            }
+
+            var kept = new HashSet<(Vector2 Start, Vector2 End)>();
+            var pieces = new List<(double At, Vector2 Point)>();
+            for (var i = 0; i < segments.Length; i++)
+            {
+                var segment = segments[i];
+                if (segment.Start == segment.End)
+                {
+                    continue;
                 }
 
-                // sort intersections by distance from checked segment start - we will then be switching "inside" flag on each intersection
-                var sortedIntersections = intersections.OrderBy(x => x.Distance).ToArray();
-                var start = checkedSegment.Start;
-                for (int j = 0; j < sortedIntersections.Length; j++)
+                if (whole[contourOf[i]] is { } boundary)
                 {
-                    if (!isPointInside)
+                    if (boundary)
                     {
-                        var segment = new LineSegment2D(start, sortedIntersections[j].Point);
                         mergedOutlinesSegments.Add(segment);
                     }
-                    else
-                    {
-                        start = sortedIntersections[j].Point;
-                    }
-                    
-                    isPointInside = !isPointInside;
+
+                    continue;
                 }
 
-                if (!isPointInside)
+                pieces.Clear();
+                pieces.Add((0, segment.Start));
+                pieces.Add((1, segment.End));
+                if (cuts[i] != null)
                 {
-                    var lastSegment = new LineSegment2D(start, checkedSegment.End);
-                    mergedOutlinesSegments.Add(lastSegment);
+                    pieces.AddRange(cuts[i]);
+                }
+
+                pieces.Sort((left, right) => left.At.CompareTo(right.At));
+                for (var k = 1; k < pieces.Count; k++)
+                {
+                    var start = pieces[k - 1].Point;
+                    var end = pieces[k].Point;
+                    if (start != end && IsBoundary(segments, start, end) && kept.Add((start, end)))
+                    {
+                        mergedOutlinesSegments.Add(new LineSegment2D(start, end));
+                    }
                 }
             }
 
@@ -563,8 +583,74 @@ namespace Adamantium.Fonts
                 points.Add(new Vector3F((float)segment.Start.X, (float)segment.Start.Y, 0));
                 points.Add(new Vector3F((float)segment.End.X, (float)segment.End.Y, 0));
             }
-            
+
             return points.ToArray();
+        }
+
+        private static bool AddCut(List<(double At, Vector2 Point)>[] cuts, LineSegment2D[] segments, int index,
+            Vector2 point)
+        {
+            var at = At(segments[index], point);
+            if (at <= 0 || at >= 1)
+            {
+                return false;
+            }
+
+            (cuts[index] ??= []).Add((at, point));
+            return true;
+        }
+
+        private static double At(LineSegment2D segment, Vector2 point)
+        {
+            var direction = segment.Direction;
+            var squared = direction.X * direction.X + direction.Y * direction.Y;
+            if (squared == 0)
+            {
+                return 0;
+            }
+
+            var offset = point - segment.Start;
+            return (offset.X * direction.X + offset.Y * direction.Y) / squared;
+        }
+
+        private static bool Overlap(LineSegment2D first, LineSegment2D second)
+        {
+            if (Vector2.Determinant(first.Direction, second.Direction) != 0
+                || Vector2.Determinant(first.Direction, second.Start - first.Start) != 0)
+            {
+                return false;
+            }
+
+            var start = At(first, second.Start);
+            var end = At(first, second.End);
+            return Math.Max(Math.Min(start, end), 0) < Math.Min(Math.Max(start, end), 1);
+        }
+
+        private static bool IsBoundary(LineSegment2D[] segments, Vector2 start, Vector2 end)
+        {
+            var direction = end - start;
+            var side = new Vector2(-direction.Y, direction.X) * (SideProbe / direction.Length());
+            var middle = (start + end) * 0.5;
+            return IsFilled(segments, middle + side) != IsFilled(segments, middle - side);
+        }
+
+        private static bool IsFilled(LineSegment2D[] segments, Vector2 point)
+        {
+            var winding = 0;
+            foreach (var segment in segments)
+            {
+                var side = Vector2.Determinant(segment.End - segment.Start, point - segment.Start);
+                if (segment.Start.Y <= point.Y && segment.End.Y > point.Y && side > 0)
+                {
+                    winding++;
+                }
+                else if (segment.End.Y <= point.Y && segment.Start.Y > point.Y && side < 0)
+                {
+                    winding--;
+                }
+            }
+
+            return winding != 0;
         }
 
         private void AutoHint()

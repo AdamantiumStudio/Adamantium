@@ -31,7 +31,7 @@ namespace Adamantium.FontTests
         [Test]
         public void LoadSystemFont()
         {
-            var typeFace = Typeface.LoadSystemFont("arial", 3);
+            var typeFace = Typeface.LoadSystemFont("arial");
             
         }
     }

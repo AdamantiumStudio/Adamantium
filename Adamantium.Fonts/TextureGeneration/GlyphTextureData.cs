@@ -15,6 +15,7 @@ namespace Adamantium.Fonts.TextureGeneration
             BoundingRect.Width = (int)width;
             BoundingRect.Height = (int)height;
             GlyphIndex = glyphIndex;
+            Key = glyphIndex;
             Margin = margin;
             // cellSize > 0: the body (width x height) sits centered inside a fixed square cell and the field
             // is computed across the whole cell. Otherwise fall back to a tight body + margin bitmap.
@@ -36,6 +37,13 @@ namespace Adamantium.Fonts.TextureGeneration
         public RectangleF UVRectFull;
 
         public uint GlyphIndex { get; }
+
+        /// <summary>The glyph's name in its atlas: its index in an atlas of one font, its typeface and index in an atlas
+        /// several fonts share (<see cref="KeyOf"/>).</summary>
+        public ulong Key { get; set; }
+
+        /// <summary>The key of glyph <paramref name="glyphIndex"/> of <paramref name="typeface"/> in a shared atlas.</summary>
+        public static ulong KeyOf(Typeface typeface, uint glyphIndex) => (ulong)(uint)typeface.Id << 32 | glyphIndex;
 
         public byte[] Pixels { get; set; }
 

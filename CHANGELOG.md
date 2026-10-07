@@ -7,6 +7,20 @@ All packages share one version.
 
 ### Added
 
+- `FontCollection`: fonts grouped into families from their headers alone (`name`, `OS/2`, `head`, `fvar`; collection
+  files included), found by typographic, older or full name, with each face's weight, slant and width (`FontFace`).
+  `Match` picks a face as CSS Fonts 4 and the browsers do: the width first, then the slant, then the weight; a variable
+  font covers its range. `FontCollection.System` indexes the operating system's fonts once and keeps the index on
+  disk, reading again only files changed since. `FontWeight` (1-1000, `SemiBold`, `650`), `FontStyle` and
+  `FontStretch` (`Condensed`, `75%`). `Typeface.LoadSystemFont` finds a font through it instead of parsing every file's
+  names.
+- `TextAttributes.Font`: a face per range, such as a bold word in a regular line; each line takes the largest ascent
+  and descent of its fonts. `GlyphWordData.Font`, `TextLayout.GetGlyphs`.
+- `TypeParser` parses a type that has its own public static `Parse(string)` without a registered parser.
+- `GrowingTextureArray`: a 2D texture array that grows as its layers are taken, the way a list does: `Count`,
+  `Capacity`, `MaxCapacity` (the device's limit), `TryAdd`, `EnsureCapacity`; a full array is replaced by one twice as
+  deep with the layers in use copied on the GPU, and the old texture is retired once no frame in flight reads it.
+  `ITexture.ReadbackToImage` takes the layer to read.
 - `Win32Interop.LoadImage` and `GetModuleHandle`, with `LoadImageType` and `LoadImageFlags`: an icon loaded from a
   module's resources, such as the application's own.
 - `Win32Interop.EnumDisplayMonitors`, `GetMonitorInfo` and `GetWindowPlacement`, with `MONITORINFOEX`,
@@ -49,13 +63,26 @@ All packages share one version.
 
 ### Fixed
 
+- Letters drawn from overlapping contours lost pieces: in Cascadia Code and Mono `n h m u a r 3 4 5` were cut and `w`
+  vanished. Variable fonts and the static fonts made from them draw a stem and an arch as separate contours, and the
+  overlaps were removed by flipping an "inside" flag at each crossing. A contour piece is now kept where the glyph is
+  filled on one side of it and empty on the other, by the nonzero rule; an edge two contours share is kept once.
+- One glyph that could not be rasterized dropped every glyph of its batch, so all the text asking for letters in that
+  frame drew blank. `TextureAtlasGenerator` now leaves that glyph out, as one without an outline, and names it in
+  `Typeface.ErrorMessages`; the rest of the batch lands.
+- A font's names came from whichever record of its `name` table came last, often a translation: Segoe UI Bold was
+  "Segoe UI Gras". The English (United States) Windows record is taken first, then any Windows one, then Unicode, then
+  Mac Roman, which is read as single-byte text instead of UTF-16. `TypefaceStore` is safe to use from several threads.
 - Thin slivers of other letters at the edges of glyphs, mostly at fractional sizes. Atlas cells lie edge to edge and a
   glyph's quad reached the very edge of its cell, so the texture filter mixed in the neighboring cell's field. The quad
   now stops half a texel inside its cell.
 - Text in a second font drew the first font's letters. `FontAtlasStore` kept one atlas per set of rasterization
   parameters, whatever the font, and glyphs are found in it by index, so a glyph of the second font got the picture the
-  first font has at that index. Each font now has its own atlas: `FontAtlasStore.GetOrCreateFrom` and the `FontAtlas`
-  constructor take the `IFont`, which the atlas rasterizes instead of the typeface's first font.
+  first font has at that index. Every font now shares one atlas (32 MB of video memory each, so one per font would not
+  scale) and a glyph is found in it by its typeface and index (`GlyphTextureData.Key`, `Typeface.Id`): `FontAtlas` is
+  made without a font, `RequestAsync`, `GetGlyphData` and `GetUVCoordinatesForGlyph` take the font with the glyph,
+  `FontAtlasStore.GetOrCreateFrom` takes only the parameters, and each glyph is rasterized at its own font's em.
+  `IFont.Typeface` is public.
 - A swapchain rebuild that failed - out of device memory, say - left the presenter without surfaces, and the next frame
   drew into them and crashed the process. `GraphicsPresenter.IsReady` now says whether the surfaces exist,
   `GraphicsDevice.BeginDraw` skips the frame while they do not, and the failed rebuild reports `OutOfDate`, so it is
@@ -75,6 +102,9 @@ All packages share one version.
 
 ### Changed
 
+- The font atlas grows instead of filling up: it starts with two layers (8 MB of video memory instead of 32) and doubles
+  as glyphs need room, up to the device's limit, where it used to overwrite its last layer past some 1800 glyphs.
+  `FontAtlas.LayerCount` and `LayerCapacity`; `AtlasLayerCount` is gone, `InitialLayerCount` takes its place.
 - Lines are as tall as the font says: ascent plus descent plus line gap (`IFont.LineAscent`, `LineDescent`, `LineGap`),
   the baseline half the gap and the ascent below the line's top, taken as HarfBuzz and the browsers take them (the
   typographic metrics when the font sets USE_TYPO_METRICS, the horizontal header's otherwise). Before, the baseline

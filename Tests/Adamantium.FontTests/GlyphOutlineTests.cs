@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading;
 using Adamantium.Fonts;
+using Adamantium.Fonts.Common;
 using Adamantium.Mathematics;
 using NUnit.Framework;
 
@@ -145,6 +146,70 @@ public class GlyphOutlineTests
 
         Assert.That(failure, Is.Null);
         Assert.That(glyphs.Select(x => x.Sample(3).Length), Is.EqualTo(expected));
+    }
+
+    [TestCase("TTFFonts/CascadiaCode-Regular.ttf")]
+    [TestCase("source-sans-3v028R/VAR/SourceSans3VF-Roman.otf")]
+    [TestCase("OTFFonts/SourceSans3-Regular.otf")]
+    public void MergedOutlineFillsWhatTheContoursFill(string path)
+    {
+        const int grid = 12;
+        var typeface = Typeface.LoadFont(path, 3);
+
+        foreach (var glyph in typeface.Glyphs.Where(x => !x.IsEmpty && !x.IsInvalid))
+        {
+            glyph.Sample(3);
+            var contours = glyph.GenerateOutlines(3).SelectMany(x => x.Segments ?? []).ToArray();
+            var merged = glyph.GetMergedOutlineSegments().ToArray();
+            if (contours.Length == 0)
+            {
+                continue;
+            }
+
+            var minX = contours.Min(x => Math.Min(x.Start.X, x.End.X));
+            var maxX = contours.Max(x => Math.Max(x.Start.X, x.End.X));
+            var minY = contours.Min(x => Math.Min(x.Start.Y, x.End.Y));
+            var maxY = contours.Max(x => Math.Max(x.Start.Y, x.End.Y));
+            for (var row = 0; row < grid; row++)
+            {
+                for (var column = 0; column < grid; column++)
+                {
+                    var point = new Vector2(minX + (maxX - minX) * (column + 0.5) / grid,
+                        minY + (maxY - minY) * (row + 0.5) / grid);
+                    if (contours.Any(x => GlyphSegmentsMath.GetDistanceToSegment(x, point) < 1))
+                    {
+                        continue;
+                    }
+
+                    var expected = IsFilled(contours, point);
+                    if (IsFilled(merged, point) != expected)
+                    {
+                        Assert.Fail($"glyph {glyph.Index} ({glyph.Name}) at {point.X},{point.Y} is " +
+                                    $"{(expected ? "filled" : "empty")} by its contours, not by its merged outline");
+                    }
+                }
+            }
+        }
+    }
+
+    private static bool IsFilled(LineSegment2D[] segments, Vector2 point)
+    {
+        var winding = 0;
+        foreach (var segment in segments)
+        {
+            var side = (segment.End.X - segment.Start.X) * (point.Y - segment.Start.Y) -
+                       (segment.End.Y - segment.Start.Y) * (point.X - segment.Start.X);
+            if (segment.Start.Y <= point.Y && segment.End.Y > point.Y && side > 0)
+            {
+                winding++;
+            }
+            else if (segment.End.Y <= point.Y && segment.Start.Y > point.Y && side < 0)
+            {
+                winding--;
+            }
+        }
+
+        return winding != 0;
     }
 
     private static string Describe(Glyph glyph)

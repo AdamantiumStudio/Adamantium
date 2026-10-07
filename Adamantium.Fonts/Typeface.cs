@@ -11,6 +11,8 @@ namespace Adamantium.Fonts
 {
     public class Typeface
     {
+        private static int lastId;
+
         private readonly List<IFont> fonts;
         private List<Glyph> glyphs;
         private List<UInt32> unicodes;
@@ -21,12 +23,16 @@ namespace Adamantium.Fonts
 
         public Typeface()
         {
+            Id = System.Threading.Interlocked.Increment(ref lastId);
             fonts = new List<IFont>();
             glyphs = new List<Glyph>();
             unicodes = new List<uint>();
 
             errorMessages = new List<string>();
         }
+
+        /// <summary>Unique among the typefaces of the process: with a glyph index, it names a glyph in a shared atlas.</summary>
+        public int Id { get; }
 
         public IReadOnlyList<IFont> Fonts => fonts.AsReadOnly();
 
@@ -99,24 +105,13 @@ namespace Adamantium.Fonts
             return Parser.GetFontBytes();
         }
 
-        public static Typeface LoadSystemFont(string fontName, byte sampleResolution = 3)
+        /// <summary>The system font of a family ("Segoe UI"), an older family name ("Segoe UI Semibold") or a full
+        /// name ("Segoe UI Bold"), in its regular face when the name is a family; null when there is none. The typeface
+        /// of a file is parsed once and shared (<see cref="TypefaceStore"/>).</summary>
+        public static Typeface LoadSystemFont(string fontName)
         {
-            string fontsFolder = Environment.GetFolderPath(Environment.SpecialFolder.Fonts);
-            var files = Directory.GetFiles(fontsFolder).Where(x=>!x.ToLower().EndsWith("fon")).ToArray();
-            string fontFile = string.Empty;
-            foreach (var file in files)
-            {
-                var typeFace = GetFontName(file);
-                if (typeFace != null && typeFace.GetFont(0).FullName.ToLower() == fontName.ToLower())
-                {
-                    fontFile = file;
-                    break;
-                }
-            }
-
-            if (string.IsNullOrEmpty(fontFile)) return null;
-
-            return LoadFont(Path.Combine(fontsFolder, fontFile), sampleResolution);
+            var face = FontCollection.System.Match(fontName);
+            return face == null ? null : TypefaceStore.GetTypeface(face.Path);
         }
         
         public static Typeface GetFontName(string path)

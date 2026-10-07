@@ -263,7 +263,7 @@ public unsafe class Texture : GraphicsResource, ITexture
         GraphicsDevice.EndSingleTimeCommand(commandBuffer);
     }
 
-    private void CopyImageToBuffer(VkBuffer buffer)
+    private void CopyImageToBuffer(VkBuffer buffer, uint layer)
     {
         var commandBuffer = GraphicsDevice.BeginSingleTimeCommand();
 
@@ -274,7 +274,7 @@ public unsafe class Texture : GraphicsResource, ITexture
         region.ImageSubresource = new ImageSubresourceLayers();
         region.ImageSubresource.AspectMask = ImageAspectFlagBits.ColorBit;
         region.ImageSubresource.MipLevel = 0;
-        region.ImageSubresource.BaseArrayLayer = 0;
+        region.ImageSubresource.BaseArrayLayer = layer;
         region.ImageSubresource.LayerCount = 1;
         region.ImageOffset = new Offset3D() { X = 0, Y = 0, Z = 0};
         region.ImageExtent = new Extent3D() {Width = Width, Height = Height, Depth = 1}; 
@@ -614,25 +614,25 @@ public unsafe class Texture : GraphicsResource, ITexture
         fs.Write(new ReadOnlySpan<byte>((void*)_rawReadback.DataPointer, (int)_rawReadback.TotalSizeInBytes));
     }
 
-    public Image ReadbackToImage()
+    public Image ReadbackToImage(uint layer = 0)
     {
         var img = Image.New2D(Width, Height, 1, Description.Format);
-        ReadbackInto(img);
+        ReadbackInto(img, layer);
         return img;
     }
 
     /// <summary>Reads this texture's pixels into <paramref name="destination"/> via host image copy (fast path) or a
     /// staging buffer, with no color swap or encoding.</summary>
-    private void ReadbackInto(Image destination)
+    private void ReadbackInto(Image destination, uint layer = 0)
     {
         if (GraphicsDevice.Adapter.SupportsHostImageCopy &&
             Description.Usage.HasFlag(ImageUsageFlagBits.HostTransferBit))
         {
-            CopyImageToHostMemory(destination);
+            CopyImageToHostMemory(destination, layer);
         }
         else
         {
-            CopyImageThroughStagingBuffer(destination);
+            CopyImageThroughStagingBuffer(destination, layer);
         }
     }
 
@@ -641,7 +641,7 @@ public unsafe class Texture : GraphicsResource, ITexture
     /// no staging buffer and no queue submit. Requires the device feature and the <c>HostTransferBit</c> usage;
     /// <see cref="CopyImageThroughStagingBuffer"/> is the fallback.
     /// </summary>
-    private void CopyImageToHostMemory(Image destination)
+    private void CopyImageToHostMemory(Image destination, uint layer)
     {
         this.TransitionImageLayout(ImageLayout.General);
 
@@ -654,7 +654,7 @@ public unsafe class Texture : GraphicsResource, ITexture
             {
                 AspectMask = ImageAspectFlagBits.ColorBit,
                 MipLevel = 0,
-                BaseArrayLayer = 0,
+                BaseArrayLayer = layer,
                 LayerCount = 1
             },
             ImageOffset = new Offset3D { X = 0, Y = 0, Z = 0 },
@@ -674,15 +674,15 @@ public unsafe class Texture : GraphicsResource, ITexture
     }
 
     /// <summary>Fallback read-back: copy the image into a host-visible staging buffer on the GPU, then memcpy it out.</summary>
-    private void CopyImageThroughStagingBuffer(Image destination)
+    private void CopyImageThroughStagingBuffer(Image destination, uint layer)
     {
         CreateBuffer(destination.TotalSizeInBytes, BufferUsageFlagBits.TransferSrcBit | BufferUsageFlagBits.TransferDstBit,
             ReadbackMemory(), out var stagingBuffer, out var stagingBufferMemory);
         this.TransitionImageLayout(ImageLayout.TransferSrcOptimal);
-        CopyImageToBuffer(stagingBuffer);
+        CopyImageToBuffer(stagingBuffer, layer);
         this.TransitionImageLayout(Description.DesiredImageLayout);
 
-        var data = GraphicsDevice.MapMemory(stagingBufferMemory, 0, TotalSizeInBytes, 0);
+        var data = GraphicsDevice.MapMemory(stagingBufferMemory, 0, destination.TotalSizeInBytes, 0);
         System.Buffer.MemoryCopy((void*)data, destination.DataPointer.ToPointer(),
             destination.TotalSizeInBytes, destination.TotalSizeInBytes);
         GraphicsDevice.UnmapMemory(stagingBufferMemory);

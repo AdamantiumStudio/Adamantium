@@ -39,6 +39,9 @@ namespace Adamantium.Fonts
         
         #endregion
         
+        /// <summary>The typeface (the file) this font was loaded from; a collection holds several fonts.</summary>
+        public Typeface Typeface { get; }
+
         /// <summary>The OpenType features this font offers, per script and language system.</summary>
         public FeatureCatalog FeatureCatalog { get; }
         
