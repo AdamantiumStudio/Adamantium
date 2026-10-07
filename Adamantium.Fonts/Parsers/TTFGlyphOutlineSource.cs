@@ -2,7 +2,7 @@ using Adamantium.Fonts.Common;
 
 namespace Adamantium.Fonts.Parsers;
 
-internal class TTFGlyphOutlineSource : IGlyphOutlineSource
+internal class TTFGlyphOutlineSource : IGlyphOutlineSource, IVariableGlyphOutlineSource
 {
     private readonly SfntParser parser;
     private readonly byte[] fontData;
@@ -24,5 +24,13 @@ internal class TTFGlyphOutlineSource : IGlyphOutlineSource
         using var reader = new FontStreamReader(fontData);
         reader.Position = glyfTableOffset + glyphOffsets[glyph.Index];
         parser.ReadGlyphOutlines(reader, glyph, glyphs);
+    }
+
+    public IGlyphOutlineSource Vary(Font font, float[] coordinates, Glyph[] variedGlyphs)
+    {
+        return font.GlyphVariations == null
+            ? null
+            : new VariedTTFGlyphOutlineSource(parser, fontData, glyfTableOffset, glyphOffsets, variedGlyphs, font,
+                coordinates);
     }
 }

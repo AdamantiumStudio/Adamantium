@@ -155,72 +155,50 @@ namespace Adamantium.Fonts.TextureGeneration
             }
         }
 
-        private static ColoredDistance GetColoredDistances(List<MsdfGlyphSegment> segments, Vector2 point, double range, bool isTtf)
+        private static SegmentGrid[] CreateChannelGrids(List<MsdfGlyphSegment> segments)
         {
-            double closestRedDistance = double.MaxValue;
-            double closestGreenDistance = double.MaxValue;
-            double closestBlueDistance = double.MaxValue;
-            double closestAlphaDistance = double.MaxValue;
+            var red = new List<LineSegment2D>();
+            var green = new List<LineSegment2D>();
+            var blue = new List<LineSegment2D>();
+            var all = new List<LineSegment2D>();
+            foreach (var segment in segments)
+            {
+                if (MsdfGeneratorHelper.ApplyColorMask(segment.MsdfColor, true, false, false) != Colors.Black)
+                {
+                    red.Add(segment.Segment);
+                }
 
+                if (MsdfGeneratorHelper.ApplyColorMask(segment.MsdfColor, false, true, false) != Colors.Black)
+                {
+                    green.Add(segment.Segment);
+                }
+
+                if (MsdfGeneratorHelper.ApplyColorMask(segment.MsdfColor, false, false, true) != Colors.Black)
+                {
+                    blue.Add(segment.Segment);
+                }
+
+                all.Add(segment.Segment);
+            }
+
+            return [new SegmentGrid(red), new SegmentGrid(green), new SegmentGrid(blue), new SegmentGrid(all)];
+        }
+
+        private static ColoredDistance GetColoredDistances(SegmentGrid[] grids, List<LineSegment2D>[] closest,
+            Vector2 point, double range, bool isTtf)
+        {
             // there can be up to two closest segments in case if point is close to segments' connection
             // we will store both and then determine the signed pseudo-distance
             // if these two signed pseudo-distances have different signs, use the one with negative, because the point is outside
-            var closestRedSegments = new List<LineSegment2D>();
-            var closestGreenSegments = new List<LineSegment2D>();
-            var closestBlueSegments = new List<LineSegment2D>();
-            var closestAlphaSegments = new List<LineSegment2D>();
-
-            foreach (var segment in segments)
+            for (var channel = 0; channel < grids.Length; channel++)
             {
-                var distance = GlyphSegmentsMath.GetDistanceToSegment(segment.Segment, point);
-
-                if (MsdfGeneratorHelper.ApplyColorMask(segment.MsdfColor, true, false, false) != Colors.Black
-                    && distance <= closestRedDistance)
-                {
-                    if (distance < closestRedDistance)
-                    {
-                        closestRedSegments.Clear();
-                        closestRedDistance = distance;
-                    }
-
-                    closestRedSegments.Add(segment.Segment);
-                }
-
-                if (MsdfGeneratorHelper.ApplyColorMask(segment.MsdfColor, false, true, false) != Colors.Black
-                    && distance <= closestGreenDistance)
-                {
-                    if (distance < closestGreenDistance)
-                    {
-                        closestGreenSegments.Clear();
-                        closestGreenDistance = distance;
-                    }
-
-                    closestGreenSegments.Add(segment.Segment);
-                }
-
-                if (MsdfGeneratorHelper.ApplyColorMask(segment.MsdfColor, false, false, true) != Colors.Black
-                    && distance <= closestBlueDistance)
-                {
-                    if (distance < closestBlueDistance)
-                    {
-                        closestBlueSegments.Clear();
-                        closestBlueDistance = distance;
-                    }
-
-                    closestBlueSegments.Add(segment.Segment);
-                }
-
-                if (distance <= closestAlphaDistance)
-                {
-                    if (distance < closestAlphaDistance)
-                    {
-                        closestAlphaSegments.Clear();
-                        closestAlphaDistance = distance;
-                    }
-
-                    closestAlphaSegments.Add(segment.Segment);
-                }
+                grids[channel].FindNearest(point, closest[channel]);
             }
+
+            var closestRedSegments = closest[0];
+            var closestGreenSegments = closest[1];
+            var closestBlueSegments = closest[2];
+            var closestAlphaSegments = closest[3];
 
             var coloredDistance = new ColoredDistance();
 
@@ -341,6 +319,8 @@ namespace Adamantium.Fonts.TextureGeneration
 
             var coloredDistances = new ColoredDistance[fullWidth, fullHeight];
             var isTtf = glyph.OutlineType == OutlineType.TrueType;
+            var grids = CreateChannelGrids(segments);
+            List<LineSegment2D>[] closest = [[], [], [], []];
 
             for (var y = 0; y < fullHeight; ++y)
             {
@@ -357,7 +337,7 @@ namespace Adamantium.Fonts.TextureGeneration
 
                     // Full multichannel field everywhere (no collapse to the true distance): the R/G/B
                     // pseudo-distances are the actual MSDF and must fill the cell - that's the colored field.
-                    coloredDistances[x, y] = GetColoredDistances(segments, samplingPoint, range, isTtf);
+                    coloredDistances[x, y] = GetColoredDistances(grids, closest, samplingPoint, range, isTtf);
                 }
             }
 
@@ -440,6 +420,8 @@ namespace Adamantium.Fonts.TextureGeneration
             minColoredDistance.BlueDistance = value;
             minColoredDistance.AlphaDistance = value;
 
+            var grids = CreateChannelGrids(segments);
+            List<LineSegment2D>[] closest = [[], [], [], []];
             var paddingX = glyphBoundingRectangle.Width * 0.1f;
             var paddingY = glyphBoundingRectangle.Height * 0.1f;
             glyphBoundingRectangle.Width += (int)(2 * paddingX);
@@ -466,7 +448,7 @@ namespace Adamantium.Fonts.TextureGeneration
                         samplingPoint.Y >= glyphBoundingRectangle.Y - additionalSpace &&
                         samplingPoint.Y <= glyphBoundingRectangle.Bottom + additionalSpace)
                     {
-                        coloredDistances[x, y] = GetColoredDistances(segments, samplingPoint, range, glyph.OutlineType == OutlineType.TrueType);
+                        coloredDistances[x, y] = GetColoredDistances(grids, closest, samplingPoint, range, glyph.OutlineType == OutlineType.TrueType);
                     }
                     else
                     {

@@ -21,7 +21,7 @@ namespace Adamantium.Graphics.Fonts
         // Generation is arithmetic and needs no device; the upload does - so the two live on different threads and meet
         // here.
         private readonly HashSet<ulong> _inFlight = new();
-        private readonly Queue<IReadOnlyList<GlyphTextureData>> _ready = new();
+        private List<GlyphTextureData> _ready = new();
         private readonly HashSet<ulong> _generated = new();
         private readonly object _asyncGate = new();
 
@@ -153,13 +153,24 @@ namespace Adamantium.Graphics.Fonts
             if (toGenerate == null) return;
 
             // ONE task for the whole batch: the generator parallelizes across the glyphs it is given, so handing it the
-            // batch keeps every core busy - the reason the caller pools a frame's text in the first place.
+            // batch keeps every core busy - the reason the caller pools a frame's text in the first place. Each glyph
+            // is handed over as soon as it is done, so the next pump uploads it without waiting for the slowest one.
             System.Threading.Tasks.Task.Run(() =>
             {
-                IReadOnlyList<GlyphTextureData> data;
                 try
                 {
-                    data = atlasGenerator.GenerateTextureForGlyphs(toGenerate);
+                    atlasGenerator.GenerateTextureForGlyphs(toGenerate, (pair, data) =>
+                    {
+                        lock (_asyncGate)
+                        {
+                            if (data != null)
+                            {
+                                _ready.Add(data);
+                            }
+
+                            _generated.Add(GlyphTextureData.KeyOf(pair.Font.Typeface, pair.Glyph.Index));
+                        }
+                    });
                 }
                 catch
                 {
@@ -169,18 +180,12 @@ namespace Adamantium.Graphics.Fonts
                     {
                         foreach (var pair in toGenerate)
                         {
-                            _inFlight.Remove(GlyphTextureData.KeyOf(pair.Font.Typeface, pair.Glyph.Index));
+                            var key = GlyphTextureData.KeyOf(pair.Font.Typeface, pair.Glyph.Index);
+                            if (!_generated.Contains(key))
+                            {
+                                _inFlight.Remove(key);
+                            }
                         }
-                    }
-                    return;
-                }
-
-                lock (_asyncGate)
-                {
-                    _ready.Enqueue(data);
-                    foreach (var pair in toGenerate)
-                    {
-                        _generated.Add(GlyphTextureData.KeyOf(pair.Font.Typeface, pair.Glyph.Index));
                     }
                 }
             });
@@ -191,34 +196,37 @@ namespace Adamantium.Graphics.Fonts
         /// when something landed, which is the caller's cue that text built earlier is now out of date.</summary>
         public bool PumpReady()
         {
-            IReadOnlyList<GlyphTextureData> batch = null;
-            var landed = false;
-
-            while (true)
+            List<GlyphTextureData> ready;
+            ulong[] generated;
+            lock (_asyncGate)
             {
-                lock (_asyncGate)
+                if (_generated.Count == 0)
                 {
-                    if (_ready.Count == 0) break;
-                    batch = _ready.Dequeue();
+                    return false;
                 }
 
-                if (batch.Count > 0) ProcessTextureData(batch);
-
-                lock (_asyncGate)
-                {
-                    foreach (var key in _generated)
-                    {
-                        processedGlyphs.Add(key);
-                        _inFlight.Remove(key);
-                    }
-                    _generated.Clear();
-                }
-
-                landed = true;
+                ready = _ready;
+                _ready = new List<GlyphTextureData>();
+                generated = _generated.ToArray();
+                _generated.Clear();
             }
 
-            if (landed) Version++;
-            return landed;
+            if (ready.Count > 0)
+            {
+                ProcessTextureData(ready);
+            }
+
+            lock (_asyncGate)
+            {
+                foreach (var key in generated)
+                {
+                    processedGlyphs.Add(key);
+                    _inFlight.Remove(key);
+                }
+            }
+
+            Version++;
+            return true;
         }
 
         private List<(IFont Font, Glyph Glyph)> GetNotProcessedGlyphs(IEnumerable<(IFont Font, Glyph Glyph)> glyphs)

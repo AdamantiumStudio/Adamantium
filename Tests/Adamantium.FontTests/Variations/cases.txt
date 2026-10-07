@@ -1,0 +1,10 @@
+# font	variations
+# Fields are separated by tabs. Expected results: expected.txt, written from this file by
+# Tests/Adamantium.ShapingOracle in its variations mode.
+source-sans-3v028R/VAR/SourceSans3VF-Roman.ttf	wght=200
+source-sans-3v028R/VAR/SourceSans3VF-Roman.ttf	wght=400
+source-sans-3v028R/VAR/SourceSans3VF-Roman.ttf	wght=650
+source-sans-3v028R/VAR/SourceSans3VF-Roman.ttf	wght=900
+source-sans-3v028R/VAR/SourceSans3VF-Roman.otf	wght=650
+source-sans-3v028R/VAR/SourceSans3VF-Roman.otf	wght=900
+source-sans-3v028R/VAR/SourceSans3VF-Roman.otf	wght=200

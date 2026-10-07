@@ -54,6 +54,18 @@ public class TextLayout : DisposableObject
         }
     }
 
+    /// <summary>
+    /// True to never wait for a fallback font's file to be parsed: a character whose font is still loading takes the
+    /// room of the text font's missing glyph and draws nothing, <see cref="HasPendingFonts"/> turns true, and the file
+    /// parses on a worker that raises <see cref="TypefaceStore.Loaded"/>; the text is laid out again then. False (the
+    /// default) waits, as a render with no next frame must.
+    /// </summary>
+    public bool LoadFontsInBackground { get; set; }
+
+    /// <summary>True when the last layout drew some characters without their font, which was still loading
+    /// (<see cref="LoadFontsInBackground"/>).</summary>
+    public bool HasPendingFonts { get; private set; }
+
     private TextRenderingParameters _previousRenderingParameters;
     private int _laidOutTabSize;
     private FontFallback _fallback;
@@ -1372,6 +1384,7 @@ public class TextLayout : DisposableObject
 
     private List<ShapedItem> Shape(string text, double fontSize)
     {
+        HasPendingFonts = false;
         var items = new List<ShapedItem>(text.Length);
         var runs = _attributed?.Runs;
         var runIndex = 0;
@@ -1386,16 +1399,17 @@ public class TextLayout : DisposableObject
             {
                 var newline = text.IndexOf('\n', position, end - position);
                 var stop = newline < 0 ? end : newline;
-                foreach (var (runStart, runEnd, runFont) in FontRuns(text, position, stop, font, attributes?.Language))
+                foreach (var (runStart, runEnd, runFont, pending) in FontRuns(text, position, stop, font, attributes?.Language))
                 {
                     var piece = text.Substring(runStart, runEnd - runStart);
+                    var blank = pending ? runFont.GetGlyphByCharacter(' ') : null;
                     foreach (var glyph in TextShaper.Shape(runFont, piece, options))
                     {
                         var cluster = runStart + glyph.Cluster;
                         var glyphAttributes = AttributesAt(cluster);
                         var size = glyphAttributes?.FontSize ?? fontSize;
                         var scale = size / runFont.UnitsPerEm;
-                        items.Add(new ShapedItem(runFont.GetGlyphByIndex(glyph.GlyphIndex), text[cluster], cluster,
+                        items.Add(new ShapedItem(blank ?? runFont.GetGlyphByIndex(glyph.GlyphIndex), text[cluster], cluster,
                             glyph.XAdvance * scale, glyph.XOffset * scale, glyph.YOffset * scale,
                             glyphAttributes, runFont, size));
                     }
@@ -1431,8 +1445,8 @@ public class TextLayout : DisposableObject
         }
     }
 
-    private IEnumerable<(int Start, int End, IFont Font)> FontRuns(string text, int start, int end, IFont font,
-        string language)
+    private IEnumerable<(int Start, int End, IFont Font, bool Pending)> FontRuns(string text, int start, int end,
+        IFont font, string language)
     {
         if (end <= start)
         {
@@ -1441,6 +1455,7 @@ public class TextLayout : DisposableObject
 
         var runStart = start;
         IFont runFont = null;
+        var runPending = false;
         var index = start;
         while (index < end)
         {
@@ -1448,34 +1463,47 @@ public class TextLayout : DisposableObject
                 ? char.ConvertToUtf32(text[index], text[index + 1])
                 : text[index];
             IFont chosen;
+            var pending = false;
             if (runFont != null && (JoinsPrevious(codepoint) || IsSpaceOrControl(codepoint)))
             {
                 chosen = runFont;
+                pending = runPending;
             }
             else if (IsSpaceOrControl(codepoint) || font.TryGetGlyphIndex(codepoint, out _))
             {
                 chosen = font;
             }
+            else if (Fallback == null)
+            {
+                chosen = font;
+            }
+            else if (LoadFontsInBackground)
+            {
+                chosen = Fallback.FontFor(codepoint, font, language, out pending) ?? font;
+                HasPendingFonts |= pending;
+            }
             else
             {
-                chosen = Fallback?.FontFor(codepoint, font, language) ?? font;
+                chosen = Fallback.FontFor(codepoint, font, language) ?? font;
             }
 
             if (runFont == null)
             {
                 runFont = chosen;
+                runPending = pending;
             }
-            else if (!ReferenceEquals(chosen, runFont))
+            else if (!ReferenceEquals(chosen, runFont) || pending != runPending)
             {
-                yield return (runStart, index, runFont);
+                yield return (runStart, index, runFont, runPending);
                 runStart = index;
                 runFont = chosen;
+                runPending = pending;
             }
 
             index += codepoint > 0xFFFF ? 2 : 1;
         }
 
-        yield return (runStart, end, runFont);
+        yield return (runStart, end, runFont, runPending);
     }
 
     private static bool JoinsPrevious(int codepoint)

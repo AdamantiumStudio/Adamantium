@@ -371,6 +371,7 @@ namespace Adamantium.Fonts.Parsers
                 { "feat",    460	},
                 { "fmtx",    470	},
                 { "gvar",    490	},
+                { "HVAR",    495	},
                 { "hsty",    500	},
                 { "just",    510	},
                 { "lcar",    520	},
@@ -1101,6 +1102,7 @@ namespace Adamantium.Fonts.Parsers
         {
             var glyphs = new Glyph[maxp.NumGlyphs];
             var source = new TTFGlyphOutlineSource(this, FontReader.GetBuffer(), entry.Offset, loca.GlyphOffsets, glyphs);
+            Typeface.OutlineSource = source;
             for (uint i = 0; i < glyphs.Length; ++i)
             {
                 var glyph = new Glyph(i, OutlineType.TrueType);
@@ -1135,6 +1137,14 @@ namespace Adamantium.Fonts.Parsers
 
         internal void ReadGlyphOutlines(FontStreamReader reader, Glyph glyph, Glyph[] fontGlyphs)
         {
+            if (ReadGlyphData(reader, glyph).NumberOfContours < 0)
+            {
+                glyph.AddComponentOutlines(fontGlyphs);
+            }
+        }
+
+        internal GlyphHeader ReadGlyphData(FontStreamReader reader, Glyph glyph)
+        {
             var glyphHeader = ReadTTFGlyphHeader(reader);
             glyph.BoundingRectangle =
                 Rectangle.FromCorners(glyphHeader.XMin, glyphHeader.YMin, glyphHeader.XMax, glyphHeader.YMax);
@@ -1142,11 +1152,13 @@ namespace Adamantium.Fonts.Parsers
             if (glyphHeader.NumberOfContours >= 0)
             {
                 ReadSimpleGlyphComponentData(reader, glyph, glyphHeader.NumberOfContours);
-                return;
+            }
+            else
+            {
+                ReadTTFCompositeGlyphComponentData(reader, glyph);
             }
 
-            ReadTTFCompositeGlyphComponentData(reader, glyph);
-            glyph.AddComponentOutlines(fontGlyphs);
+            return glyphHeader;
         }
 
         private void ReadSimpleGlyphComponentData(FontStreamReader reader, Glyph glyph, Int32 numberOfContours)
@@ -1345,10 +1357,11 @@ namespace Adamantium.Fonts.Parsers
                     glyph.SetInstructions(reader.ReadBytes(numberOfInstructions, true));
                 }
 
-                if (!compositeFlag.ArgsAreXYValues) // matched points == true, unsupported
+                if (!compositeFlag.ArgsAreXYValues)
                 {
-                    Typeface.AddErrorMessage($"[ERR] Unsupported matched points in composite glyph {glyph.Index}");
-                    glyph.IsInvalid = true;
+                    compositeGlyphComponent.IsAnchored = true;
+                    compositeGlyphComponent.ParentPoint = compositeFlag.Arg1And2AreWords ? (ushort)arg1Word : (byte)arg1Byte;
+                    compositeGlyphComponent.ChildPoint = compositeFlag.Arg1And2AreWords ? (ushort)arg2Word : (byte)arg2Byte;
                 }
 
                 glyph.CompositeGlyphComponents.Add(compositeGlyphComponent);

@@ -97,67 +97,7 @@ namespace Adamantium.Fonts.Parsers.CFF
         {
             if (variationStoreOffset == 0) return;
 
-            var variationOffset = cffOffset + variationStoreOffset;
-            otfTtfReader.Position = variationOffset;
-            var length = otfTtfReader.ReadUInt16();
-            variationOffset += 2; // add length
-            var format = otfTtfReader.ReadUInt16();
-            var variationRegionListOffset = otfTtfReader.ReadUInt32();
-            var itemVariationDataCount = otfTtfReader.ReadUInt16();
-            var itemVariationDataOffsets = new uint[itemVariationDataCount];
-            for (int i = 0; i < itemVariationDataCount; ++i)
-            {
-                itemVariationDataOffsets[i] = otfTtfReader.ReadUInt32();
-            }
-            
-            otfTtfReader.Position = variationOffset + variationRegionListOffset;
-            var variationRegionList = new VariationRegionList();
-            variationRegionList.AxisCount = otfTtfReader.ReadUInt16();
-            variationRegionList.RegionCount = otfTtfReader.ReadUInt16();
-            variationRegionList.VariationRegions = new VariationRegion[variationRegionList.RegionCount];
-            for (var index = 0; index < variationRegionList.VariationRegions.Length; index++)
-            {
-                var region = new VariationRegion();
-                region.RegionAxes = new RegionAxisCoordinates[variationRegionList.AxisCount];
-                for (int i = 0; i < region.RegionAxes.Length; i++)
-                {
-                    var axes = new RegionAxisCoordinates();
-                    axes.StartCoord = otfTtfReader.ReadInt16().FromF2Dot14();
-                    axes.PeakCoord = otfTtfReader.ReadInt16().FromF2Dot14();
-                    axes.EndCoord = otfTtfReader.ReadInt16().FromF2Dot14();
-                    region.RegionAxes[i] = axes;
-                }
-                variationRegionList.VariationRegions[index] = region;
-            }
-
-            var variationDataList = new List<ItemVariationDataSubtable>();
-            for (int i = 0; i < itemVariationDataCount; ++i)
-            {
-                otfTtfReader.Position = variationOffset + itemVariationDataOffsets[i];
-                var variationDataSubtable = new ItemVariationDataSubtable();
-                variationDataSubtable.ItemCount = otfTtfReader.ReadUInt16();
-                variationDataSubtable.ShortDeltaCount = otfTtfReader.ReadUInt16();
-                variationDataSubtable.RegionIndexCount = otfTtfReader.ReadUInt16();
-                variationDataSubtable.RegionIndices = otfTtfReader.ReadUInt16Array(variationDataSubtable.RegionIndexCount);
-                variationDataSubtable.DeltaSets = new DeltaSet[variationDataSubtable.ItemCount];
-                if (variationDataSubtable.ItemCount > 0)
-                {
-                    for (int k = 0; k < variationDataSubtable.ItemCount; ++k)
-                    {
-                        var deltaSet = new DeltaSet();
-                        deltaSet.ShortDeltaData = otfTtfReader.ReadInt16Array(variationDataSubtable.ShortDeltaCount);
-                        var deltaDataCount = variationDataSubtable.RegionIndexCount -
-                                             variationDataSubtable.ShortDeltaCount;
-                        deltaSet.DeltaData = otfTtfReader.ReadSignedBytes(deltaDataCount);
-
-                        variationDataSubtable.DeltaSets[k] = deltaSet;
-                    }
-                }
-                
-                variationDataList.Add(variationDataSubtable);
-            }
-
-            cffFont.VariationStore = new VariationStore(variationRegionList, variationDataList.ToArray());
+            cffFont.VariationStore = otfTtfReader.ReadItemVariationStore(cffOffset + variationStoreOffset + 2);
         }
 
         private void ReadFDArray()
@@ -196,6 +136,7 @@ namespace Adamantium.Fonts.Parsers.CFF
             var glyphs = new Glyph[count];
             var fontDicts = new FontDict[count];
             var source = new CFFGlyphOutlineSource(this, cffFont, fontDicts);
+            cffFont.OutlineSource = source;
             var fdArraySelector = new FontDictArraySelector(cffFont.CIDFontInfo);
 
             for (var i = 0; i < count; ++i)

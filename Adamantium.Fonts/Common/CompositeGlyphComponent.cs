@@ -8,6 +8,12 @@ namespace Adamantium.Fonts.Common
         public UInt16 SimpleGlyphIndex { get; set; } // index of simple glyph which is a part of composite glyph
         public Matrix3x2 TransformMatrix { get; set; } = Matrix3x2.Identity;
 
+        internal bool IsAnchored { get; set; }
+
+        internal int ParentPoint { get; set; }
+
+        internal int ChildPoint { get; set; }
+
         internal CompositeGlyphComponent() {}
     }
 }

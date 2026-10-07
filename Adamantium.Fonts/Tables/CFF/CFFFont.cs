@@ -39,7 +39,9 @@ namespace Adamantium.Fonts.Tables.CFF
         
         public CIDFontInfo CIDFontInfo { get; }
         
-        public VariationStore VariationStore { get; set; } 
+        public VariationStore VariationStore { get; set; }
+
+        internal IGlyphOutlineSource OutlineSource { get; set; }
         
         internal List<FontDict> CIDFontDicts { get; set; }
 

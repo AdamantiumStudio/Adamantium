@@ -42,6 +42,21 @@ public sealed class FontFallback
     /// slant and width; null when none of the families has it.</summary>
     public IFont FontFor(int codepoint, IFont like, string language = null)
     {
+        return FontFor(codepoint, like, language, true, out _);
+    }
+
+    /// <summary>The font that draws <paramref name="codepoint"/> in place of <paramref name="like"/>, as
+    /// <see cref="FontFor(int, IFont, string)"/> finds it, without waiting for a font file: while the character map or
+    /// the font it needs is still being read, null with <paramref name="pending"/> set; a worker reads it and raises
+    /// <see cref="TypefaceStore.Loaded"/> when done.</summary>
+    public IFont FontFor(int codepoint, IFont like, string language, out bool pending)
+    {
+        return FontFor(codepoint, like, language, false, out pending);
+    }
+
+    private IFont FontFor(int codepoint, IFont like, string language, bool wait, out bool pending)
+    {
+        pending = false;
         var preferred = IsCjk(codepoint) ? CjkFamily(language)
             : UnicodeData.IsExtendedPictographic(codepoint) ? _emojiFamily
             : null;
@@ -54,36 +69,65 @@ public sealed class FontFallback
             }
         }
 
-        var font = preferred != null ? Find(preferred, codepoint, like) : null;
-        if (font == null)
+        var font = preferred != null ? Find(preferred, codepoint, like, wait, ref pending) : null;
+        if (font == null && !pending)
         {
             foreach (var family in _families)
             {
-                font = Find(family, codepoint, like);
-                if (font != null)
+                font = Find(family, codepoint, like, wait, ref pending);
+                if (font != null || pending)
                 {
                     break;
                 }
             }
         }
 
-        lock (_gate)
+        if (!pending)
         {
-            _found[key] = font;
+            lock (_gate)
+            {
+                _found[key] = font;
+            }
         }
 
         return font;
     }
 
-    private IFont Find(string family, int codepoint, IFont like)
+    private IFont Find(string family, int codepoint, IFont like, bool wait, ref bool pending)
     {
         var face = _fonts.Match(family, like.Weight, like.Style, like.Stretch);
-        if (face == null || !face.HasCharacter(codepoint))
+        if (face == null)
         {
             return null;
         }
 
-        var font = FontCollection.Load(face);
+        bool has;
+        if (wait)
+        {
+            has = face.HasCharacter(codepoint);
+        }
+        else if (!face.TryHasCharacter(codepoint, out has))
+        {
+            pending = true;
+            return null;
+        }
+
+        if (!has)
+        {
+            return null;
+        }
+
+        IFont font;
+        if (wait)
+        {
+            font = FontCollection.Load(face, like.Weight, like.Stretch);
+        }
+        else if (!FontCollection.TryLoad(face, like.Weight, like.Stretch, out font))
+        {
+            pending = true;
+            return null;
+        }
+
         return font.TryGetGlyphIndex(codepoint, out _) ? font : null;
     }
 

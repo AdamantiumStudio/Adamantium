@@ -135,6 +135,15 @@ namespace Adamantium.Fonts.Parsers
                 case TableNames.fvar:
                     ReadFvarTable(entry);
                     break;
+                case TableNames.avar:
+                    CurrentFont.AxisVariations = AxisVariationTable.Read(FontReader, entry.Offset);
+                    break;
+                case TableNames.gvar:
+                    CurrentFont.GlyphVariations = GlyphVariationTable.Read(FontReader, entry.Offset);
+                    break;
+                case TableNames.HVAR:
+                    CurrentFont.MetricsVariations = HorizontalMetricsVariationTable.Read(FontReader, entry.Offset);
+                    break;
                 case TableNames.CFF:
                 case TableNames.CFF2:
                     DetermineCFFVersion(CurrentTableDirectory);
@@ -274,6 +283,7 @@ namespace Adamantium.Fonts.Parsers
 
             cffFont = cffParser.Parse();
             Typeface.SetGlyphs(cffFont.Glyphs);
+            Typeface.OutlineSource = cffFont.OutlineSource;
             CurrentFont.VariationData = cffFont.VariationStore;
         }
 
@@ -345,6 +355,9 @@ namespace Adamantium.Fonts.Parsers
             }
 
             CurrentFont.InstanceData = instances;
+            CurrentFont.Axes = axes
+                .Select(a => new FontAxis(a.AxisTag, (float)a.MinValue, (float)a.DefaultValue, (float)a.MaxValue))
+                .ToArray();
         }
 
         protected virtual void ReadGlyphPositioningTable(TableEntry entry)

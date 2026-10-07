@@ -36,55 +36,7 @@ namespace Adamantium.Fonts.Parsers.CFF
                 for (var r = 0; r < blendData.Data.Count; ++r)
                 {
                     var region = regionList.VariationRegions[blendData.RegionIndices[r]];
-                    double overallScalar = 1;
-
-                    for (var a = 0; a < regionList.AxisCount; a++)
-                    {
-                        double perAxisScalar = 0;
-                        
-                        var startCoord = region.RegionAxes[a].StartCoord;
-                        var peakCoord = region.RegionAxes[a].PeakCoord;
-                        var endCoord = region.RegionAxes[a].EndCoord;
-
-                        if (startCoord > peakCoord ||
-                            peakCoord > endCoord)
-                        {
-                            perAxisScalar = 1;
-                        }
-                        else if (startCoord < 0 && endCoord > 0 &&
-                                 peakCoord != 0)
-                        {
-                            perAxisScalar = 1;
-                        }
-                        else if (peakCoord == 0)
-                        {
-                            perAxisScalar = 1;
-                        }
-                        else if (variationPoint[a] < startCoord
-                                 || variationPoint[a] > endCoord)
-                        {
-                            perAxisScalar = 0;
-                        }
-                        else
-                        {
-                            if (variationPoint[a] == peakCoord)
-                            {
-                                perAxisScalar = 1;
-                            }
-                            else if (variationPoint[a] < peakCoord)
-                            {
-                                perAxisScalar = (variationPoint[a] - startCoord) / (peakCoord - startCoord);
-                            }
-                            else
-                            {
-                                perAxisScalar = (endCoord - variationPoint[a]) / (endCoord - peakCoord);
-                            }
-                        }
-                        
-                        overallScalar *= perAxisScalar;
-                    }
-                    
-                    netAdjustment += overallScalar * blendData.Data[r];
+                    netAdjustment += region.GetScalar(variationPoint) * blendData.Data[r];
                 }
 
                 blendedOperand.Value += netAdjustment;

@@ -58,6 +58,17 @@ namespace Adamantium.Fonts
         /// <summary>The space left of a glyph's outline, in font units, from this font's own 'hmtx'.</summary>
         public short GetLeftSideBearing(uint glyphIndex);
 
+        /// <summary>The axes this font varies along ('fvar'); empty for a font that does not vary.</summary>
+        public IReadOnlyList<FontAxis> Axes { get; }
+
+        /// <summary>The axis values of an instance (<see cref="GetInstance"/>); empty for a font as its file has it.</summary>
+        public IReadOnlyList<FontVariation> Variations { get; }
+
+        /// <summary>This variable font at the axis values given, with its own outlines and advances; an axis not given
+        /// takes its default, a value outside its axis is clamped. The same values give the same instance; a font that
+        /// does not vary, or values that are all defaults, give this font.</summary>
+        public IFont GetInstance(IReadOnlyList<FontVariation> variations);
+
         /// <summary>The OpenType features this font offers, per script and language system.</summary>
         public FeatureCatalog FeatureCatalog { get; }
         
