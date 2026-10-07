@@ -82,6 +82,12 @@ All packages share one version.
   whose fallback font is still loading takes the room of the missing glyph and draws nothing; `HasPendingFonts` says
   to lay the text out again when the font arrives.
 - `TextureAtlasGenerator.GenerateTextureForGlyphs(glyphs, ready)` hands each glyph over as soon as it is rasterized.
+- Synthesized bold and italic for a face a family lacks (`FontSynthesis`, `TextAttributes.Synthesis`): a bold moves
+  the glyph's edge out in the distance field, by a 48th of the size per side at 9 pixels down to a 64th at 36, and
+  advances it further by twice that; an italic slants the glyph's quad about its baseline by a quarter of its height
+  (about 14 degrees), and the text takes the room its letters lean into. Both draw from the same atlas glyphs, in the
+  same batch as the text around them (`FontItem.Synthesis`). `FontSynthesisRules.Needed` says what to synthesize: a
+  weight of 600 or more on a lighter face, an italic or oblique style on an upright one, only as allowed.
 
 ### Fixed
 

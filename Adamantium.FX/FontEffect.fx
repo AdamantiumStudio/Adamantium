@@ -12,6 +12,9 @@ struct FontItem
     int SpriteEffect : BLENDINDICES0;
     // The atlas array slice this glyph was packed into - read by the pixel stage, see the note below.
     float Layer : PSIZE2;
+    // A face the font lacks: x = the outline's outward move for a bold, in field units; y = an italic's slant; z = the
+    // baseline's place in the quad (0 top, 1 bottom), which the slant pivots on.
+    float4 Synthesis : TEXCOORD2;
 };
 
 // The atlas layer is a runtime index, so glyphs the packer spills to layers 1+ are sampled from their own layer.
@@ -28,7 +31,15 @@ struct PSInput
     nointerpolation float4 ClipRadii : TEXCOORD2;
     // The atlas array slice, as a runtime value - see the note above for why it was a compile-time 0 for so long.
     nointerpolation float Layer : TEXCOORD3;
+    // How far a synthesized bold moves the glyph's edge out, in field units; 0 for a face drawn as it is.
+    nointerpolation float Embolden : TEXCOORD4;
 };
+
+// A synthesized italic: the corner's shift right, for a quad of the given height, slanted about its baseline.
+float SlantShift(float4 synthesis, float cornerY, float height)
+{
+    return (synthesis.z - cornerY) * height * synthesis.y;
+}
 
 Texture2DArray Texture : register(t1);
 SamplerState TextureSampler : register(s1);
@@ -115,6 +126,7 @@ PSInput ExpandGlyphCorner(FontItem item, int corner)
 
     float2 cornerCoord = TextureCornerCoords[corner];
     float2 size = cornerCoord * item.Destination.zw;
+    size.x += SlantShift(item.Synthesis, cornerCoord.y, item.Destination.w);
     float2 position = size - origin;
 
     [flatten]
@@ -140,6 +152,7 @@ PSInput ExpandGlyphCorner(FontItem item, int corner)
     // WRITTEN either way: a varying this vertex shader does not set reaches the pixel shader as whatever was in the
     // register, and the batch shares this PSInput with it. A zero box is "no clip".
     vertex.Layer = item.Layer;
+    vertex.Embolden = item.Synthesis.x;
     vertex.ClipBox = DirectClipBox;
     vertex.ClipRadii = DirectClipRadii;
 
@@ -186,7 +199,7 @@ float4 FontPixelShaderMsdf(PSInput input) : SV_Target
 {
     float4 samp = Texture.Sample(TextureSampler, float3(input.UV, input.Layer));
     float sd = SampleGlyphCoverage(samp, input.UV);
-    float opacity = clamp(ScreenPxRange(input.UV) * (sd - 0.5 + FontWeight) + 0.5, 0.0, 1.0);
+    float opacity = clamp(ScreenPxRange(input.UV) * (sd - 0.5 + FontWeight + input.Embolden) + 0.5, 0.0, 1.0);
     // A glyph of attributed text brings its own color; a negative alpha means the element's foreground.
     float4 color = input.Color.a < 0 ? ForegroundColor : float4(input.Color.rgb, input.Color.a * GlyphFade);
     // Gamma-boost coverage times the color's alpha so thin stems keep their color; splitting the two washed text out.
@@ -206,7 +219,7 @@ float4 FontPixelShaderMsdfBatch(PSInput input) : SV_Target
 {
     float4 samp = Texture.Sample(TextureSampler, float3(input.UV, input.Layer));
     float sd = SampleGlyphCoverage(samp, input.UV);
-    float opacity = clamp(ScreenPxRange(input.UV) * (sd - 0.5 + FontWeight) + 0.5, 0.0, 1.0);
+    float opacity = clamp(ScreenPxRange(input.UV) * (sd - 0.5 + FontWeight + input.Embolden) + 0.5, 0.0, 1.0);
     // Unchanged on purpose - the element's fade is pre-compensated in the vertex stage so that this very boost hands
     // it back linear. See the FADE line in FontBatchInstancedVS.
     float alpha = pow(input.Color.a * opacity, 1.0 / 2.2);
@@ -225,7 +238,7 @@ struct GlyphData
     float4 LocalRect;   // node-local x, y, w, h (world for slot-0 legacy bakes)
     float4 Source;      // atlas UV rect
     float4 Params;      // .x = transform-table slot; .y = atlas layer (read by the PS); .z = depth; .w reserved
-    float4 Clip;        // .x = the ROUNDED CLIP's slot, or -1; .yzw spare
+    float4 Clip;        // .x = the ROUNDED CLIP's slot, or -1; .yzw = the glyph's synthesis (FontItem.Synthesis.xyz)
     float4 Color;       // straight RGBA, element/brush opacity folded into .w
 };
 
@@ -239,6 +252,7 @@ PSInput FontBatchInstancedVS(uint vertexId : SV_VertexID, uint instanceId : SV_I
     // SAME corner mapping as ExpandGlyphCorner (TextureCornerCoords[vertexId]) so the quad + UV match the direct path.
     float2 corner = TextureCornerCoords[vertexId];
     float2 localPos = g.LocalRect.xy + corner * g.LocalRect.zw;
+    localPos.x += SlantShift(float4(0.0, g.Clip.z, g.Clip.w, 0.0), corner.y, g.LocalRect.w);
     // Node-local -> world via the instance's transform-table matrix (slot 0 = identity for legacy world bakes).
     NodeSlot* nodes = (NodeSlot*)TransformsAddress;
     float4x4 nodeWorld = nodes[(uint)g.Params.x].World;
@@ -254,6 +268,7 @@ PSInput FontBatchInstancedVS(uint vertexId : SV_VertexID, uint instanceId : SV_I
     o.Color = float4(g.Color.rgb, g.Color.a * pow(fade, 2.2));
     // The clip's shape, from the table by the slot the record carries - one fetch per instance, as everywhere else.
     o.Layer = g.Params.y;   // the atlas layer this glyph was packed into
+    o.Embolden = g.Clip.y;
     ClipFromSlot(g.Clip.x, o.ClipBox, o.ClipRadii);
     return o;
 }

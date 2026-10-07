@@ -62,6 +62,14 @@ public struct FontItem
     [VertexInputElement("PSIZE2")]
     public Single Layer;
 
+    /// <summary>
+    /// What draws the glyph as a face its font lacks (<see cref="Adamantium.Fonts.FontSynthesis"/>): x = how far the
+    /// outline moves out for a bold, in units of the distance field; y = the slant of an italic; z = where the baseline
+    /// lies in the quad, 0 at its top and 1 at its bottom, the line the slant pivots on. Zero draws the glyph as it is.
+    /// </summary>
+    [VertexInputElement("TEXCOORD2")]
+    public Vector4F Synthesis;
+
     /// <summary>The <see cref="Color"/> of a glyph that takes the element's foreground: a negative alpha.</summary>
     public static readonly Vector4F InheritedColor = new(0, 0, 0, -1);
 
