@@ -136,8 +136,8 @@ public class TextLayout : DisposableObject
     // Takes the list explicitly: it is called mid-shaping, on data not yet published as _wordData.
     private void CalculateRealTextDimensions(List<GlyphWordData> glyphsData)
     {
-        var minX = glyphsData.Min(x => x.Rect.Left);
-        var maxX = glyphsData.Max(x => x.Rect.Right);
+        var minX = glyphsData.Min(InkLeft);
+        var maxX = glyphsData.Max(InkRight);
         var minY = glyphsData.Min(x => x.Rect.Top);
         var maxY = glyphsData.Max(x => x.Rect.Bottom);
         RealTextDimensions = new Size(maxX - minX, maxY - minY);
@@ -343,7 +343,7 @@ public class TextLayout : DisposableObject
 
         CalculateRealTextDimensions(glyphsData);
 
-        var maxX = glyphsData.Max(x => x.Rect.Right);
+        var maxX = glyphsData.Max(InkRight);
         var finalRect = new Size(Math.Ceiling(maxX), Math.Ceiling(height));
         if (renderingParameters.TextArea.Width != Int32.MaxValue)
         {
@@ -883,14 +883,16 @@ public class TextLayout : DisposableObject
                     Right = cell.Right - halfTexelU,
                     Bottom = cell.Bottom - halfTexelV,
                 };
+                var quad = new Vector4F((float)(rect.X - mx), (float)(rect.Y - my),
+                    (float)(rect.Width + 2 * mx), (float)(rect.Height + 2 * my));
                 item = new FontItem
                 {
-                    ArrangeRect = new Vector4F((float)(rect.X - mx), (float)(rect.Y - my),
-                        (float)(rect.Width + 2 * mx), (float)(rect.Height + 2 * my)),
+                    ArrangeRect = quad,
                     Source = source,
                     Layer = gd.DepthLayer,
                     Depth = 1.0f,
-                    Color = GlyphColor(word)
+                    Color = GlyphColor(word),
+                    Synthesis = GlyphSynthesis(word, quad)
                 };
             }
             else if (gd != null)
@@ -901,7 +903,8 @@ public class TextLayout : DisposableObject
                     Source = FontAtlas.GetUVCoordinatesForGlyph(word.Font, word.Glyph),
                     Layer = gd.DepthLayer,
                     Depth = 1.0f,
-                    Color = GlyphColor(word)
+                    Color = GlyphColor(word),
+                    Synthesis = GlyphSynthesis(word, word.Rect)
                 };
             }
             else
@@ -1409,8 +1412,14 @@ public class TextLayout : DisposableObject
                         var glyphAttributes = AttributesAt(cluster);
                         var size = glyphAttributes?.FontSize ?? fontSize;
                         var scale = size / runFont.UnitsPerEm;
+                        var advance = glyph.XAdvance * scale;
+                        if (advance > 0 && IsEmboldened(glyphAttributes))
+                        {
+                            advance += 2 * FontSynthesisRules.EmboldenPerSide(size) * size;
+                        }
+
                         items.Add(new ShapedItem(blank ?? runFont.GetGlyphByIndex(glyph.GlyphIndex), text[cluster], cluster,
-                            glyph.XAdvance * scale, glyph.XOffset * scale, glyph.YOffset * scale,
+                            advance, glyph.XOffset * scale, glyph.YOffset * scale,
                             glyphAttributes, runFont, size));
                     }
                 }
@@ -1553,6 +1562,38 @@ public class TextLayout : DisposableObject
     private static Vector4F GlyphColor(GlyphWordData word)
     {
         return word.Attributes?.Foreground is { } color ? color.ToVector4() : FontItem.InheritedColor;
+    }
+
+    private static bool IsEmboldened(TextAttributes attributes) =>
+        attributes?.Synthesis is { } synthesis && (synthesis & FontSynthesis.Weight) != 0;
+
+    private static bool IsSlanted(TextAttributes attributes) =>
+        attributes?.Synthesis is { } synthesis && (synthesis & FontSynthesis.Style) != 0;
+
+    private static double Baseline(GlyphWordData word) =>
+        word.Rect.Bottom + word.Glyph.BoundingRectangle.Y * word.FontSize / word.Font.UnitsPerEm;
+
+    private static double InkRight(GlyphWordData word) =>
+        IsSlanted(word.Attributes)
+            ? word.Rect.Right + Math.Max(0, Baseline(word) - word.Rect.Top) * FontSynthesisRules.Slant
+            : word.Rect.Right;
+
+    private static double InkLeft(GlyphWordData word) =>
+        IsSlanted(word.Attributes)
+            ? word.Rect.Left - Math.Max(0, word.Rect.Bottom - Baseline(word)) * FontSynthesisRules.Slant
+            : word.Rect.Left;
+
+    private Vector4F GlyphSynthesis(GlyphWordData word, Vector4F quad)
+    {
+        var embolden = IsEmboldened(word.Attributes)
+            ? (float)(FontSynthesisRules.EmboldenPerSide(word.FontSize) * FontAtlas.MSDFTextureSize / FontAtlas.PixelRange)
+            : 0f;
+        if (!IsSlanted(word.Attributes) || quad.W <= 0)
+        {
+            return new Vector4F(embolden, 0, 0, 0);
+        }
+
+        return new Vector4F(embolden, (float)FontSynthesisRules.Slant, (float)((Baseline(word) - quad.Y) / quad.W), 0);
     }
 
     private readonly struct ShapedItem

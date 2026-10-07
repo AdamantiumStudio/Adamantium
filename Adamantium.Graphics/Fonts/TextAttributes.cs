@@ -24,6 +24,10 @@ public sealed class TextAttributes
     /// text.</summary>
     public double? FontSize { get; init; }
 
+    /// <summary>What the text is drawn with that its <see cref="Font"/> lacks: thicker for a bold, slanted for an italic
+    /// (<see cref="FontSynthesisRules"/>). A thickened glyph advances further.</summary>
+    public FontSynthesis? Synthesis { get; init; }
+
     public Color? Foreground { get; init; }
 
     /// <summary>Fill behind the text, as high as the line.</summary>
@@ -48,6 +52,7 @@ public sealed class TextAttributes
             Language = over.Language ?? Language,
             Font = over.Font ?? Font,
             FontSize = over.FontSize ?? FontSize,
+            Synthesis = over.Synthesis ?? Synthesis,
             Foreground = over.Foreground ?? Foreground,
             Background = over.Background ?? Background,
             Decorations = over.Decorations ?? Decorations,
@@ -59,7 +64,7 @@ public sealed class TextAttributes
     /// sizes differ freely.</summary>
     public bool ShapesLike(TextAttributes other)
     {
-        return Language == other.Language && ReferenceEquals(Font, other.Font)
+        return Language == other.Language && ReferenceEquals(Font, other.Font) && Synthesis == other.Synthesis
                                           && FeaturesEqual(Features, other.Features);
     }
 
