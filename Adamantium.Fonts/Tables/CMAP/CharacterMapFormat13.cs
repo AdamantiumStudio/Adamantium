@@ -20,10 +20,23 @@ namespace Adamantium.Fonts.Tables.CMAP
         
         public override uint GetGlyphIndex(uint character)
         {
-            var group = Groups.FirstOrDefault(x => x.StartCharCode == character);
-            if (character <= group.EndCharCode)
+            var low = 0;
+            var high = Groups.Length - 1;
+            while (low <= high)
             {
-                return group.GlyphId;
+                var middle = (low + high) / 2;
+                if (character < Groups[middle].StartCharCode)
+                {
+                    high = middle - 1;
+                }
+                else if (character > Groups[middle].EndCharCode)
+                {
+                    low = middle + 1;
+                }
+                else
+                {
+                    return Groups[middle].GlyphId;
+                }
             }
 
             return 0;
@@ -44,7 +57,17 @@ namespace Adamantium.Fonts.Tables.CMAP
 
         public override void GetUnicodeToGlyphMappings(Dictionary<uint, uint> unicodeToGlyph)
         {
-            throw new NotImplementedException();
+            foreach (var group in Groups)
+            {
+                for (var character = group.StartCharCode; character <= group.EndCharCode; character++)
+                {
+                    unicodeToGlyph[character] = group.GlyphId;
+                    if (character == uint.MaxValue)
+                    {
+                        break;
+                    }
+                }
+            }
         }
     }
 }

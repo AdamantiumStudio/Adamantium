@@ -9,7 +9,7 @@ internal static class Positioner
         var placements = buffer.Placements;
         for (var i = 0; i < buffer.Length; i++)
         {
-            placements[i].XAdvance = font.GetGlyphByIndex(info[i].Glyph).AdvanceWidth;
+            placements[i].XAdvance = font.GetAdvanceWidth(info[i].Glyph);
         }
 
         if (buffer.HasSpaceFallback)
@@ -94,7 +94,7 @@ internal static class Positioner
                     {
                         if (font.TryGetGlyphIndex(digit, out var glyph))
                         {
-                            placements[i].XAdvance = font.GetGlyphByIndex(glyph).AdvanceWidth;
+                            placements[i].XAdvance = font.GetAdvanceWidth(glyph);
                             break;
                         }
                     }
@@ -103,7 +103,7 @@ internal static class Positioner
                 case SpaceKind.Punctuation:
                     if (font.TryGetGlyphIndex('.', out var period) || font.TryGetGlyphIndex(',', out period))
                     {
-                        placements[i].XAdvance = font.GetGlyphByIndex(period).AdvanceWidth;
+                        placements[i].XAdvance = font.GetAdvanceWidth(period);
                     }
 
                     break;

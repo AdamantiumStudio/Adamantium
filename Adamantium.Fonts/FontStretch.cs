@@ -24,23 +24,23 @@ public readonly struct FontStretch : IEquatable<FontStretch>, IComparable<FontSt
         _percent = percent;
     }
 
-    public static FontStretch UltraCondensed => new(50);
+    public static readonly FontStretch UltraCondensed = new(50);
 
-    public static FontStretch ExtraCondensed => new(62.5);
+    public static readonly FontStretch ExtraCondensed = new(62.5);
 
-    public static FontStretch Condensed => new(75);
+    public static readonly FontStretch Condensed = new(75);
 
-    public static FontStretch SemiCondensed => new(87.5);
+    public static readonly FontStretch SemiCondensed = new(87.5);
 
-    public static FontStretch Normal => new(100);
+    public static readonly FontStretch Normal = new(100);
 
-    public static FontStretch SemiExpanded => new(112.5);
+    public static readonly FontStretch SemiExpanded = new(112.5);
 
-    public static FontStretch Expanded => new(125);
+    public static readonly FontStretch Expanded = new(125);
 
-    public static FontStretch ExtraExpanded => new(150);
+    public static readonly FontStretch ExtraExpanded = new(150);
 
-    public static FontStretch UltraExpanded => new(200);
+    public static readonly FontStretch UltraExpanded = new(200);
 
     /// <summary>The width as a percentage of normal; a stretch never set reads as 100.</summary>
     public double Percent => _percent == 0 ? 100 : _percent;

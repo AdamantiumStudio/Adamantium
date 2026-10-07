@@ -42,6 +42,22 @@ namespace Adamantium.Fonts
         /// <summary>The typeface (the file) this font was loaded from; a collection holds several fonts.</summary>
         public Typeface Typeface { get; }
 
+        /// <summary>How heavy the font is ('OS/2' usWeightClass).</summary>
+        public FontWeight Weight { get; }
+
+        /// <summary>Upright, italic or oblique ('OS/2' fsSelection).</summary>
+        public FontStyle Style { get; }
+
+        /// <summary>How wide the font is ('OS/2' usWidthClass).</summary>
+        public FontStretch Stretch { get; }
+
+        /// <summary>How far the pen moves after a glyph, in font units, from this font's own 'hmtx': the fonts of a
+        /// collection share outlines, not metrics.</summary>
+        public ushort GetAdvanceWidth(uint glyphIndex);
+
+        /// <summary>The space left of a glyph's outline, in font units, from this font's own 'hmtx'.</summary>
+        public short GetLeftSideBearing(uint glyphIndex);
+
         /// <summary>The OpenType features this font offers, per script and language system.</summary>
         public FeatureCatalog FeatureCatalog { get; }
         
@@ -101,7 +117,8 @@ namespace Adamantium.Fonts
 
         internal OpenTypeLayout Layout { get; }
 
-        internal bool TryGetGlyphIndex(int codepoint, out uint glyphIndex);
+        /// <summary>The glyph the font maps <paramref name="codepoint"/> to; false when it has none.</summary>
+        public bool TryGetGlyphIndex(int codepoint, out uint glyphIndex);
 
         IReadOnlyList<Glyph> TranslateIntoGlyphs(string input);
 
