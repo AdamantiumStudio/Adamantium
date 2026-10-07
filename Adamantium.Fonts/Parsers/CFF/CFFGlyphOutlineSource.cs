@@ -3,17 +3,19 @@ using Adamantium.Fonts.Tables.CFF;
 
 namespace Adamantium.Fonts.Parsers.CFF;
 
-internal class CFFGlyphOutlineSource : IGlyphOutlineSource
+internal class CFFGlyphOutlineSource : IGlyphOutlineSource, IVariableGlyphOutlineSource
 {
     private readonly ICFFParser parser;
     private readonly CFFFont font;
     private readonly FontDict[] fontDicts;
+    private readonly float[] coordinates;
 
-    public CFFGlyphOutlineSource(ICFFParser parser, CFFFont font, FontDict[] fontDicts)
+    public CFFGlyphOutlineSource(ICFFParser parser, CFFFont font, FontDict[] fontDicts, float[] coordinates = null)
     {
         this.parser = parser;
         this.font = font;
         this.fontDicts = fontDicts;
+        this.coordinates = coordinates;
     }
 
     public void LoadOutlines(Glyph glyph)
@@ -27,6 +29,11 @@ internal class CFFGlyphOutlineSource : IGlyphOutlineSource
         }
 
         var commands = new CommandParser(parser).Parse(font, stack, fontDicts[index], index);
-        glyph.FillOutlines(commands).RecalculateBounds();
+        glyph.FillOutlines(commands, font.VariationStore?.VariationRegionList, coordinates).RecalculateBounds(true);
+    }
+
+    public IGlyphOutlineSource Vary(Font variedFont, float[] variedCoordinates, Glyph[] glyphs)
+    {
+        return font.VariationStore == null ? null : new CFFGlyphOutlineSource(parser, font, fontDicts, variedCoordinates);
     }
 }

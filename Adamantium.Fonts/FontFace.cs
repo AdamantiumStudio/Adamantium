@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 
 namespace Adamantium.Fonts;
 
@@ -12,6 +13,7 @@ public sealed class FontFace
 {
     private readonly object _coverageGate = new();
     private List<(int Start, int End)> _coverage;
+    private bool _coverageLoading;
 
     public FontFace(string family, string legacyFamily, string faceName, string fullName, FontWeight weight,
         FontStyle style, FontStretch stretch, string path, int collectionIndex,
@@ -75,19 +77,62 @@ public sealed class FontFace
         {
             if (_coverage == null)
             {
-                try
-                {
-                    _coverage = FontFaceReader.ReadCoverage(Path, CollectionIndex);
-                }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException or EndOfStreamException)
-                {
-                    _coverage = [];
-                }
+                _coverage = ReadCoverage();
             }
 
             coverage = _coverage;
         }
 
+        return Covers(coverage, codepoint);
+    }
+
+    /// <summary>Whether the face maps <paramref name="codepoint"/> to a glyph, as <see cref="HasCharacter"/> answers,
+    /// when its character map is already read; otherwise false, and the map is read on a worker that raises
+    /// <see cref="TypefaceStore.Loaded"/> when done. Never waits for the file.</summary>
+    public bool TryHasCharacter(int codepoint, out bool has)
+    {
+        lock (_coverageGate)
+        {
+            if (_coverage != null)
+            {
+                has = Covers(_coverage, codepoint);
+                return true;
+            }
+
+            if (!_coverageLoading)
+            {
+                _coverageLoading = true;
+                Task.Run(() =>
+                {
+                    var coverage = ReadCoverage();
+                    lock (_coverageGate)
+                    {
+                        _coverage ??= coverage;
+                    }
+
+                    TypefaceStore.NotifyLoaded();
+                });
+            }
+        }
+
+        has = false;
+        return false;
+    }
+
+    private List<(int Start, int End)> ReadCoverage()
+    {
+        try
+        {
+            return FontFaceReader.ReadCoverage(Path, CollectionIndex);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or EndOfStreamException)
+        {
+            return [];
+        }
+    }
+
+    private static bool Covers(List<(int Start, int End)> coverage, int codepoint)
+    {
         var low = 0;
         var high = coverage.Count - 1;
         while (low <= high)

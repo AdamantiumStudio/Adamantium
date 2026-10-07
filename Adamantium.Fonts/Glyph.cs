@@ -315,7 +315,34 @@ namespace Adamantium.Fonts
             foreach (var component in CompositeGlyphComponents)
             {
                 var componentGlyph = fontGlyphs[component.SimpleGlyphIndex];
-                outlines.AddRange(componentGlyph.TransformBasicOutlines(component.TransformMatrix));
+                var componentOutlines = componentGlyph.TransformBasicOutlines(component.TransformMatrix);
+                if (component.IsAnchored)
+                {
+                    AnchorOutlines(componentOutlines, component.ParentPoint, component.ChildPoint);
+                }
+
+                outlines.AddRange(componentOutlines);
+            }
+        }
+
+        private void AnchorOutlines(List<Outline> componentOutlines, int parentPoint, int childPoint)
+        {
+            var parent = outlines.SelectMany(o => o.Points).Skip(parentPoint).Take(1).ToArray();
+            var child = componentOutlines.SelectMany(o => o.Points).Skip(childPoint).Take(1).ToArray();
+            if (parent.Length == 0 || child.Length == 0)
+            {
+                return;
+            }
+
+            var dx = parent[0].X - child[0].X;
+            var dy = parent[0].Y - child[0].Y;
+            foreach (var outline in componentOutlines)
+            {
+                for (var i = 0; i < outline.Points.Count; i++)
+                {
+                    var point = outline.Points[i];
+                    outline.Points[i] = new OutlinePoint(point.X + dx, point.Y + dy, point.IsControl);
+                }
             }
         }
 
@@ -402,10 +429,10 @@ namespace Adamantium.Fonts
                 BoundingRectangle = Rectangle.FromCorners(0, 0, 0, 0);
                 return this;
             }
-            var minX = (int)allPoints.Min(x => x.X);
-            var minY = (int)allPoints.Min(x => x.Y);
-            var maxX = (int)allPoints.Max(x => x.X);
-            var maxY = (int)allPoints.Max(x => x.Y);
+            var minX = (int)Math.Floor(allPoints.Min(x => x.X));
+            var minY = (int)Math.Floor(allPoints.Min(x => x.Y));
+            var maxX = (int)Math.Ceiling(allPoints.Max(x => x.X));
+            var maxY = (int)Math.Ceiling(allPoints.Max(x => x.Y));
             BoundingRectangle = Rectangle.FromCorners(minX, minY, maxX, maxY);
 
             return this;
@@ -518,7 +545,9 @@ namespace Adamantium.Fonts
                 }
             }
 
+            var fillsOnLeft = OutlineType != OutlineType.TrueType;
             var whole = new bool?[contours.Length];
+            var reversed = new bool[contours.Length];
             for (var c = 0; c < contours.Length; c++)
             {
                 if (!crossed[c])
@@ -532,7 +561,8 @@ namespace Adamantium.Fonts
                         }
                     }
 
-                    whole[c] = IsBoundary(segments, longest.Start, longest.End);
+                    whole[c] = IsBoundary(segments, longest.Start, longest.End, out var filledOnLeft);
+                    reversed[c] = filledOnLeft != fillsOnLeft;
                 }
             }
 
@@ -550,7 +580,7 @@ namespace Adamantium.Fonts
                 {
                     if (boundary)
                     {
-                        mergedOutlinesSegments.Add(segment);
+                        mergedOutlinesSegments.Add(reversed[contourOf[i]] ? new LineSegment2D(segment.End, segment.Start) : segment);
                     }
 
                     continue;
@@ -569,9 +599,11 @@ namespace Adamantium.Fonts
                 {
                     var start = pieces[k - 1].Point;
                     var end = pieces[k].Point;
-                    if (start != end && IsBoundary(segments, start, end) && kept.Add((start, end)))
+                    if (start != end && IsBoundary(segments, start, end, out var filledOnLeft) && kept.Add((start, end)))
                     {
-                        mergedOutlinesSegments.Add(new LineSegment2D(start, end));
+                        mergedOutlinesSegments.Add(filledOnLeft == fillsOnLeft
+                            ? new LineSegment2D(start, end)
+                            : new LineSegment2D(end, start));
                     }
                 }
             }
@@ -626,12 +658,13 @@ namespace Adamantium.Fonts
             return Math.Max(Math.Min(start, end), 0) < Math.Min(Math.Max(start, end), 1);
         }
 
-        private static bool IsBoundary(LineSegment2D[] segments, Vector2 start, Vector2 end)
+        private static bool IsBoundary(LineSegment2D[] segments, Vector2 start, Vector2 end, out bool filledOnLeft)
         {
             var direction = end - start;
             var side = new Vector2(-direction.Y, direction.X) * (SideProbe / direction.Length());
             var middle = (start + end) * 0.5;
-            return IsFilled(segments, middle + side) != IsFilled(segments, middle - side);
+            filledOnLeft = IsFilled(segments, middle + side);
+            return filledOnLeft != IsFilled(segments, middle - side);
         }
 
         private static bool IsFilled(LineSegment2D[] segments, Vector2 point)

@@ -19,6 +19,8 @@ namespace Adamantium.Fonts
         private readonly List<string> errorMessages;
         internal IFontParser Parser { get; set; }
 
+        internal IGlyphOutlineSource OutlineSource { get; set; }
+
         public IFont CurrentFont { get; private set; }
 
         public Typeface()

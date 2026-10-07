@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -230,14 +231,49 @@ namespace Adamantium.Fonts.TextureGeneration
                 return [];
             }
 
-            Parallel.ForEach(glyphs, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
-                pair => GenerateTextureForGlyph(pair.Font, pair.Glyph));
+            var generated = new List<GlyphTextureData>();
+            GenerateTextureForGlyphs(glyphs, (_, data) =>
+            {
+                if (data != null)
+                {
+                    lock (generated)
+                    {
+                        generated.Add(data);
+                    }
+                }
+            });
 
-            var data = atlasData.GetGlyphData(glyphs.Select(x => GlyphTextureData.KeyOf(x.Font.Typeface, x.Glyph.Index))
-                .ToArray());
-            CalculateTextureDataForAtlas(data);
+            return generated;
+        }
 
-            return data;
+        /// <summary>Rasterizes glyphs as <see cref="GenerateTextureForGlyphs(IReadOnlyList{ValueTuple{IFont, Glyph}})"/>
+        /// does, but hands each to <paramref name="ready"/> as soon as it is placed in the atlas (null for a glyph with
+        /// nothing to draw), from the worker that made it: a few heavy glyphs do not hold back the rest. The heaviest
+        /// start first, so they do not end up queued behind each other on one worker.</summary>
+        public void GenerateTextureForGlyphs(IReadOnlyList<(IFont Font, Glyph Glyph)> glyphs,
+            Action<(IFont Font, Glyph Glyph), GlyphTextureData> ready)
+        {
+            var options = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount };
+            var weights = new int[glyphs.Count];
+            Parallel.For(0, glyphs.Count, options, i => weights[i] = Weight(glyphs[i].Glyph));
+            var order = Enumerable.Range(0, glyphs.Count).OrderByDescending(i => weights[i]).ToArray();
+
+            Parallel.ForEach(Partitioner.Create(order, EnumerablePartitionerOptions.NoBuffering), options, i =>
+            {
+                var pair = glyphs[i];
+                var data = GenerateTextureForGlyph(pair.Font, pair.Glyph);
+                if (data != null)
+                {
+                    CalculateTextureDataForAtlas([data]);
+                }
+
+                ready(pair, data);
+            });
+        }
+
+        private static int Weight(Glyph glyph)
+        {
+            return glyph.HasOutlines ? glyph.Outlines.Sum(o => o.Points.Count) : 0;
         }
 
         public FontAtlasData GenerateTextureAtlas()
@@ -283,7 +319,7 @@ namespace Adamantium.Fonts.TextureGeneration
             atlasData.AddGlyphData(textureData);
         }
 
-        private void GenerateTextureForGlyph(IFont glyphFont, Glyph glyph)
+        private GlyphTextureData GenerateTextureForGlyph(IFont glyphFont, Glyph glyph)
         {
             GlyphTextureData textureData;
             try
@@ -296,16 +332,17 @@ namespace Adamantium.Fonts.TextureGeneration
             catch (Exception e)
             {
                 glyphFont.Typeface.AddErrorMessage($"[ERR] Glyph {glyph.Index} could not be rasterized: {e.Message}");
-                return;
+                return null;
             }
 
             if (textureData == null)
             {
-                return;
+                return null;
             }
 
             textureData.Key = GlyphTextureData.KeyOf(glyphFont.Typeface, glyph.Index);
             atlasData.AddGlyphData(textureData);
+            return textureData;
         }
 
         private GlyphTextureData CalculateTextureDataForGlyph(uint glyphIndex, bool useProportionalSize = true)

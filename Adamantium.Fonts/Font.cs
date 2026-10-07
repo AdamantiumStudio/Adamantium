@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
 using Adamantium.Fonts.Common;
 using Adamantium.Fonts.Parsers;
 using Adamantium.Fonts.Tables;
@@ -16,7 +18,11 @@ namespace Adamantium.Fonts
         private Dictionary<string, List<Feature>> featuresMap;
         private ushort[] advanceWidths;
         private short[] leftSideBearings;
-        public Typeface Typeface { get; }
+        private Dictionary<string, Font> instances = new();
+        private Font baseFont;
+        private float[] coordinates;
+        private int[] variedAdvances;
+        public Typeface Typeface { get; private set; }
         internal VariationStore VariationData { get; set; }
         internal List<InstanceRecord> InstanceData { get; set; }
 
@@ -150,8 +156,134 @@ namespace Adamantium.Fonts
 
         public FontStretch Stretch { get; internal set; } = FontStretch.Normal;
 
+        /// <inheritdoc />
+        public IReadOnlyList<FontAxis> Axes { get; internal set; } = [];
+
+        /// <inheritdoc />
+        public IReadOnlyList<FontVariation> Variations { get; private set; } = [];
+
+        internal AxisVariationTable AxisVariations { get; set; }
+
+        internal GlyphVariationTable GlyphVariations { get; set; }
+
+        internal HorizontalMetricsVariationTable MetricsVariations { get; set; }
+
+        /// <inheritdoc />
+        public IFont GetInstance(IReadOnlyList<FontVariation> variations)
+        {
+            if (baseFont != null)
+            {
+                return baseFont.GetInstance(variations);
+            }
+
+            if (Axes.Count == 0 || Typeface.OutlineSource is not IVariableGlyphOutlineSource variable)
+            {
+                return this;
+            }
+
+            var normalized = new int[Axes.Count];
+            var values = new FontVariation[Axes.Count];
+            for (var a = 0; a < Axes.Count; a++)
+            {
+                var axis = Axes[a];
+                var value = axis.DefaultValue;
+                foreach (var variation in variations)
+                {
+                    if (variation.Tag == axis.Tag)
+                    {
+                        value = variation.Value;
+                    }
+                }
+
+                value = Math.Max(axis.MinValue, Math.Min(axis.MaxValue, value));
+                values[a] = new FontVariation(axis.Tag, value);
+                normalized[a] = axis.Normalize(value);
+                if (AxisVariations != null)
+                {
+                    normalized[a] = AxisVariations.Map(a, normalized[a]);
+                }
+            }
+
+            if (normalized.All(n => n == 0))
+            {
+                return this;
+            }
+
+            lock (instances)
+            {
+                var key = string.Join(",", normalized);
+                if (!instances.TryGetValue(key, out var instance))
+                {
+                    instance = CreateInstance(variable, normalized.Select(n => n / 16384f).ToArray(), values);
+                    instances[key] = instance;
+                }
+
+                return instance;
+            }
+        }
+
+        private Font CreateInstance(IVariableGlyphOutlineSource variable, float[] normalized, FontVariation[] values)
+        {
+            var baseGlyphs = Typeface.Glyphs.ToArray();
+            var glyphs = new Glyph[baseGlyphs.Length];
+            var source = variable.Vary(this, normalized, glyphs);
+            if (source == null)
+            {
+                return this;
+            }
+
+            var typeface = new Typeface { Parser = Typeface.Parser };
+            var instance = (Font)MemberwiseClone();
+            instance.Typeface = typeface;
+            instance.baseFont = this;
+            instance.coordinates = normalized;
+            instance.Variations = values;
+            instance.Weight = values.FirstOrDefault(v => v.Tag == "wght") is { Tag: not null } weight
+                ? new FontWeight(Math.Max(1, Math.Min(1000, (int)Math.Round(weight.Value))))
+                : Weight;
+            instance.Stretch = values.FirstOrDefault(v => v.Tag == "wdth") is { Tag: not null, Value: > 0 } width
+                ? new FontStretch(width.Value)
+                : Stretch;
+            instance.variedAdvances = Enumerable.Repeat(-1, glyphs.Length).ToArray();
+            instance.instances = new Dictionary<string, Font>();
+
+            for (var i = 0; i < glyphs.Length; i++)
+            {
+                var original = baseGlyphs[i];
+                var glyph = original.IsEmpty ? Glyph.EmptyGlyph(original.Index) : new Glyph(original.Index, original.OutlineType);
+                glyph.Name = original.Name;
+                glyph.SID = original.SID;
+                glyph.ClassDefinition = original.ClassDefinition;
+                glyph.AdvanceWidth = original.AdvanceWidth;
+                glyph.LeftSideBearing = original.LeftSideBearing;
+                glyph.AdvanceHeight = original.AdvanceHeight;
+                glyph.TopSideBearing = original.TopSideBearing;
+                glyph.SetUnicodes(original.Unicodes);
+                if (!original.IsEmpty)
+                {
+                    glyph.SetOutlineSource(source);
+                }
+
+                glyphs[i] = glyph;
+            }
+
+            typeface.SetGlyphs(glyphs);
+            typeface.AddFont(instance);
+            typeface.SetDefaultFont();
+            instance.glyphs = this.glyphs.Select(g => glyphs[g.Index]).ToList();
+            instance.unicodes = new List<uint>(unicodes);
+            instance.unicodeToGlyph = unicodeToGlyph.ToDictionary(p => p.Key, p => glyphs[p.Value.Index]);
+            instance.nameToGlyph = nameToGlyph.ToDictionary(p => p.Key, p => glyphs[p.Value.Index]);
+            return instance;
+        }
+
         public ushort GetAdvanceWidth(uint glyphIndex)
         {
+            if (baseFont != null)
+            {
+                return GetVariedAdvanceWidth(glyphIndex);
+            }
+
             if (advanceWidths != null && glyphIndex < advanceWidths.Length)
             {
                 return advanceWidths[glyphIndex];
@@ -160,8 +292,37 @@ namespace Adamantium.Fonts
             return Typeface.GetGlyphByIndex(glyphIndex, out var glyph) ? glyph.AdvanceWidth : (ushort)0;
         }
 
+        private ushort GetVariedAdvanceWidth(uint glyphIndex)
+        {
+            if (baseFont.MetricsVariations == null || glyphIndex >= variedAdvances.Length)
+            {
+                if (!Typeface.GetGlyphByIndex(glyphIndex, out var glyph))
+                {
+                    return 0;
+                }
+
+                _ = glyph.HasOutlines;
+                return glyph.AdvanceWidth;
+            }
+
+            var advance = Volatile.Read(ref variedAdvances[glyphIndex]);
+            if (advance < 0)
+            {
+                var delta = baseFont.MetricsVariations.GetAdvanceDelta(glyphIndex, coordinates);
+                advance = Math.Max(0, baseFont.GetAdvanceWidth(glyphIndex) + (int)Math.Round(delta, MidpointRounding.AwayFromZero));
+                Volatile.Write(ref variedAdvances[glyphIndex], advance);
+            }
+
+            return (ushort)advance;
+        }
+
         public short GetLeftSideBearing(uint glyphIndex)
         {
+            if (baseFont != null)
+            {
+                return Typeface.GetGlyphByIndex(glyphIndex, out var varied) ? (short)varied.BoundingRectangle.X : (short)0;
+            }
+
             if (leftSideBearings != null && glyphIndex < leftSideBearings.Length)
             {
                 return leftSideBearings[glyphIndex];

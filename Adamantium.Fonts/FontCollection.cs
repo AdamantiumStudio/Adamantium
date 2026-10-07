@@ -130,9 +130,42 @@ public sealed class FontCollection
     /// <summary>Loads a face: its typeface is parsed once and shared.</summary>
     public static IFont Load(FontFace face)
     {
-        var typeface = TypefaceStore.GetTypeface(face.Path);
+        return FontOf(TypefaceStore.GetTypeface(face.Path), face);
+    }
+
+    /// <summary>Loads a face at a weight and width: a variable face sets its 'wght' and 'wdth' axes to them (clamped to
+    /// its ranges); any other face is loaded as it is.</summary>
+    public static IFont Load(FontFace face, FontWeight weight, FontStretch stretch)
+    {
+        return Vary(Load(face), face, weight, stretch);
+    }
+
+    /// <summary>The face at a weight and width, as <see cref="Load(FontFace, FontWeight, FontStretch)"/> gives it, when
+    /// its file is already parsed; otherwise false, and the file is parsed on a worker
+    /// (<see cref="TypefaceStore.LoadInBackground"/>), which raises <see cref="TypefaceStore.Loaded"/> when done. Never
+    /// waits.</summary>
+    public static bool TryLoad(FontFace face, FontWeight weight, FontStretch stretch, out IFont font)
+    {
+        if (!TypefaceStore.TryGetTypeface(face.Path, out var typeface))
+        {
+            TypefaceStore.LoadInBackground(face.Path);
+            font = null;
+            return false;
+        }
+
+        font = Vary(FontOf(typeface, face), face, weight, stretch);
+        return true;
+    }
+
+    private static IFont FontOf(Typeface typeface, FontFace face)
+    {
         var index = Math.Min(face.CollectionIndex, typeface.Fonts.Count - 1);
         return typeface.Fonts[index];
+    }
+
+    private static IFont Vary(IFont font, FontFace face, FontWeight weight, FontStretch stretch)
+    {
+        return face.IsVariable ? font.GetInstance(FontVariation.For(weight, stretch)) : font;
     }
 
     private static FontCollection CreateSystem()

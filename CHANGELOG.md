@@ -68,6 +68,20 @@ All packages share one version.
   `GlyphWordData.FontSize` is the size a glyph is set at.
 - `TextLayout.TabSize`: a tab moves the pen to the next tab stop, a multiple of that many spaces from the line's start
   (4 by default), and draws nothing. Before, it was laid out as the font's glyph for it, usually the `.notdef` box.
+- Variable fonts: `IFont.Axes` (`FontAxis`: tag and range, from 'fvar') and `IFont.GetInstance`, the font at the axis
+  values given (`FontVariation`, `wght=650`), with its own outlines and advances: TrueType outlines moved by 'gvar'
+  (untouched points interpolated, composite offsets and phantom points varied), CFF2 outlines blended, advances from
+  'HVAR' or the phantom points, coordinates mapped through 'avar'. An instance has its own `Typeface`, so its glyphs
+  take their own places in the shared atlas; the same values give the same instance. Advances match HarfBuzz exactly
+  and outline extents to a unit on Source Sans 3 VF (TrueType and CFF2), Bahnschrift, Segoe UI Variable and Sitka.
+  `FontCollection.Load(face, weight, stretch)` sets a variable face's 'wght' and 'wdth' (`FontVariation.For`), and
+  fallback fonts take the weight and width of the text's.
+- Fonts load without waiting: `TypefaceStore.TryGetTypeface` and `LoadInBackground` (parsed on a worker, which raises
+  `TypefaceStore.Loaded`; `LoadedCount`), `FontCollection.TryLoad`, `FontFace.TryHasCharacter`, and
+  `FontFallback.FontFor(codepoint, like, language, out pending)`. With `TextLayout.LoadFontsInBackground` a character
+  whose fallback font is still loading takes the room of the missing glyph and draws nothing; `HasPendingFonts` says
+  to lay the text out again when the font arrives.
+- `TextureAtlasGenerator.GenerateTextureForGlyphs(glyphs, ready)` hands each glyph over as soon as it is rasterized.
 
 ### Fixed
 
@@ -113,9 +127,24 @@ All packages share one version.
   letter only. The GDEF mark glyph sets were read from the wrong offset.
 - `Font.GetGlyphByIndex` returned the glyph at that position among the glyphs `cmap` maps, not the glyph with that
   index, so any glyph reached through a substitution - a ligature, a small capital - came back as another one.
+- Glyphs drawn inside out in the distance field: a contour running against its format's direction, as a mirrored
+  component of a composite glyph does, fills the same under the winding rule but read as a hole, so ☃ from Segoe UI
+  Emoji grew wedges of fill and 😀 lost its mouth. Merged outline segments now all fill on the side their format
+  fills on.
+- A composite glyph whose components are placed by matching points was marked invalid and drawn empty; its components
+  are placed on the points now.
+- A CFF glyph's bounds took only its on-curve points and dropped the fraction, so a curve bulging past them was cut off
+  at the edge of its atlas cell; they now take the control points too and are rounded outward.
+- 32-bit deltas of an item variation store (long words) were read as 16-bit ones.
 
 ### Changed
 
+- Glyphs reach the atlas one by one as they are rasterized, the heaviest started first and spread over the workers, so
+  a few complex glyphs no longer hold back the rest of a batch: the sandbox's text page went from 8.6 s of glyph
+  generation to 1.1 s. The distance field of a glyph looks only at the outline segments near each texel (a grid of
+  them) instead of all of them, with the same result; ☃ from Segoe UI Emoji took 4.8 s and takes 0.3 s.
+- `TypefaceStore` parses each file once without holding one lock for all of them: files parse in parallel, and a font
+  already loaded is found while another parses.
 - The font atlas grows instead of filling up: it starts with two layers (8 MB of video memory instead of 32) and doubles
   as glyphs need room, up to the device's limit, where it used to overwrite its last layer past some 1800 glyphs.
   `FontAtlas.LayerCount` and `LayerCapacity`; `AtlasLayerCount` is gone, `InitialLayerCount` takes its place.
