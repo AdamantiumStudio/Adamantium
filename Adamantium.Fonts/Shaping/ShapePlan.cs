@@ -12,8 +12,13 @@ internal sealed class ShapePlan
     private const int MaxBitsPerFeature = 8;
     private const int GlobalBitShift = 31;
 
+    private static readonly string[] VariationFeatures = ["rvrn"];
+    private static readonly string[] DirectionFeatures = ["ltra", "ltrm"];
     private static readonly string[] CommonFeatures = ["abvm", "blwm", "ccmp", "locl", "mark", "mkmk", "rlig"];
     private static readonly string[] HorizontalFeatures = ["calt", "clig", "curs", "dist", "kern", "liga", "rclt"];
+
+    internal static readonly string[] DefaultFeatures =
+        [.. VariationFeatures, .. DirectionFeatures, .. CommonFeatures, .. HorizontalFeatures];
 
     private readonly Dictionary<string, FeatureMap> _features = new();
 
@@ -138,10 +143,17 @@ internal sealed class ShapePlan
             });
         }
 
-        Add("rvrn", FeatureFlags.Global);
+        foreach (var tag in VariationFeatures)
+        {
+            Add(tag, FeatureFlags.Global);
+        }
+
         gsubStage++;
-        Add("ltra", FeatureFlags.Global);
-        Add("ltrm", FeatureFlags.Global);
+        foreach (var tag in DirectionFeatures)
+        {
+            Add(tag, FeatureFlags.Global);
+        }
+
         Add("frac", FeatureFlags.None);
         Add("numr", FeatureFlags.None);
         Add("dnom", FeatureFlags.None);

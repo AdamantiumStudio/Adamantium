@@ -7,6 +7,9 @@ All packages share one version.
 
 ### Added
 
+- `TextShaper.DefaultFeatures`: the features shaping applies without being asked (`ccmp`, `locl`, `calt`, `liga`,
+  `kern`…), from the same list the shaper plans with, so a settings panel can show a font's `calt` as on and its
+  `ss01` as off before anything is asked for.
 - `FontCollection`: fonts grouped into families from their headers alone (`name`, `OS/2`, `head`, `fvar`; collection
   files included), found by typographic, older or full name, with each face's weight, slant and width (`FontFace`).
   `Match` picks a face as CSS Fonts 4 and the browsers do: the width first, then the slant, then the weight; a variable

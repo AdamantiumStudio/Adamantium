@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
@@ -6,6 +8,11 @@ namespace Adamantium.Fonts.Shaping;
 /// <summary>Turns text into positioned glyphs of a font, applying its OpenType substitutions and positioning.</summary>
 public static class TextShaper
 {
+    /// <summary>The features shaping applies to all text without being asked - the required ones (<c>ccmp</c>,
+    /// <c>locl</c>, <c>rlig</c>…) and those on by default (<c>calt</c>, <c>liga</c>, <c>kern</c>…); a
+    /// <see cref="FontFeature"/> of value 0 turns one off. Any other feature applies only when asked for.</summary>
+    public static IReadOnlyList<string> DefaultFeatures { get; } = Array.AsReadOnly(ShapePlan.DefaultFeatures);
+
     /// <summary>Shapes <paramref name="text"/> left to right; the result is in font design units. Without a script in
     /// <paramref name="options"/> the text is split where its script changes and each part is shaped with its own.</summary>
     public static ShapedGlyph[] Shape(IFont font, string text, ShapingOptions options = null)

@@ -59,6 +59,24 @@ public class ShapingTests
         Assert.That(feature.End, Is.EqualTo(end));
     }
 
+    [TestCase("TTFFonts/CascadiaCode-Regular.ttf", "=>", "calt")]
+    [TestCase("TTFFonts/PlayfairDisplay-Regular.ttf", "fi", "liga")]
+    [TestCase("TTFFonts/CascadiaCode-Regular.ttf", "0", "zero")]
+    [TestCase("TTFFonts/SourceSans3-Regular.ttf", "1/2", "frac")]
+    public void AFeatureAppliesUnasked_ExactlyWhenItIsADefaultFeature(string fontPath, string text, string tag)
+    {
+        var font = Fonts.GetOrAdd(fontPath, p => Typeface.LoadFont(p, 3).GetFont(0));
+        string Glyphs(string features) => string.Join(" ", TextShaper.Shape(font, text,
+            new ShapingOptions(features: FontFeature.ParseList(features))).Select(g => g.ToString()));
+
+        var on = Glyphs(tag);
+        var off = Glyphs($"{tag}=0");
+        Assert.That(on, Is.Not.EqualTo(off), $"\"{text}\" does not show {tag} in {fontPath}");
+
+        var appliedUnasked = Glyphs("") == on;
+        Assert.That(TextShaper.DefaultFeatures.Contains(tag), Is.EqualTo(appliedUnasked));
+    }
+
     private static string Unescape(string text)
     {
         var result = new StringBuilder();
