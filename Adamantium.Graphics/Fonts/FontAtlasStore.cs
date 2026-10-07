@@ -8,18 +8,16 @@ namespace Adamantium.Graphics.Fonts
     public static class FontAtlasStore
     {
         // Concurrent: a virtualizing panel lays text out across cores.
-        private static readonly System.Collections.Concurrent.ConcurrentDictionary<(IFont Font, FontParameters Parameters), FontAtlas> _fontAtlasMap = new();
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<FontParameters, FontAtlas> _fontAtlasMap = new();
         /// <summary>Rasterizes glyphs inline instead of on a worker, for a one-shot render that has no next frame for the
         /// text to fill in.</summary>
         public static bool SynchronousFill { get; set; }
 
-        /// <summary>The atlas of <paramref name="font"/> rasterized with <paramref name="fontParameters"/>, shared by all
-        /// text in that font. Glyphs are addressed by index, so each font has its own.</summary>
-        public static FontAtlas GetOrCreateFrom(IGraphicsDevice graphicsDevice, Typeface typeface, IFont font,
-            FontParameters fontParameters)
+        /// <summary>The atlas rasterized with <paramref name="fontParameters"/>, shared by all text in every font: a glyph
+        /// is found in it by its typeface and index.</summary>
+        public static FontAtlas GetOrCreateFrom(IGraphicsDevice graphicsDevice, FontParameters fontParameters)
         {
-            return _fontAtlasMap.GetOrAdd((font, fontParameters),
-                _ => new FontAtlas(graphicsDevice, typeface, font, fontParameters));
+            return _fontAtlasMap.GetOrAdd(fontParameters, _ => new FontAtlas(graphicsDevice, fontParameters));
         }
 
         /// <summary>Drops every atlas while its device is still alive: an atlas belongs to the device that made it, and

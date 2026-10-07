@@ -36,6 +36,9 @@ public class GlyphWordData
     /// <summary>Upward from the baseline, as in the font.</summary>
     public double OffsetY { get; set; }
 
+    /// <summary>The font the glyph belongs to.</summary>
+    public IFont Font { get; set; }
+
     /// <summary>The size the glyph is set at.</summary>
     public double FontSize { get; set; }
 

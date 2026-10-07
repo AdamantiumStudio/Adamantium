@@ -149,6 +149,26 @@ public class AttributedTextLayoutTests
     }
 
     [Test]
+    public void AFontOnARange_SetsThatRangeInItsFace()
+    {
+        var boldPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "Fonts", "SourceSans3-Bold.ttf");
+        var boldFont = Typeface.LoadFont(boldPath).Fonts[0];
+        var bold = new TextLayout(boldFont.Typeface, boldFont);
+        Process(bold, new AttributedText("bold"));
+        var layout = NewLayout();
+        layout.EmitNewlineCarets = true;
+
+        Process(layout, new AttributedText("a bold word").Apply(2, 4, new TextAttributes { Font = boldFont }));
+        var glyphs = layout.GetTextData();
+        var stops = layout.GetCaretStops();
+
+        Assert.That(glyphs.Where(g => g.PositionInString is >= 2 and < 6).All(g => g.Font == boldFont));
+        Assert.That(glyphs.Where(g => g.PositionInString >= 7).All(g => g.Font == layout.Font));
+        Assert.That(stops[6].X - stops[2].X, Is.EqualTo(bold.GetCaretStops()[4].X).Within(Tolerance),
+            "the bold word is as wide as in its own face");
+    }
+
+    [Test]
     public void ALineHoldsItsDescenders()
     {
         var layout = NewLayout();

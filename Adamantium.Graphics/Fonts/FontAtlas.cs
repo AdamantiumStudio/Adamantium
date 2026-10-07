@@ -15,14 +15,14 @@ namespace Adamantium.Graphics.Fonts
     public class FontAtlas : GraphicsResource
     {
         private TextureAtlasGenerator atlasGenerator;
-        private Dictionary<uint, Glyph> processedGlyphs;
+        private HashSet<ulong> processedGlyphs;
 
         // Glyphs whose MSDF is being generated on a worker RIGHT NOW, and the finished data waiting to be uploaded.
         // Generation is arithmetic and needs no device; the upload does - so the two live on different threads and meet
         // here.
-        private readonly HashSet<uint> _inFlight = new();
+        private readonly HashSet<ulong> _inFlight = new();
         private readonly Queue<IReadOnlyList<GlyphTextureData>> _ready = new();
-        private readonly Dictionary<uint, Glyph> _generated = new();
+        private readonly HashSet<ulong> _generated = new();
         private readonly object _asyncGate = new();
 
         /// <summary>Bumped whenever glyphs LAND in the atlas. A text block built while some of its glyphs were still
@@ -44,13 +44,17 @@ namespace Adamantium.Graphics.Fonts
 
         private bool _warnedLayersExhausted;
 
+        private readonly GrowingTextureArray _layers;
+
         protected FontAtlasData AtlasData { get; }
 
-        protected Typeface Typeface { get; }
-        
-        protected IFont Font { get; }
+        internal Texture Atlas => _layers.Texture;
 
-        internal Texture Atlas { get; set; }
+        /// <summary>The layers of the atlas texture in use, and allocated: it starts with <see cref="InitialLayerCount"/>
+        /// and doubles as glyphs fill it.</summary>
+        public uint LayerCount => _layers.Count;
+
+        public uint LayerCapacity => _layers.Capacity;
 
         public uint MSDFTextureSize { get; }
         
@@ -66,44 +70,30 @@ namespace Adamantium.Graphics.Fonts
         
         public uint GlyphMargin { get; }
 
-        public double LineSpacingMultiplier { get; set; }
+        /// <summary>The layers a new atlas allocates, each one atlas-size square holding some 225 glyphs: two, as a
+        /// texture of one layer is viewed as a plain 2D image and the shaders read an array.</summary>
+        public const uint InitialLayerCount = 2;
 
-        // The dynamic atlas is a Texture2DArray: each layer is one atlasSize x atlasSize slice holding ~225 shelf-packed
-        // glyphs, so N layers give ~N*225 glyph capacity (v1: fixed 8 => ~1800, enough for Latin + Cyrillic + symbols).
-        // When the packer fills all layers it clamps to the last one (LayersExhausted) instead of the old past-256 crash.
-        public const uint AtlasLayerCount = 8;
-
-        /// <summary>An atlas of <paramref name="font"/>'s glyphs, addressed by glyph index; one font of
-        /// <paramref name="typeface"/> per atlas.</summary>
-        public FontAtlas(IGraphicsDevice device, Typeface typeface, IFont font, FontParameters parameters, uint atlasSize = 1024) : base(device)
+        /// <summary>An atlas the glyphs of every font share, rasterized as text asks for them: each glyph is found by its
+        /// font and index.</summary>
+        public FontAtlas(IGraphicsDevice device, FontParameters parameters, uint atlasSize = 1024) : base(device)
         {
-            processedGlyphs = new Dictionary<uint, Glyph>();
+            processedGlyphs = new HashSet<ulong>();
 
-            Typeface = typeface;
-            Font = font;
             MSDFTextureSize = parameters.MsdfTextureSize;
             SampleRate = parameters.SampleRate;
             PixelRange = parameters.PixelRange;
             StartGlyphIndex = parameters.StartGlyphIndex;
-            GlyphCount = parameters.GlyphCount == uint.MaxValue? typeface.GlyphCount : parameters.GlyphCount;
+            GlyphCount = parameters.GlyphCount;
             SortingVariant = parameters.SortingVariant;
             GlyphMargin = parameters.GlyphMargin;
-            LineSpacingMultiplier = Font.LineSpacingMultiplier;
-            
-            AtlasData = new FontAtlasData(MSDFTextureSize, new Size(atlasSize, atlasSize), AtlasLayerCount);
-            
-            atlasGenerator = new TextureAtlasGenerator(
-                Typeface, 
-                Font,
-                AtlasData,
-                parameters);
-            
+
             var description = new TextureDescription
             {
                 Width = atlasSize,
                 Height = atlasSize,
                 Depth = 1,
-                ArrayLayers = AtlasLayerCount,
+                ArrayLayers = InitialLayerCount,
                 MipLevels = 1,
                 Samples = MSAALevel.None,
                 Format = Format.R8G8B8A8_UNORM,
@@ -115,28 +105,27 @@ namespace Adamantium.Graphics.Fonts
                 Dimension = TextureDimension.Texture2D
             };
 
-            Atlas = Texture.New(GraphicsDevice, description, "Dynamic Font Atlas");
+            _layers = ToDispose(new GrowingTextureArray(GraphicsDevice, description, name: "Dynamic Font Atlas"));
+            AtlasData = new FontAtlasData(MSDFTextureSize, new Size(atlasSize, atlasSize), _layers.MaxCapacity);
+            atlasGenerator = new TextureAtlasGenerator(null, null, AtlasData, parameters);
         }
 
-        /// <summary>Rasterizes every missing character of <paramref name="text"/> in one parallel batch, so a caller about to
-        /// build many text blocks does not pay for their glyphs one by one.</summary>
-        public void Warm(string text)
+        /// <summary>Requests the glyphs <paramref name="font"/> draws <paramref name="text"/>'s characters with, the way
+        /// <see cref="RequestAsync(IEnumerable{ValueTuple{IFont, Glyph}})"/> requests glyphs.</summary>
+        public void RequestAsync(IFont font, string text)
         {
-            if (!string.IsNullOrEmpty(text)) Update(text);
+            if (string.IsNullOrEmpty(text))
+            {
+                return;
+            }
+
+            RequestAsync(font.TranslateIntoGlyphs(new string(text.Distinct().ToArray())).Select(g => (font, g)));
         }
 
-        /// <summary>Requests a text's glyphs without waiting: MSDF runs on a worker and <see cref="PumpReady"/> uploads the
-        /// result; each landing bumps <see cref="Version"/> so blocks rebuild.</summary>
-        public void RequestAsync(string text)
-        {
-            if (string.IsNullOrEmpty(text)) return;
-
-            RequestAsync(Font.TranslateIntoGlyphs(new string(text.Distinct().ToArray())));
-        }
-
-        /// <summary>Requests these glyphs without waiting, the way <see cref="RequestAsync(string)"/> requests a text's:
-        /// shaped text reaches glyphs no character maps to, such as ligatures and alternates.</summary>
-        public void RequestAsync(IEnumerable<Glyph> glyphs)
+        /// <summary>Requests glyphs of any fonts without waiting: MSDF runs on a worker and <see cref="PumpReady"/>
+        /// uploads the result; each landing bumps <see cref="Version"/> so blocks rebuild. Shaped text reaches glyphs no
+        /// character maps to, such as ligatures and alternates.</summary>
+        public void RequestAsync(IEnumerable<(IFont Font, Glyph Glyph)> glyphs)
         {
             // A render with no "next frame" (a bitmap, a preview, an off-screen test) cannot let its letters arrive later.
             if (FontAtlasStore.SynchronousFill)
@@ -146,13 +135,18 @@ namespace Adamantium.Graphics.Fonts
                 return;
             }
 
-            List<Glyph> toGenerate = null;
+            List<(IFont Font, Glyph Glyph)> toGenerate = null;
             lock (_asyncGate)
             {
-                foreach (var glyph in glyphs.Distinct(x => x.Index))
+                foreach (var pair in glyphs)
                 {
-                    if (processedGlyphs.ContainsKey(glyph.Index) || !_inFlight.Add(glyph.Index)) continue;
-                    (toGenerate ??= new List<Glyph>()).Add(glyph);
+                    var key = GlyphTextureData.KeyOf(pair.Font.Typeface, pair.Glyph.Index);
+                    if (processedGlyphs.Contains(key) || !_inFlight.Add(key))
+                    {
+                        continue;
+                    }
+
+                    (toGenerate ??= []).Add(pair);
                 }
             }
 
@@ -173,7 +167,10 @@ namespace Adamantium.Graphics.Fonts
                     // block that wanted it draws without it, exactly as it does for a glyph the font has no outline for.
                     lock (_asyncGate)
                     {
-                        foreach (var glyph in toGenerate) _inFlight.Remove(glyph.Index);
+                        foreach (var pair in toGenerate)
+                        {
+                            _inFlight.Remove(GlyphTextureData.KeyOf(pair.Font.Typeface, pair.Glyph.Index));
+                        }
                     }
                     return;
                 }
@@ -181,7 +178,10 @@ namespace Adamantium.Graphics.Fonts
                 lock (_asyncGate)
                 {
                     _ready.Enqueue(data);
-                    foreach (var glyph in toGenerate) _generated[glyph.Index] = glyph;
+                    foreach (var pair in toGenerate)
+                    {
+                        _generated.Add(GlyphTextureData.KeyOf(pair.Font.Typeface, pair.Glyph.Index));
+                    }
                 }
             });
         }
@@ -206,10 +206,10 @@ namespace Adamantium.Graphics.Fonts
 
                 lock (_asyncGate)
                 {
-                    foreach (var pair in _generated)
+                    foreach (var key in _generated)
                     {
-                        processedGlyphs[pair.Key] = pair.Value;
-                        _inFlight.Remove(pair.Key);
+                        processedGlyphs.Add(key);
+                        _inFlight.Remove(key);
                     }
                     _generated.Clear();
                 }
@@ -221,27 +221,28 @@ namespace Adamantium.Graphics.Fonts
             return landed;
         }
 
-        private Glyph[] GetNotProcessedGlyphs(IEnumerable<Glyph> glyphs)
+        private List<(IFont Font, Glyph Glyph)> GetNotProcessedGlyphs(IEnumerable<(IFont Font, Glyph Glyph)> glyphs)
         {
-            var processed = new List<Glyph>();
+            var notProcessed = new List<(IFont Font, Glyph Glyph)>();
+            var seen = new HashSet<ulong>();
             lock (_asyncGate)
             {
-                foreach (var glyph in glyphs)
+                foreach (var pair in glyphs)
                 {
-                    if (!processedGlyphs.ContainsKey(glyph.Index))
+                    var key = GlyphTextureData.KeyOf(pair.Font.Typeface, pair.Glyph.Index);
+                    if (!processedGlyphs.Contains(key) && seen.Add(key))
                     {
-                        processed.Add(glyph);
+                        notProcessed.Add(pair);
                     }
                 }
             }
 
-            return processed.ToArray();
+            return notProcessed;
         }
 
-        private void ProcessGlyphs(IReadOnlyList<Glyph> glyphs)
+        private void ProcessGlyphs(IReadOnlyList<(IFont Font, Glyph Glyph)> glyphs)
         {
-            var uniqueGlyphs = glyphs.Distinct(x => x.Index);
-            var glyphsToProcess = GetNotProcessedGlyphs(uniqueGlyphs);
+            var glyphsToProcess = GetNotProcessedGlyphs(glyphs);
             var textureDataArray = atlasGenerator.GenerateTextureForGlyphs(glyphsToProcess);
 
             if (textureDataArray.Count > 0)
@@ -252,14 +253,14 @@ namespace Adamantium.Graphics.Fonts
             if (AtlasData.LayersExhausted && !_warnedLayersExhausted)
             {
                 _warnedLayersExhausted = true;
-                System.Console.WriteLine($"[FONT] Dynamic atlas exhausted all {AtlasLayerCount} layers; further glyphs overwrite the last. Raise FontAtlas.AtlasLayerCount or add dynamic growth.");
+                System.Console.WriteLine($"[FONT] Dynamic atlas exhausted all {_layers.MaxCapacity} layers the device allows; further glyphs overwrite the last.");
             }
 
             lock (_asyncGate)
             {
-                foreach (var glyph in glyphsToProcess)
+                foreach (var pair in glyphsToProcess)
                 {
-                    processedGlyphs[glyph.Index] = glyph;
+                    processedGlyphs.Add(GlyphTextureData.KeyOf(pair.Font.Typeface, pair.Glyph.Index));
                 }
             }
         }
@@ -268,6 +269,15 @@ namespace Adamantium.Graphics.Fonts
         {
             GlyphIntegrityProbe.EnterUpload(this);
             foreach (var textureData in textureDataArray) GlyphIntegrityProbe.Inspect(this, textureData);
+
+            var deepest = textureDataArray.Max(x => x.DepthLayer);
+            while (_layers.Count <= deepest)
+            {
+                if (!_layers.TryAdd(out _))
+                {
+                    break;
+                }
+            }
 
             Atlas.TransitionImageLayout(ImageLayout.TransferDstOptimal);
             var commandBuffer = GraphicsDevice.BeginSingleTimeCommand();
@@ -328,21 +338,16 @@ namespace Adamantium.Graphics.Fonts
             GlyphIntegrityProbe.LeaveUpload(this);
         }
 
-        public RectangleF GetUVCoordinatesForGlyph(uint glyphIndex)
+        public RectangleF GetUVCoordinatesForGlyph(IFont font, Glyph glyph)
         {
-            return AtlasData.GetUVCoordinatesForGlyph(glyphIndex);
+            return AtlasData.GetUVCoordinatesForGlyph(GlyphTextureData.KeyOf(font.Typeface, glyph.Index));
         }
 
-        public GlyphTextureData GetGlyphData(uint glyphIndex)
+        /// <summary>Where <paramref name="glyph"/> of <paramref name="font"/> lies in the atlas; null until it has been
+        /// rasterized.</summary>
+        public GlyphTextureData GetGlyphData(IFont font, Glyph glyph)
         {
-            return AtlasData.GetGlyphData(glyphIndex);
-        }
-
-        public void Update(string text)
-        {
-            var uniqueSymbols = new string(text.Distinct().ToArray());
-            var glyphs = Font.TranslateIntoGlyphs(uniqueSymbols);
-            ProcessGlyphs(glyphs);
+            return AtlasData.GetGlyphData(GlyphTextureData.KeyOf(font.Typeface, glyph.Index));
         }
     }
 }

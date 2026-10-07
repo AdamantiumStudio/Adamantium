@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Adamantium.Fonts;
 using Adamantium.Fonts.Shaping;
 using Adamantium.Mathematics;
 
@@ -15,6 +16,9 @@ public sealed class TextAttributes
 
     /// <summary>BCP 47 language tag, such as <c>ru</c>, <c>sr</c> or <c>zh-Hant</c>: picks the font's local forms.</summary>
     public string Language { get; init; }
+
+    /// <summary>The font of the text, such as a bold or italic face of the family; unset takes the layout's.</summary>
+    public IFont Font { get; init; }
 
     /// <summary>The size of the text; unset takes the size the text is laid out at. A line is as tall as its largest
     /// text.</summary>
@@ -42,6 +46,7 @@ public sealed class TextAttributes
         {
             Features = over.Features ?? Features,
             Language = over.Language ?? Language,
+            Font = over.Font ?? Font,
             FontSize = over.FontSize ?? FontSize,
             Foreground = over.Foreground ?? Foreground,
             Background = over.Background ?? Background,
@@ -50,11 +55,12 @@ public sealed class TextAttributes
         };
     }
 
-    /// <summary>Whether text with these attributes and with <paramref name="other"/> shapes alike: colors and lines
-    /// differ freely.</summary>
+    /// <summary>Whether text with these attributes and with <paramref name="other"/> shapes alike: colors, lines and
+    /// sizes differ freely.</summary>
     public bool ShapesLike(TextAttributes other)
     {
-        return Language == other.Language && FeaturesEqual(Features, other.Features);
+        return Language == other.Language && ReferenceEquals(Font, other.Font)
+                                          && FeaturesEqual(Features, other.Features);
     }
 
     private static bool FeaturesEqual(IReadOnlyList<FontFeature> left, IReadOnlyList<FontFeature> right)

@@ -49,6 +49,25 @@ public static class TypeParser
                 return v => Enum.Parse(targetType, v, ignoreCase: true);
             if (typeof(IConvertible).IsAssignableFrom(targetType))
                 return v => Convert.ChangeType(v, targetType, System.Globalization.CultureInfo.InvariantCulture);
+
+            var ownParse = targetType.GetMethod("Parse", BindingFlags.Public | BindingFlags.Static, null,
+                [typeof(string)], null);
+            if (ownParse != null && ownParse.ReturnType == targetType)
+            {
+                return value =>
+                {
+                    try
+                    {
+                        return ownParse.Invoke(null, [value]);
+                    }
+                    catch (TargetInvocationException e)
+                    {
+                        throw new InvalidOperationException($"Cannot parse {value} as input for {targetType.FullName}",
+                            e.InnerException);
+                    }
+                };
+            }
+
             return _ => throw new InvalidOperationException($"Type parser not found for {targetType.FullName}");
         }
 

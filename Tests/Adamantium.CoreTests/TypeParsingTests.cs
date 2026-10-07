@@ -11,6 +11,12 @@ public class TypeParsingTests
     // TypeParser.Parse<TrackingCollection<double>>; DoubleCollectionParser must turn that string into a populated
     // collection (the bug was an empty/null collection -> the dash array carried no data).
     [Test]
+    public void ATypeWithItsOwnParse_NeedsNoParser()
+    {
+        Assert.That(TypeParser.Parse<SelfParsingValue>("21").Value, Is.EqualTo(42));
+    }
+
+    [Test]
     public void DoubleCollection_ParsesCommaList()
     {
         var result = TypeParser.Parse<TrackingCollection<double>>("36,24");

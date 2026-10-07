@@ -14,7 +14,7 @@ namespace Adamantium.Fonts
         private Dictionary<string, Glyph> nameToGlyph;
         private Dictionary<UInt32, Glyph> unicodeToGlyph;
         private Dictionary<string, List<Feature>> featuresMap;
-        internal Typeface Typeface { get; }
+        public Typeface Typeface { get; }
         internal VariationStore VariationData { get; set; }
         internal List<InstanceRecord> InstanceData { get; set; }
 

@@ -49,8 +49,8 @@ public interface ITexture : INamedObject
 
     /// <summary>Reads this texture back into a fresh host-memory image (native B8G8R8A8, no color swap / encode); the
     /// caller owns and disposes it. For off-screen bakes that need CPU pixels (the drag ghost, thumbnails) rather than a
-    /// file.</summary>
-    Adamantium.Imaging.Image ReadbackToImage();
+    /// file. <paramref name="layer"/> picks a layer of an array texture.</summary>
+    Adamantium.Imaging.Image ReadbackToImage(uint layer = 0);
 
     ImageViewCreateInfo Info { get; }
 

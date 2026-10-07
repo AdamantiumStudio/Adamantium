@@ -213,7 +213,28 @@ namespace Adamantium.Fonts.TextureGeneration
             Parallel.ForEach(glyphs,
                 new ParallelOptions() { MaxDegreeOfParallelism = Environment.ProcessorCount }, GenerateTextureForGlyph);
 
-            var data = atlasData.GetGlyphData(glyphs.Select(x=>x.Index).ToArray());
+            var data = atlasData.GetGlyphData(glyphs.Select(x => (ulong)x.Index).ToArray());
+            CalculateTextureDataForAtlas(data);
+
+            return data;
+        }
+
+        /// <summary>Rasterizes glyphs of several fonts into one atlas, each keyed by its typeface and index
+        /// (<see cref="GlyphTextureData.KeyOf"/>) and drawn at its own font's em. A glyph that cannot be rasterized is
+        /// left out, as one without an outline is, and named in its typeface's <see cref="Typeface.ErrorMessages"/>;
+        /// the others are not held back by it.</summary>
+        public IReadOnlyList<GlyphTextureData> GenerateTextureForGlyphs(IReadOnlyList<(IFont Font, Glyph Glyph)> glyphs)
+        {
+            if (glyphs == null || glyphs.Count == 0)
+            {
+                return [];
+            }
+
+            Parallel.ForEach(glyphs, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
+                pair => GenerateTextureForGlyph(pair.Font, pair.Glyph));
+
+            var data = atlasData.GetGlyphData(glyphs.Select(x => GlyphTextureData.KeyOf(x.Font.Typeface, x.Glyph.Index))
+                .ToArray());
             CalculateTextureDataForAtlas(data);
 
             return data;
@@ -255,10 +276,35 @@ namespace Adamantium.Fonts.TextureGeneration
             glyph.CalculateEmRelatedMultipliers(font.UnitsPerEm);
             glyph.Sample(parameters.SampleRate);
             var textureData = glyph.GenerateDirectMSDF(parameters.MsdfTextureSize, parameters.PixelRange, font.UnitsPerEm, parameters.GlyphMargin);
-            
-            if (textureData == null) 
+
+            if (textureData == null)
                 return;
-            
+
+            atlasData.AddGlyphData(textureData);
+        }
+
+        private void GenerateTextureForGlyph(IFont glyphFont, Glyph glyph)
+        {
+            GlyphTextureData textureData;
+            try
+            {
+                glyph.CalculateEmRelatedMultipliers(glyphFont.UnitsPerEm);
+                glyph.Sample(parameters.SampleRate);
+                textureData = glyph.GenerateDirectMSDF(parameters.MsdfTextureSize, parameters.PixelRange,
+                    glyphFont.UnitsPerEm, parameters.GlyphMargin);
+            }
+            catch (Exception e)
+            {
+                glyphFont.Typeface.AddErrorMessage($"[ERR] Glyph {glyph.Index} could not be rasterized: {e.Message}");
+                return;
+            }
+
+            if (textureData == null)
+            {
+                return;
+            }
+
+            textureData.Key = GlyphTextureData.KeyOf(glyphFont.Typeface, glyph.Index);
             atlasData.AddGlyphData(textureData);
         }
 

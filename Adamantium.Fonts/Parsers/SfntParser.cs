@@ -682,10 +682,20 @@ namespace Adamantium.Fonts.Parsers
                 }
             }
 
+            var ranks = new Dictionary<ushort, int>();
             foreach (var nameRecord in nameTable.NameRecords)
             {
+                var rank = NameRecordRank(nameRecord);
+                if (rank < 0 || (ranks.TryGetValue(nameRecord.NameId, out var best) && best >= rank))
+                {
+                    continue;
+                }
+
+                ranks[nameRecord.NameId] = rank;
                 FontReader.Position = entry.Offset + nameTable.StorageOffset + nameRecord.StringOffset;
-                var encoding = nameRecord.EncodingId is 3 or 1 ? Encoding.BigEndianUnicode : Encoding.UTF8;
+                var encoding = nameRecord.PlatformId == 1
+                    ? Encoding.GetEncoding("ISO-8859-1")
+                    : Encoding.BigEndianUnicode;
 
                 var str = FontReader.ReadString(nameRecord.Length, encoding);
 
@@ -755,6 +765,17 @@ namespace Adamantium.Fonts.Parsers
             }
 
             Name = nameTable;
+        }
+
+        private static int NameRecordRank(NameRecord record)
+        {
+            return record.PlatformId switch
+            {
+                3 when record.EncodingId is 1 or 10 => record.LanguageId == 0x0409 ? 4 : 3,
+                0 => 2,
+                1 when record.EncodingId == 0 => record.LanguageId == 0 ? 1 : 0,
+                _ => -1,
+            };
         }
 
         protected virtual void ReadGlyphIndexToLocationTable(TableEntry entry)
