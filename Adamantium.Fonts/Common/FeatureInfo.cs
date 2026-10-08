@@ -15,7 +15,10 @@ namespace Adamantium.Fonts.Common
         
         public string[] DisableFeatures { get; private set; }
         
-        public FeatureState DefaultFeatureState { get; private set; }
+        /// <summary>On for a feature shaping applies to all text without being asked
+        /// (<see cref="Shaping.TextShaper.DefaultFeatures"/>), Off for one that applies only when asked for.</summary>
+        public FeatureState DefaultFeatureState =>
+            Shaping.ShapePlan.DefaultFeatures.Contains(Tag) ? FeatureState.On : FeatureState.Off;
         
         public bool OverridesAllOtherFeatures { get; internal set; }
         
@@ -38,8 +41,7 @@ namespace Adamantium.Fonts.Common
             string friendlyName, 
             FeatureRegistration registration,
             string description,
-            FeatureState defaultState = FeatureState.Off,
-            IEnumerable<string> enableFeatures = null, 
+            IEnumerable<string> enableFeatures = null,
             IEnumerable<string> disableFeatures = null,
             bool overridesAllOtherFeatures = false,
             IEnumerable<string> allowedFeatures = null)
@@ -48,7 +50,6 @@ namespace Adamantium.Fonts.Common
             {
                 EnableFeatures = enableFeatures?.ToArray(),
                 DisableFeatures = disableFeatures?.ToArray(),
-                DefaultFeatureState = defaultState,
                 OverridesAllOtherFeatures = overridesAllOtherFeatures,
                 AllowedFeatures = allowedFeatures?.ToArray()
             };

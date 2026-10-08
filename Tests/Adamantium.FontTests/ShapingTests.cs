@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using Adamantium.Fonts;
+using Adamantium.Fonts.Common;
 using Adamantium.Fonts.Shaping;
 using NUnit.Framework;
 
@@ -75,6 +76,21 @@ public class ShapingTests
 
         var appliedUnasked = Glyphs("") == on;
         Assert.That(TextShaper.DefaultFeatures.Contains(tag), Is.EqualTo(appliedUnasked));
+        Assert.That(FeatureInfos.GetFeature(tag).DefaultFeatureState,
+            Is.EqualTo(appliedUnasked ? FeatureState.On : FeatureState.Off), "the registry says what shaping does");
+    }
+
+    [TestCase("kern", FeatureState.On)]
+    [TestCase("liga", FeatureState.On)]
+    [TestCase("locl", FeatureState.On)]
+    [TestCase("mark", FeatureState.On)]
+    [TestCase("ccmp", FeatureState.On)]
+    [TestCase("size", FeatureState.Off)]
+    [TestCase("smcp", FeatureState.Off)]
+    [TestCase("dlig", FeatureState.Off)]
+    public void TheRegistry_SaysWhetherShapingAppliesAFeatureUnasked(string tag, FeatureState expected)
+    {
+        Assert.That(FeatureInfos.GetFeature(tag).DefaultFeatureState, Is.EqualTo(expected));
     }
 
     private static string Unescape(string text)

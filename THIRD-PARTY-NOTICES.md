@@ -123,6 +123,14 @@ codes, unchanged, taken from the code tables SIL International publishes as the 
 
 ---
 
+## Google color font test glyphs
+
+**Where:** `Tests/Adamantium.FontTests/ColorFonts/` — `test_glyphs-glyf_colr_1.ttf` and
+`test_glyphs-glyf_colr_1_variable.ttf`, unchanged, from https://github.com/googlefonts/color-fonts, used only by the
+tests. Copyright Google LLC, under the Apache License 2.0, whose text is `LICENSE.txt` beside them.
+
+---
+
 ## SharpDX
 
 **Where:** ten files still carry its notice, and only those ten are derived from it —

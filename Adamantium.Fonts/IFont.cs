@@ -73,6 +73,10 @@ namespace Adamantium.Fonts
         /// first palette ('COLR' and 'CPAL'); empty for a glyph drawn as its own outline.</summary>
         public IReadOnlyList<ColorLayer> GetColorLayers(uint glyphIndex);
 
+        /// <summary>The layers a color glyph's paint graph ('COLR' version 1) is drawn as, bottom first, in the font's
+        /// first palette; empty for a glyph without one. A font may have both: this one is the glyph's richer form.</summary>
+        public IReadOnlyList<ColorPaintLayer> GetColorPaint(uint glyphIndex);
+
         /// <summary>The OpenType features this font offers, per script and language system.</summary>
         public FeatureCatalog FeatureCatalog { get; }
         

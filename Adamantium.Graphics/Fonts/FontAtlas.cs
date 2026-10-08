@@ -46,6 +46,8 @@ namespace Adamantium.Graphics.Fonts
 
         private readonly GrowingTextureArray _layers;
 
+        private readonly ColorPaintStore _paints;
+
         protected FontAtlasData AtlasData { get; }
 
         internal Texture Atlas => _layers.Texture;
@@ -106,6 +108,7 @@ namespace Adamantium.Graphics.Fonts
             };
 
             _layers = ToDispose(new GrowingTextureArray(GraphicsDevice, description, name: "Dynamic Font Atlas"));
+            _paints = ToDispose(new ColorPaintStore());
             AtlasData = new FontAtlasData(MSDFTextureSize, new Size(atlasSize, atlasSize), _layers.MaxCapacity);
             atlasGenerator = new TextureAtlasGenerator(null, null, AtlasData, parameters);
         }
@@ -356,6 +359,24 @@ namespace Adamantium.Graphics.Fonts
         public GlyphTextureData GetGlyphData(IFont font, Glyph glyph)
         {
             return AtlasData.GetGlyphData(GlyphTextureData.KeyOf(font.Typeface, glyph.Index));
+        }
+
+        internal int GetPaintRecord(IFont font, uint colorGlyph, int layerIndex, ColorPaintLayer layer)
+        {
+            var mask = font.GetGlyphByIndex(layer.GlyphIndex);
+            var cell = GetGlyphData(font, mask);
+            if (cell == null)
+            {
+                return -1;
+            }
+
+            return _paints.GetRecord(GlyphTextureData.KeyOf(font.Typeface, colorGlyph), layerIndex, layer, mask,
+                font.GetLeftSideBearing(mask.Index), cell, font.UnitsPerEm, MSDFTextureSize);
+        }
+
+        internal (ulong Records, ulong Stops) UploadPaints()
+        {
+            return _paints.Upload(GraphicsDevice);
         }
     }
 }

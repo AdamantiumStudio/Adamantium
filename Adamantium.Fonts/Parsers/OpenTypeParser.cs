@@ -146,6 +146,7 @@ namespace Adamantium.Fonts.Parsers
                     break;
                 case TableNames.COLR:
                     CurrentFont.ColorLayers = ColorLayerTable.Read(FontReader, entry.Offset);
+                    CurrentFont.ColorPaints = ColorPaintTable.Read(FontReader, entry.Offset, entry.Length);
                     break;
                 case TableNames.CPAL:
                     CurrentFont.ColorPalettes = ColorPaletteTable.Read(FontReader, entry.Offset);

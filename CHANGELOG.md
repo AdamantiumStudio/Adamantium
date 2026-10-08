@@ -89,6 +89,17 @@ All packages share one version.
   glyph of its font in a color of the font's first palette, or in the text's color for the foreground entry
   (`IFont.GetColorLayers`, `ColorLayer`). The layers take places in the shared atlas and draw in the same batch as the
   text around them, so Segoe UI Emoji's emoji come out in color at any size.
+- 'COLR' version 1 paint graphs read and flattened into layers (`IFont.GetColorPaint`, `ColorPaintLayer`,
+  `ColorFill`, `ColorStop`): each layer an ordinary glyph placed by its transform and filled with a color or a linear,
+  radial or sweep gradient, the gradient's own transform composed in. A source composited onto a solid backdrop with
+  SrcIn takes the backdrop's alpha as its opacity; other composites draw over. Checked against HarfBuzz on Google's
+  COLRv1 test font.
+- Color glyphs from 'COLR' version 1 drawn in real time: text lays a color glyph out as its paint graph's layers when it
+  has one, each layer the atlas's distance field of its outline, transformed, and its fill evaluated per pixel in the
+  glyph shader: linear, radial (two-point conical) and sweep gradients with pad, repeat and reflect, interpolated
+  premultiplied. The atlas keeps a record per layer in font units, so one serves every size
+  (`FontItem.Paint`; FontEffect's `PaintRecordsAddress` and `PaintStopsAddress`). Segoe UI Emoji's emoji come out
+  with their gradients and shading, as Edge draws them.
 - Synthesized bold and italic for a face a family lacks (`FontSynthesis`, `TextAttributes.Synthesis`): a bold moves
   the glyph's edge out in the distance field, by a 48th of the size per side at 9 pixels down to a 64th at 36, and
   advances it further by twice that; an italic slants the glyph's quad about its baseline by a quarter of its height
@@ -98,6 +109,12 @@ All packages share one version.
 
 ### Fixed
 
+- `FeatureInfo.DefaultFeatureState` said Off for features shaping applies to all text unasked (`liga`, `kern`,
+  `calt`, `locl`, `mark`…) and On for `size`, which shaping never applies. It comes from the shaper's own list now
+  (`TextShaper.DefaultFeatures`), and `FeatureInfo.Create` no longer takes a default state.
+- A text block drew no more than 4096 glyphs and dropped the rest without a word; with a quad per layer of a color
+  glyph, some 65 emoji filled it. `TextLayout` has no cap now: its glyphs and the direct path's vertex buffer
+  (`EnsureVertexBuffer`) grow to what the block holds.
 - A line holding nothing but text of another font (a fallback emoji, a run in a smaller font) took that font's height
   and baseline: a line of emoji sat 4 pixels higher than its neighbours. A line starts from the text's own font, as a
   CSS line box starts from its strut, and only grows for taller text.
