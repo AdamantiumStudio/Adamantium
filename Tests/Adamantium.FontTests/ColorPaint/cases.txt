@@ -1,0 +1,5 @@
+# font
+# Every glyph with a 'COLR' version 1 paint graph is checked. Expected results: expected.txt, written from this file by
+# Tests/Adamantium.ShapingOracle in its paint mode.
+ColorFonts/test_glyphs-glyf_colr_1.ttf
+ColorFonts/test_glyphs-glyf_colr_1_variable.ttf

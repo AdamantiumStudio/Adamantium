@@ -16,8 +16,6 @@ public class TextLayout : DisposableObject
 {
     public Guid Guid { get; }
 
-    private const uint MaxItemsCount = 4096;
-
     public Typeface Typeface { get; }
     public IFont Font { get; }
 
@@ -115,7 +113,7 @@ public class TextLayout : DisposableObject
         spaceGlyph = font.GetGlyphByCharacter(' ');
         dotGlyph = font.GetGlyphByCharacter('.');
 
-        // Grown to fit: preallocating the 4096 cap cost 256KB per TextBlock.
+        // Grown to fit: a block holds what it draws, not a preallocated 256KB per TextBlock.
         fontItems = Array.Empty<FontItem>();
     }
 
@@ -125,7 +123,7 @@ public class TextLayout : DisposableObject
 
         var size = Math.Max(16, fontItems.Length);
         while (size < needed) size *= 2;
-        Array.Resize(ref fontItems, (int)Math.Min(size, MaxItemsCount));
+        Array.Resize(ref fontItems, size);
     }
 
     public GlyphWordData[] GetTextData()
@@ -813,6 +811,17 @@ public class TextLayout : DisposableObject
             }
 
             var font = word.Font ?? Font;
+            var paint = font.GetColorPaint(word.Glyph.Index);
+            if (paint.Count > 0)
+            {
+                foreach (var layer in paint)
+                {
+                    yield return (font, font.GetGlyphByIndex(layer.GlyphIndex));
+                }
+
+                continue;
+            }
+
             var layers = font.GetColorLayers(word.Glyph.Index);
             if (layers.Count == 0)
             {
@@ -869,28 +878,28 @@ public class TextLayout : DisposableObject
             var word = _wordData[i];
             if (IsBlank(word.Symbol) || word.Symbol == '\n') continue;
 
+            var paint = word.Font.GetColorPaint(word.Glyph.Index);
+            if (paint.Count > 0)
+            {
+                AddPaintLayers(word, paint);
+                continue;
+            }
+
             var layers = word.Font.GetColorLayers(word.Glyph.Index);
             if (layers.Count == 0)
             {
-                if (!AddGlyphItem(word, word.Glyph, word.Rect, GlyphColor(word))) break;
+                AddGlyphItem(word, word.Glyph, word.Rect, GlyphColor(word));
                 continue;
             }
 
             var scale = word.FontSize / word.Font.UnitsPerEm;
-            var full = false;
             foreach (var layer in layers)
             {
                 var glyph = word.Font.GetGlyphByIndex(layer.GlyphIndex);
                 var rect = CalculateGlyphPosition(word.Font, glyph, word.PenX + word.OffsetX, Baseline(word), scale);
                 var color = layer.Color is { } own ? own.ToVector4() : GlyphColor(word);
-                if (!AddGlyphItem(word, glyph, rect, color))
-                {
-                    full = true;
-                    break;
-                }
+                AddGlyphItem(word, glyph, rect, color);
             }
-
-            if (full) break;
         }
 
         _vertexBufferDirty = true;
@@ -898,7 +907,49 @@ public class TextLayout : DisposableObject
         _textUpdated = true;
     }
 
-    private bool AddGlyphItem(GlyphWordData word, Glyph glyph, RectangleF rect, Vector4F color)
+    private void AddPaintLayers(GlyphWordData word, IReadOnlyList<ColorPaintLayer> layers)
+    {
+        var scale = (float)(word.FontSize / word.Font.UnitsPerEm);
+        var origin = new Vector4F((float)(word.PenX + word.OffsetX), (float)Math.Round(Baseline(word)), scale, scale);
+        var color = GlyphColor(word);
+        for (var i = 0; i < layers.Count; i++)
+        {
+            var record = FontAtlas.GetPaintRecord(word.Font, word.Glyph.Index, i, layers[i]);
+            if (record < 0)
+            {
+                continue;
+            }
+
+            var cell = FontAtlas.GetGlyphData(word.Font, word.Font.GetGlyphByIndex(layers[i].GlyphIndex));
+            EnsureItemCapacity((int)ElementsCount + 1);
+            fontItems[ElementsCount] = new FontItem
+            {
+                ArrangeRect = origin,
+                Source = CellSource(cell),
+                Layer = cell.DepthLayer,
+                Depth = 1.0f,
+                Color = color,
+                Paint = new Vector4F(record + 1, 0, 0, 0)
+            };
+            ElementsCount++;
+        }
+    }
+
+    private static RectangleF CellSource(GlyphTextureData cell)
+    {
+        var full = cell.UVRectFull;
+        var halfTexelU = (full.Right - full.Left) / (float)cell.FullGlyphSize.Width / 2;
+        var halfTexelV = (full.Bottom - full.Top) / (float)cell.FullGlyphSize.Height / 2;
+        return new RectangleF
+        {
+            Left = full.Left + halfTexelU,
+            Top = full.Top + halfTexelV,
+            Right = full.Right - halfTexelU,
+            Bottom = full.Bottom - halfTexelV,
+        };
+    }
+
+    private void AddGlyphItem(GlyphWordData word, Glyph glyph, RectangleF rect, Vector4F color)
     {
         // The cell (body plus margin) less half a texel on each side: outline/glow/shadow keep the margin, and the
         // filter never reaches the neighbor cell, whose field would draw a sliver of another glyph.
@@ -912,16 +963,7 @@ public class TextLayout : DisposableObject
             var uniform = margin * word.FontSize / FontAtlas.MSDFTextureSize;
             var mx = rect.Width > 0 ? margin * rect.Width / gd.BoundingRect.Width : uniform;
             var my = rect.Height > 0 ? margin * rect.Height / gd.BoundingRect.Height : uniform;
-            var cell = gd.UVRectFull;
-            var halfTexelU = (cell.Right - cell.Left) / (float)gd.FullGlyphSize.Width / 2;
-            var halfTexelV = (cell.Bottom - cell.Top) / (float)gd.FullGlyphSize.Height / 2;
-            var source = new RectangleF
-            {
-                Left = cell.Left + halfTexelU,
-                Top = cell.Top + halfTexelV,
-                Right = cell.Right - halfTexelU,
-                Bottom = cell.Bottom - halfTexelV,
-            };
+            var source = CellSource(gd);
             var quad = new Vector4F((float)(rect.X - mx), (float)(rect.Y - my),
                 (float)(rect.Width + 2 * mx), (float)(rect.Height + 2 * my));
             item = new FontItem
@@ -949,26 +991,35 @@ public class TextLayout : DisposableObject
         else
         {
             // Not rasterized yet: no quad, or it draws a piece of a neighbor.
-            return true;
+            return;
         }
 
-        if (ElementsCount >= MaxItemsCount) return false;
         EnsureItemCapacity((int)ElementsCount + 1);
         fontItems[ElementsCount] = item;
         ElementsCount++;
-        return true;
     }
 
     /// <summary>
-    /// Creates and uploads the per-block vertex buffer on demand; only the direct draw path (rotated/sheared text) uses it.
+    /// Creates and uploads the per-block vertex buffer on demand, larger when the block has outgrown it; only the direct
+    /// draw path (rotated/sheared text) uses it.
     /// </summary>
     public void EnsureVertexBuffer(IGraphicsDevice graphicsDevice)
     {
-        VertexBuffer ??= Adamantium.Graphics.Buffer.Vertex.New<FontItem>(graphicsDevice, MaxItemsCount,
-            Adamantium.Graphics.BufferMemoryUsage.UploadFromCpuToGpu);
+        if (VertexBuffer == null || VertexBuffer.ElementCount < ElementsCount)
+        {
+            if (VertexBuffer != null)
+            {
+                graphicsDevice.AddToDeferDisposeQueue(VertexBuffer);
+            }
+
+            VertexBuffer = Adamantium.Graphics.Buffer.Vertex.New<FontItem>(graphicsDevice,
+                (uint)Math.Max(fontItems.Length, 1), Adamantium.Graphics.BufferMemoryUsage.UploadFromCpuToGpu);
+            _vertexBufferDirty = true;
+        }
+
         if (_vertexBufferDirty)
         {
-            VertexBuffer.SetData(fontItems, 0, ElementsCount, 0);
+            VertexBuffer.SetData((ReadOnlySpan<FontItem>)fontItems.AsSpan(0, (int)ElementsCount));
             _vertexBufferDirty = false;
         }
     }

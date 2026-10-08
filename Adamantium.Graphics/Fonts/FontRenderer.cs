@@ -63,6 +63,8 @@ public class FontRenderer : GraphicsResource
     private EffectParameter effectDirectClipRadii;
     private EffectParameter effectGlyphInstances;   // BDA address of the per-instance GlyphItem storage buffer (instanced batch)
     private EffectParameter effectTransforms;       // BDA address of the transform table the glyph VS indexes by slot
+    private EffectParameter effectPaintRecords;
+    private EffectParameter effectPaintStops;
 
     private Vector2F currentScreenSize;
     private static readonly Vector2F[] UVCornerCoords = [Vector2F.Zero, Vector2F.UnitX, Vector2F.UnitY, Vector2F.One];
@@ -97,6 +99,8 @@ public class FontRenderer : GraphicsResource
         effectDirectClipRadii = fontEffect.DirectClipRadii;
         effectGlyphInstances = fontEffect.GlyphInstancesAddress;
         effectTransforms = fontEffect.TransformsAddress;
+        effectPaintRecords = fontEffect.PaintRecordsAddress;
+        effectPaintStops = fontEffect.PaintStopsAddress;
     }
 
     public void DrawLayout(Buffer<FontItem> glyphs, uint count, FontAtlas atlas, float fontSize, Color foreground)
@@ -194,6 +198,7 @@ public class FontRenderer : GraphicsResource
         // unset, the pass would keep whatever the last per-block draw put there and cut the target by a stranger's rect.
         effectDirectClipBox.SetValue(Vector4F.Zero);
         effectDirectClipRadii.SetValue(Vector4F.Zero);
+        SetPaints(atlas);
         GraphicsDevice.VertexType = vertexType;
         GraphicsDevice.SetVertexBuffer(glyphs);   // the component's own buffer, uploaded from the FROZEN glyph run (no live layout)
         // Instanced quad: 4-vertex triangle strip per glyph (corners from SV_VertexID), one instance per glyph.
@@ -238,6 +243,7 @@ public class FontRenderer : GraphicsResource
         effectSdfBlendHi.SetValue(SdfBlendHi);
         effectDirectClipBox.SetValue(clipBox);       // zero size = no rounded clip
         effectDirectClipRadii.SetValue(clipRadii);
+        SetPaints(atlas);
         GraphicsDevice.VertexType = vertexType;
         GraphicsDevice.SetVertexBuffer(glyphs);   // the component's own buffer, uploaded from the FROZEN glyph run (no live layout)
         GraphicsDevice.PrimitiveTopology = PrimitiveTopology.TriangleStrip;
@@ -271,10 +277,18 @@ public class FontRenderer : GraphicsResource
         effectSdfBlendHi.SetValue(SdfBlendHi);
         effectGlyphInstances.SetValue(instancesAddress);
         effectTransforms.SetValue(transformsAddress);
+        SetPaints(atlas);
         GraphicsDevice.VertexType = null;
         GraphicsDevice.PrimitiveTopology = PrimitiveTopology.TriangleStrip;
         fontEffect.FontBatchRenderMsdfBatchInstancedPass.Apply();
         GraphicsDevice.Draw(4, glyphCount, 0, 0);   // 4 strip verts x glyphCount instances; address already at this segment
+    }
+
+    private void SetPaints(FontAtlas atlas)
+    {
+        var (records, stops) = atlas.UploadPaints();
+        effectPaintRecords.SetValue(records);
+        effectPaintStops.SetValue(stops);
     }
 
     public void RestoreState(bool outerPassActive = true)

@@ -70,6 +70,14 @@ public struct FontItem
     [VertexInputElement("TEXCOORD2")]
     public Vector4F Synthesis;
 
+    /// <summary>
+    /// A layer of a 'COLR' version 1 glyph: x = its paint record in the atlas plus one, 0 for an ordinary glyph. Such a
+    /// layer's <see cref="ArrangeRect"/> holds where its glyph's pen and baseline are and the pixels per font unit, as
+    /// x, y, z (and again w): the record places the quad.
+    /// </summary>
+    [VertexInputElement("TEXCOORD3")]
+    public Vector4F Paint;
+
     /// <summary>The <see cref="Color"/> of a glyph that takes the element's foreground: a negative alpha.</summary>
     public static readonly Vector4F InheritedColor = new(0, 0, 0, -1);
 

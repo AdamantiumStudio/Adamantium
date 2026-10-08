@@ -70,4 +70,61 @@ public class FontAtlasStoreTests
         Assert.That(boldCell, Is.Not.Null);
         Assert.That(boldCell, Is.Not.SameAs(regularCell), "a glyph of one font never draws the other's picture");
     }
+
+    [Test]
+    public void ABlockOfMoreThan4096Glyphs_DrawsThemAll()
+    {
+        var device = GpuFixture.CreateRenderDevice();
+        FontAtlasStore.SynchronousFill = true;
+        var layout = Layout("SourceSans3-Regular.ttf", new string('a', 5000));
+
+        layout.Update(device);
+        layout.EnsureVertexBuffer(device);
+
+        Assert.That(layout.ElementsCount, Is.EqualTo(5000), "no glyph past a fixed cap is dropped");
+        Assert.That(layout.VertexBuffer.ElementCount, Is.GreaterThanOrEqualTo(5000UL), "the direct path's buffer grew");
+    }
+
+    [Test]
+    public void ABlockEmptiedAfterItGrew_UploadsNothingPastItsBuffer()
+    {
+        var device = GpuFixture.CreateRenderDevice();
+        FontAtlasStore.SynchronousFill = true;
+        var layout = Layout("SourceSans3-Regular.ttf", "a");
+        layout.Update(device);
+        layout.EnsureVertexBuffer(device);
+        var size = new Size(double.NaN, double.NaN);
+        layout.ProcessText(new string('a', 5000), 20, size, TextWrapping.NoWrap, TextTrimming.None,
+            HorizontalTextAlignment.Left, VerticalTextAlignment.Top);
+        layout.Update(device);
+        layout.ProcessText(string.Empty, 20, size, TextWrapping.NoWrap, TextTrimming.None,
+            HorizontalTextAlignment.Left, VerticalTextAlignment.Top);
+        layout.Update(device);
+
+        Assert.DoesNotThrow(() => layout.EnsureVertexBuffer(device));
+        Assert.That(layout.ElementsCount, Is.EqualTo(0));
+    }
+
+    [Test]
+    public void AColorGlyph_DrawsAQuadPerLayerOfItsPaintGraph()
+    {
+        var device = GpuFixture.CreateRenderDevice();
+        FontAtlasStore.SynchronousFill = true;
+        var typeface = Typeface.LoadFont(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fonts",
+            "test_glyphs-glyf_colr_1.ttf"));
+        var font = typeface.Fonts[0];
+        var codepoint = font.Unicodes.First(u => font.TryGetGlyphIndex((int)u, out var g) && font.GetColorPaint(g).Count > 1);
+        font.TryGetGlyphIndex((int)codepoint, out var glyph);
+        var layout = new TextLayout(typeface, font);
+        layout.ProcessText(char.ConvertFromUtf32((int)codepoint), 20, new Size(double.NaN, double.NaN),
+            TextWrapping.NoWrap, TextTrimming.None, HorizontalTextAlignment.Left, VerticalTextAlignment.Top);
+
+        layout.Update(device);
+        var run = layout.SnapshotGlyphs();
+
+        Assert.That(run.Count, Is.EqualTo(font.GetColorPaint(glyph).Count), "a quad per layer");
+        Assert.That(run.Glyphs.Take(run.Count).All(g => g.Paint.X >= 1), "each quad names its paint record");
+        Assert.That(run.Glyphs.Take(run.Count).Select(g => g.Paint.X).Distinct().Count(), Is.EqualTo(run.Count),
+            "each layer has a record of its own");
+    }
 }
