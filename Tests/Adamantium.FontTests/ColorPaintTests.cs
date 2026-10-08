@@ -45,25 +45,37 @@ public class ColorPaintTests
     }
 
     [Test]
-    public void AGlyphWithoutAPaintGraph_HasNoLayers()
+    public void AGlyphWithoutAPaintGraph_HasNoSteps()
     {
         var font = Fonts.GetOrAdd("TTFFonts/CascadiaCode-Regular.ttf", p => Typeface.LoadFont(p, 3).GetFont(0));
 
         Assert.That(font.GetColorPaint(font.GetGlyphByUnicode('a').Index), Is.Empty);
     }
 
-    private static string Format(IReadOnlyList<ColorPaintLayer> layers)
+    private static string Format(IReadOnlyList<ColorPaintOperation> operations)
     {
-        return string.Join(" | ", layers.Select(Format));
+        return string.Join(" | ", operations.Select(Format));
     }
 
-    private static string Format(ColorPaintLayer layer)
+    private static string Format(ColorPaintOperation operation)
     {
-        var fill = layer.Fill;
-        var text = new StringBuilder();
-        text.Append(layer.GlyphIndex);
-        Append(text, Values(layer.Transform));
-        text.Append(' ').Append(Kind(fill.Kind)).Append(' ').Append(fill.Extend.ToString().ToLowerInvariant());
+        switch (operation.Kind)
+        {
+            case ColorPaintOperationKind.PushClip:
+                var clip = new StringBuilder("clip ").Append(operation.GlyphIndex);
+                Append(clip, Values(operation.Transform));
+                return clip.ToString();
+            case ColorPaintOperationKind.PopClip:
+                return "popclip";
+            case ColorPaintOperationKind.PushGroup:
+                return "group";
+            case ColorPaintOperationKind.PopGroup:
+                return $"popgroup {(int)operation.Mode}";
+        }
+
+        var fill = operation.Fill;
+        var text = new StringBuilder("fill ");
+        text.Append(Kind(fill.Kind)).Append(' ').Append(fill.Extend.ToString().ToLowerInvariant());
         Append(text, Values(fill.Transform));
         Append(text, fill.Kind switch
         {
@@ -76,7 +88,7 @@ public class ColorPaintTests
         foreach (var stop in fill.Stops)
         {
             var color = stop.Color is { } c ? $"#{c.R:x2}{c.G:x2}{c.B:x2}" : "fg";
-            var alpha = (stop.Color is { } a ? a.A / 255.0 : stop.Alpha) * layer.Opacity;
+            var alpha = stop.Color is { } a ? a.A / 255.0 : stop.Alpha;
             Append(text, [stop.Offset]);
             text.Append(' ').Append(color);
             Append(text, [alpha]);

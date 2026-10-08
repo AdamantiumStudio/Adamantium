@@ -4,7 +4,7 @@ using Adamantium.Mathematics;
 namespace Adamantium.Fonts;
 
 /// <summary>
-/// What a layer of a color glyph is filled with ('COLR' version 1): one color or a gradient. Points and radii are in the
+/// What a fill step of a color glyph paints ('COLR' version 1): one color or a gradient. Points and radii are in the
 /// gradient's own space, which <see cref="Transform"/> maps into the glyph's, in font units with y up.
 /// </summary>
 public sealed class ColorFill

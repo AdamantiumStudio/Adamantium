@@ -106,25 +106,28 @@ public class FontAtlasStoreTests
     }
 
     [Test]
-    public void AColorGlyph_DrawsAQuadPerLayerOfItsPaintGraph()
+    public void AColorGlyph_DrawsOneQuadThatRunsItsPaintProgram()
     {
         var device = GpuFixture.CreateRenderDevice();
         FontAtlasStore.SynchronousFill = true;
         var typeface = Typeface.LoadFont(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fonts",
             "test_glyphs-glyf_colr_1.ttf"));
         var font = typeface.Fonts[0];
-        var codepoint = font.Unicodes.First(u => font.TryGetGlyphIndex((int)u, out var g) && font.GetColorPaint(g).Count > 1);
-        font.TryGetGlyphIndex((int)codepoint, out var glyph);
+        var codepoints = font.Unicodes
+            .Where(u => font.TryGetGlyphIndex((int)u, out var g) &&
+                        font.GetColorPaint(g).Count(o => o.Kind == ColorPaintOperationKind.PushClip) > 1)
+            .Take(2)
+            .ToArray();
         var layout = new TextLayout(typeface, font);
-        layout.ProcessText(char.ConvertFromUtf32((int)codepoint), 20, new Size(double.NaN, double.NaN),
-            TextWrapping.NoWrap, TextTrimming.None, HorizontalTextAlignment.Left, VerticalTextAlignment.Top);
+        layout.ProcessText(string.Concat(codepoints.Select(c => char.ConvertFromUtf32((int)c))), 20,
+            new Size(double.NaN, double.NaN), TextWrapping.NoWrap, TextTrimming.None, HorizontalTextAlignment.Left,
+            VerticalTextAlignment.Top);
 
         layout.Update(device);
         var run = layout.SnapshotGlyphs();
 
-        Assert.That(run.Count, Is.EqualTo(font.GetColorPaint(glyph).Count), "a quad per layer");
-        Assert.That(run.Glyphs.Take(run.Count).All(g => g.Paint.X >= 1), "each quad names its paint record");
-        Assert.That(run.Glyphs.Take(run.Count).Select(g => g.Paint.X).Distinct().Count(), Is.EqualTo(run.Count),
-            "each layer has a record of its own");
+        Assert.That(run.Count, Is.EqualTo(2), "a quad per color glyph, however many outlines it clips to");
+        Assert.That(run.Glyphs.Take(run.Count).All(g => g.Paint.X >= 1), "each quad names its paint program");
+        Assert.That(run.Glyphs[0].Paint.X, Is.Not.EqualTo(run.Glyphs[1].Paint.X), "each glyph has a program of its own");
     }
 }

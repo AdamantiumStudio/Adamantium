@@ -5,19 +5,20 @@ using HarfBuzzSharp;
 namespace Adamantium.ShapingOracle;
 
 /// <summary>
-/// Writes, for every font of a cases file, each glyph with a 'COLR' version 1 paint graph as HarfBuzz paints it,
-/// flattened into layers: the clipping glyph and its transform, then the fill, its transform and its stops. A source
-/// composited onto a solid backdrop with SrcIn keeps the backdrop's alpha; every other composite draws over. Those are
-/// the engine's own simplifications, so composites are checked against them, not against how HarfBuzz composites.
+/// Writes, for every font of a cases file, each glyph with a 'COLR' version 1 paint graph as HarfBuzz paints it, as the
+/// steps the engine draws it with: "clip" (glyph and transform), "popclip", "group", "popgroup" (mode) and "fill" (kind,
+/// extend, transform, geometry and stops). Transforms are folded into the steps; the clip boxes of 'COLR''s clip list
+/// are left out; a group composited with source-over that holds no other composite is dissolved into what is around it,
+/// as HarfBuzz wraps every layer in one.
 /// </summary>
 public static class ColorPaintOracle
 {
-    private const int SourceIn = 5;
+    private const int SourceOver = 3;
     private const uint Foreground = 0x000000FF;
 
     private static readonly List<double[]> transforms = [];
-    private static readonly List<(uint? Glyph, double[] Transform)> clips = [];
-    private static readonly List<List<Item>> groups = [];
+    private static readonly List<bool> clips = [];
+    private static readonly List<Group> groups = [];
 
     public static int Write(string casesPath, string fontsRoot, string expectedPath)
     {
@@ -82,11 +83,11 @@ public static class ColorPaintOracle
             transforms.Add([1, 0, 0, 1, 0, 0]);
             clips.Clear();
             groups.Clear();
-            groups.Add([]);
+            groups.Add(new Group());
             HarfBuzzPaint.PaintGlyph(font.Handle, glyph, funcs, IntPtr.Zero, 0, Foreground);
 
-            var layers = groups[0].Where(i => i.Glyph != null).Select(i => i.Text);
-            output.Append(name).Append('\t').Append(glyph).Append('\t').AppendLine(string.Join(" | ", layers));
+            output.Append(name).Append('\t').Append(glyph).Append('\t')
+                .AppendLine(string.Join(" | ", groups[0].Steps));
         }
 
         HarfBuzzPaint.DestroyFuncs(funcs);
@@ -131,17 +132,25 @@ public static class ColorPaintOracle
 
     private static void OnPushClipGlyph(IntPtr funcs, IntPtr data, uint glyph, IntPtr font, IntPtr user)
     {
-        clips.Add((glyph, transforms[^1]));
+        clips.Add(true);
+        var text = new StringBuilder("clip ").Append(glyph);
+        Append(text, transforms[^1]);
+        groups[^1].Steps.Add(text.ToString());
     }
 
     private static void OnPushClipRectangle(IntPtr funcs, IntPtr data, float xMin, float yMin, float xMax, float yMax,
         IntPtr user)
     {
-        clips.Add((null, transforms[^1]));
+        clips.Add(false);
     }
 
     private static void OnPopClip(IntPtr funcs, IntPtr data, IntPtr user)
     {
+        if (clips[^1])
+        {
+            groups[^1].Steps.Add("popclip");
+        }
+
         clips.RemoveAt(clips.Count - 1);
     }
 
@@ -170,42 +179,44 @@ public static class ColorPaintOracle
 
     private static void OnPushGroup(IntPtr funcs, IntPtr data, IntPtr user)
     {
-        groups.Add([]);
+        groups.Add(new Group());
     }
 
     private static void OnPopGroup(IntPtr funcs, IntPtr data, int mode, IntPtr user)
     {
-        var source = groups[^1];
+        var group = groups[^1];
         groups.RemoveAt(groups.Count - 1);
-        var backdrop = groups[^1];
-        if (mode != SourceIn)
+        var parent = groups[^1];
+        if (mode == SourceOver && !group.HoldsAComposite)
         {
-            backdrop.AddRange(source);
+            parent.Steps.AddRange(group.Steps);
             return;
         }
 
-        var opacity = backdrop.Count == 1 && backdrop[0].Glyph == null ? backdrop[0].Alpha : 1;
-        backdrop.Clear();
-        backdrop.AddRange(source.Select(i => i.WithOpacity(opacity)));
+        parent.Steps.Add("group");
+        parent.Steps.AddRange(group.Steps);
+        parent.Steps.Add($"popgroup {mode}");
+        if (mode != SourceOver)
+        {
+            parent.HoldsAComposite = true;
+        }
     }
 
     private static void Fill(string head, double[] geometry, (float Offset, bool Foreground, uint Color)[] stops)
     {
-        var clip = clips.LastOrDefault(c => c.Glyph != null);
-        if (clip.Glyph == null)
-        {
-            var alpha = head.StartsWith("solid") ? (stops[0].Color & 0xFF) / 255.0 : 1;
-            groups[^1].Add(new Item(null, alpha, null, 1));
-            return;
-        }
-
-        var text = new StringBuilder();
-        text.Append(clip.Glyph.Value);
-        Append(text, clip.Transform);
-        text.Append(' ').Append(head);
+        var text = new StringBuilder("fill ").Append(head);
         Append(text, transforms[^1]);
         Append(text, geometry);
-        groups[^1].Add(new Item(clip.Glyph, 1, (text.ToString(), stops.OrderBy(s => s.Offset).ToArray()), 1));
+        var sorted = stops.OrderBy(s => s.Offset).ToArray();
+        text.Append(' ').Append(sorted.Length);
+        foreach (var stop in sorted)
+        {
+            var color = stop.Foreground ? "fg" : $"#{stop.Color >> 8 & 0xFF:x2}{stop.Color >> 16 & 0xFF:x2}{stop.Color >> 24:x2}";
+            text.Append(' ').Append(Number(stop.Offset)).Append(' ').Append(color).Append(' ')
+                .Append(Number((stop.Color & 0xFF) / 255.0));
+        }
+
+        groups[^1].Steps.Add(text.ToString());
     }
 
     private static (float, bool, uint)[] Stops(IntPtr colorLine)
@@ -236,26 +247,10 @@ public static class ColorPaintOracle
 
     private static string Number(double value) => Math.Round(value, 4).ToString("0.####", CultureInfo.InvariantCulture);
 
-    private sealed record Item(uint? Glyph, double Alpha, (string Head, (float Offset, bool Foreground, uint Color)[] Stops)? Fill,
-        double Opacity)
+    private sealed class Group
     {
-        public Item WithOpacity(double opacity) => this with { Opacity = Opacity * opacity };
+        public List<string> Steps { get; } = [];
 
-        public string Text
-        {
-            get
-            {
-                var text = new StringBuilder(Fill.Value.Head);
-                text.Append(' ').Append(Fill.Value.Stops.Length);
-                foreach (var stop in Fill.Value.Stops)
-                {
-                    var color = stop.Foreground ? "fg" : $"#{stop.Color >> 8 & 0xFF:x2}{stop.Color >> 16 & 0xFF:x2}{stop.Color >> 24:x2}";
-                    text.Append(' ').Append(Number(stop.Offset)).Append(' ').Append(color).Append(' ')
-                        .Append(Number((stop.Color & 0xFF) / 255.0 * Opacity));
-                }
-
-                return text.ToString();
-            }
-        }
+        public bool HoldsAComposite { get; set; }
     }
 }

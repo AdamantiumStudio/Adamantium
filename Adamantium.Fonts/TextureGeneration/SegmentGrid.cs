@@ -7,6 +7,8 @@ namespace Adamantium.Fonts.TextureGeneration;
 
 internal sealed class SegmentGrid
 {
+    private const double TieTolerance = 1e-9;
+
     private readonly LineSegment2D[] segments;
     private readonly List<int>[] cells;
     private readonly int[] visited;
@@ -118,14 +120,16 @@ internal sealed class SegmentGrid
 
             visited[index] = stamp;
             var distance = GlyphSegmentsMath.GetDistanceToSegment(segments[index], point);
-            if (distance < best)
+            var tolerance = TieTolerance * Math.Max(Math.Min(best, distance), 1);
+            if (distance < best - tolerance)
             {
                 best = distance;
                 ties.Clear();
                 ties.Add(index);
             }
-            else if (distance == best)
+            else if (distance <= best + tolerance)
             {
+                best = Math.Min(best, distance);
                 ties.Add(index);
             }
         }

@@ -9,10 +9,8 @@ namespace Adamantium.Fonts.Tables;
 internal sealed class ColorPaintTable
 {
     private const ushort ForegroundEntry = 0xFFFF;
-    private const byte SourceIn = 5;
     private const int MaxDepth = 64;
     private const int MaxVisits = 65536;
-    private const int NoClip = -1;
 
     private readonly byte[] data;
     private readonly int baseGlyphList;
@@ -59,7 +57,7 @@ internal sealed class ColorPaintTable
         return new ColorPaintTable(data, (int)baseGlyphList, (int)layerList);
     }
 
-    public ColorPaintLayer[] GetLayers(uint glyphIndex, ColorPaletteTable palettes, int palette)
+    public ColorPaintOperation[] GetOperations(uint glyphIndex, ColorPaletteTable palettes, int palette)
     {
         try
         {
@@ -71,8 +69,8 @@ internal sealed class ColorPaintTable
 
             var context = new Context(palettes, palette);
             context.Visiting.Add(glyphIndex);
-            Paint(paint, Matrix3x2.Identity, NoClip, Matrix3x2.Identity, context, 0);
-            return context.Layers.ToArray();
+            Paint(paint, Matrix3x2.Identity, context, 0);
+            return context.Operations.ToArray();
         }
         catch (IndexOutOfRangeException)
         {
@@ -107,7 +105,7 @@ internal sealed class ColorPaintTable
         return -1;
     }
 
-    private void Paint(int at, Matrix3x2 transform, int clip, Matrix3x2 mask, Context context, int depth)
+    private void Paint(int at, Matrix3x2 transform, Context context, int depth)
     {
         if (depth > MaxDepth || ++context.Visits > MaxVisits)
         {
@@ -122,82 +120,88 @@ internal sealed class ColorPaintTable
                 var first = (int)UInt32(at + 2);
                 for (var i = 0; i < count; i++)
                 {
-                    var layer = layerList + (int)UInt32(layerList + 4 + (first + i) * 4);
-                    Paint(layer, transform, clip, mask, context, depth + 1);
+                    PaintIsolated(layerList + (int)UInt32(layerList + 4 + (first + i) * 4), transform, context, depth + 1);
                 }
 
                 break;
             case >= 2 and <= 9:
-                if (clip != NoClip)
-                {
-                    context.Layers.Add(new ColorPaintLayer((uint)clip, mask, Fill(at, transform, context), 1));
-                }
-
+                context.Operations.Add(ColorPaintOperation.FillWith(Fill(at, transform, context)));
                 break;
             case 10:
-                Paint(Child(at), transform, UInt16(at + 4), transform, context, depth + 1);
+                context.Operations.Add(ColorPaintOperation.PushClip(UInt16(at + 4), transform));
+                Paint(Child(at), transform, context, depth + 1);
+                context.Operations.Add(ColorPaintOperation.PopClip());
                 break;
             case 11:
                 var glyph = UInt16(at + 1);
                 var paint = FindPaint(glyph);
                 if (paint >= 0 && context.Visiting.Add(glyph))
                 {
-                    Paint(paint, transform, clip, mask, context, depth + 1);
+                    Paint(paint, transform, context, depth + 1);
                     context.Visiting.Remove(glyph);
                 }
 
                 break;
             case >= 12 and <= 31:
-                Paint(Child(at), Matrix3x2.Multiply(Transform(at), transform), clip, mask, context, depth + 1);
+                Paint(Child(at), Matrix3x2.Multiply(Transform(at), transform), context, depth + 1);
                 break;
             case 32:
-                Composite(at, transform, clip, mask, context, depth);
+                Composite(at, transform, context, depth);
                 break;
         }
     }
 
-    private void Composite(int at, Matrix3x2 transform, int clip, Matrix3x2 mask, Context context, int depth)
+    private void Composite(int at, Matrix3x2 transform, Context context, int depth)
     {
         var source = Child(at);
         var mode = data[at + 4];
         var backdrop = at + (int)UInt24(at + 5);
-        if (mode != SourceIn)
+        if (mode == (byte)ColorCompositeMode.SourceOver)
         {
-            Paint(backdrop, transform, clip, mask, context, depth + 1);
-            Paint(source, transform, clip, mask, context, depth + 1);
+            Paint(backdrop, transform, context, depth + 1);
+            PaintIsolated(source, transform, context, depth + 1);
             return;
         }
 
-        var start = context.Layers.Count;
-        Paint(source, transform, clip, mask, context, depth + 1);
-        var opacity = clip == NoClip ? PlaneAlpha(backdrop, context, depth + 1) : 1;
-        for (var i = start; i < context.Layers.Count; i++)
+        Paint(backdrop, transform, context, depth + 1);
+        context.Operations.Add(ColorPaintOperation.PushGroup());
+        Paint(source, transform, context, depth + 1);
+        var known = mode <= (byte)ColorCompositeMode.Luminosity;
+        context.Operations.Add(ColorPaintOperation.PopGroup(known ? (ColorCompositeMode)mode : ColorCompositeMode.SourceOver));
+    }
+
+    private void PaintIsolated(int at, Matrix3x2 transform, Context context, int depth)
+    {
+        var start = context.Operations.Count;
+        Paint(at, transform, context, depth);
+        if (HoldsAComposite(context.Operations, start))
         {
-            var layer = context.Layers[i];
-            context.Layers[i] = new ColorPaintLayer(layer.GlyphIndex, layer.Transform, layer.Fill, layer.Opacity * opacity);
+            context.Operations.Insert(start, ColorPaintOperation.PushGroup());
+            context.Operations.Add(ColorPaintOperation.PopGroup(ColorCompositeMode.SourceOver));
         }
     }
 
-    private float PlaneAlpha(int at, Context context, int depth)
+    private static bool HoldsAComposite(List<ColorPaintOperation> operations, int start)
     {
-        if (depth > MaxDepth)
+        var depth = 0;
+        for (var i = start; i < operations.Count; i++)
         {
-            return 1;
+            var operation = operations[i];
+            if (operation.Kind == ColorPaintOperationKind.PushGroup)
+            {
+                depth++;
+            }
+            else if (operation.Kind == ColorPaintOperationKind.PopGroup)
+            {
+                depth--;
+                if (depth == 0 && operation.Mode != ColorCompositeMode.SourceOver)
+                {
+                    return true;
+                }
+            }
         }
 
-        var format = data[at];
-        if (format is >= 12 and <= 31)
-        {
-            return PlaneAlpha(Child(at), context, depth + 1);
-        }
-
-        if (format is not (2 or 3))
-        {
-            return 1;
-        }
-
-        var stop = Stop(0, UInt16(at + 1), F2Dot14(at + 3), context);
-        return stop.Color is { } color ? color.A / 255f : stop.Alpha;
+        return false;
     }
 
     private ColorFill Fill(int at, Matrix3x2 transform, Context context)
@@ -353,7 +357,7 @@ internal sealed class ColorPaintTable
 
         public int Palette { get; }
 
-        public List<ColorPaintLayer> Layers { get; } = [];
+        public List<ColorPaintOperation> Operations { get; } = [];
 
         public HashSet<uint> Visiting { get; } = [];
 

@@ -89,17 +89,16 @@ All packages share one version.
   glyph of its font in a color of the font's first palette, or in the text's color for the foreground entry
   (`IFont.GetColorLayers`, `ColorLayer`). The layers take places in the shared atlas and draw in the same batch as the
   text around them, so Segoe UI Emoji's emoji come out in color at any size.
-- 'COLR' version 1 paint graphs read and flattened into layers (`IFont.GetColorPaint`, `ColorPaintLayer`,
-  `ColorFill`, `ColorStop`): each layer an ordinary glyph placed by its transform and filled with a color or a linear,
-  radial or sweep gradient, the gradient's own transform composed in. A source composited onto a solid backdrop with
-  SrcIn takes the backdrop's alpha as its opacity; other composites draw over. Checked against HarfBuzz on Google's
-  COLRv1 test font.
-- Color glyphs from 'COLR' version 1 drawn in real time: text lays a color glyph out as its paint graph's layers when it
-  has one, each layer the atlas's distance field of its outline, transformed, and its fill evaluated per pixel in the
-  glyph shader: linear, radial (two-point conical) and sweep gradients with pad, repeat and reflect, interpolated
-  premultiplied. The atlas keeps a record per layer in font units, so one serves every size
-  (`FontItem.Paint`; FontEffect's `PaintRecordsAddress` and `PaintStopsAddress`). Segoe UI Emoji's emoji come out
-  with their gradients and shading, as Edge draws them.
+- 'COLR' version 1 paint graphs read as the steps that draw them (`IFont.GetColorPaint`, `ColorPaintOperation`,
+  `ColorPaintOperationKind`, `ColorCompositeMode`, `ColorFill`, `ColorStop`): clips by glyph outlines, groups
+  composited with any of the format's 28 modes, and fills with a color or a linear, radial or sweep gradient,
+  transforms folded in. Checked step for step against HarfBuzz on Google's COLRv1 test fonts.
+- Color glyphs from 'COLR' version 1 drawn in real time: a color glyph is one quad whose pixel shader runs the glyph's
+  paint program - nested clips intersect, groups composite exactly (Porter-Duff, blend and HSL modes), linear, radial
+  (two-point conical) and sweep gradients with pad, repeat and reflect, interpolated premultiplied - each outline from
+  the atlas's distance field, transformed. The atlas keeps one program per glyph in font units, so one serves every size
+  (`FontItem.Paint`; FontEffect's `PaintProgramsAddress` and `PaintStopsAddress`). Segoe UI Emoji's emoji come out
+  with their gradients, shading and translucent groups, as Edge draws them; the 28 modes of Google's test font too.
 - Synthesized bold and italic for a face a family lacks (`FontSynthesis`, `TextAttributes.Synthesis`): a bold moves
   the glyph's edge out in the distance field, by a 48th of the size per side at 9 pixels down to a 64th at 36, and
   advances it further by twice that; an italic slants the glyph's quad about its baseline by a quarter of its height
@@ -109,6 +108,14 @@ All packages share one version.
 
 ### Fixed
 
+- A glyph's distance field drew a faint line past an acute corner, along the extension of one of its edges, out to the
+  edge of its cell, and dots in narrow gaps (the swirls of Segoe UI Emoji's ice cream; 37 glyphs of Segoe UI, 12 of
+  Source Sans 3, 30 of Cascadia Code): neighboring texels' channels, interpolated, put the contour where it is not.
+  Where they do, a texel past one from the outline takes the true distance in every channel, as does every texel past
+  three; corners keep their channels, sharp for a bold that moves the contour out.
+- A point on the line of a corner's edge, beyond the corner, could take the distance to the glyph's outline with the
+  wrong sign, drawing a dot well outside the glyph (Cascadia Code's geometric shapes, such as ◆): the two edges at the corner
+  were equally near but for the last digits, and only one was kept.
 - `FeatureInfo.DefaultFeatureState` said Off for features shaping applies to all text unasked (`liga`, `kern`,
   `calt`, `locl`, `mark`…) and On for `size`, which shaping never applies. It comes from the shaper's own list now
   (`TextShaper.DefaultFeatures`), and `FeatureInfo.Create` no longer takes a default state.
