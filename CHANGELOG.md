@@ -7,6 +7,12 @@ All packages share one version.
 
 ### Added
 
+- What a panel of OpenType features and a glyph panel need from a font: `Feature.Name` (a stylistic set's or a
+  character variant's own label from the 'name' table, otherwise the registered name), `Tooltip`, `SampleText`,
+  `ParameterLabels`, `Characters` and `ValueCount` (how many alternates the feature offers); `IFont.GetName` for any
+  string of the 'name' table; `IFont.GetGlyphAlternates` - every glyph a single or alternate substitution turns a glyph
+  into, with the feature and value that ask for it; `IFont.GetGlyphText` - the characters a glyph stands for, through
+  substitutions and ligatures. Checked against HarfBuzz.
 - `TextShaper.DefaultFeatures`: the features shaping applies without being asked (`ccmp`, `locl`, `calt`, `liga`,
   `kern`…), from the same list the shaper plans with, so a settings panel can show a font's `calt` as on and its
   `ss01` as off before anything is asked for.

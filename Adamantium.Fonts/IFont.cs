@@ -104,6 +104,18 @@ namespace Adamantium.Fonts
 
         /// <summary>The OpenType features this font offers, per script and language system.</summary>
         public FeatureCatalog FeatureCatalog { get; }
+
+        /// <summary>The string the 'name' table holds under <paramref name="nameId"/> - English when there is a choice -
+        /// or null when it holds none: the labels of stylistic sets and character variants, for one.</summary>
+        public string GetName(ushort nameId);
+
+        /// <summary>Every glyph a single or alternate substitution of a 'GSUB' feature turns this glyph into, with the
+        /// feature and value that ask for it - what a glyph panel offers for a character.</summary>
+        public IReadOnlyList<GlyphAlternate> GetGlyphAlternates(uint glyphIndex);
+
+        /// <summary>The texts this glyph stands for: its characters from 'cmap', those of the glyphs a substitution
+        /// makes it from, and the joined characters of a ligature - so a glyph put in by hand can be copied as text.</summary>
+        public IReadOnlyList<string> GetGlyphText(uint glyphIndex);
         
         public IReadOnlyCollection<uint> Unicodes { get; }
         

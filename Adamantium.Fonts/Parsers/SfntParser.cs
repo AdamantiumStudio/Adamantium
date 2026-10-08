@@ -704,6 +704,7 @@ namespace Adamantium.Fonts.Parsers
                     : Encoding.BigEndianUnicode;
 
                 var str = FontReader.ReadString(nameRecord.Length, encoding);
+                CurrentFont.SetName(nameRecord.NameId, str);
 
                 switch ((NameIdKind)nameRecord.NameId)
                 {

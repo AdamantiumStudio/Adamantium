@@ -9,7 +9,8 @@ namespace Adamantium.ShapingOracle;
 /// Shapes every case of a cases file with HarfBuzz and writes the expected results the font tests compare against.
 /// Usage: Adamantium.ShapingOracle &lt;cases.txt&gt; &lt;fonts root&gt; &lt;expected.txt&gt;; with "variations" first,
 /// writes each glyph's advance and extents at the axis values of each case instead; with "paint" first, each color
-/// glyph's flattened paint graph; with "bitmaps" first, each color image's PNG and extents at the size of each case.
+/// glyph's flattened paint graph; with "bitmaps" first, each color image's PNG and extents at the size of each case;
+/// with "features" first, each font's 'GSUB' feature names and glyph alternates.
 /// </summary>
 public static class Program
 {
@@ -30,9 +31,14 @@ public static class Program
             return ColorBitmapOracle.Write(args[1], args[2], args[3]);
         }
 
+        if (args.Length == 4 && args[0] == "features")
+        {
+            return FeatureOracle.Write(args[1], args[2], args[3]);
+        }
+
         if (args.Length != 3)
         {
-            Console.Error.WriteLine("Usage: Adamantium.ShapingOracle [variations|paint|bitmaps] <cases.txt> <fonts root> <expected.txt>");
+            Console.Error.WriteLine("Usage: Adamantium.ShapingOracle [variations|paint|bitmaps|features] <cases.txt> <fonts root> <expected.txt>");
             return 1;
         }
 
