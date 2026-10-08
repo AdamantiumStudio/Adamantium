@@ -118,8 +118,10 @@ All packages share one version.
   as the text's color and `var(--colorN)` from the text's palette. Strokes, masks, patterns, filters and style sheets
   are not drawn. Google's samples drawn from their SVG documents match the same drawings
   drawn from their 'COLR' version 1 graph.
-- `SvgPathData` in `Adamantium.Mathematics.Svg`: SVG path data read into its commands (`SvgPathCommand`), arc flags
-  written without separators included, and SVG's numbers (`SvgPathData.ReadNumbers`); `Colors.TryGetNamed`.
+- `SvgPathData` in `Adamantium.Mathematics.Svg`: `Walk` reads SVG path data into an `ISvgPathSink` as absolute steps
+  (relative points, `H`/`V`, smooth curves' reflected controls and repeated commands worked out; arc flags written
+  without separators included), `ArcToCubics` turns an arc into cubic curves, and `ReadNumbers` reads SVG's numbers;
+  `Colors.TryGetNamed`.
 - Color palettes: `TextAttributes.ColorPalette` draws a range's color glyphs in another of its font's 'CPAL' palettes
   (`IFont.ColorPalettes`, `ColorPalette` with the backgrounds version 1 says it suits, `ColorPaletteUsage`;
   `IFont.GetColorPaint` and `GetColorLayers` with a palette); a palette the font lacks draws in its first. Checked
@@ -142,6 +144,9 @@ All packages share one version.
 
 ### Fixed
 
+- `TransitionImageLayout` moves every mip level, not only the first: a texture made with mip levels left the rest
+  undefined while it said they were in its layout, and the validation layer reported the first barrier that relied on
+  it.
 - `IFont.GetInstance` gave the font itself for axis values when its outlines do not vary ('glyf' without 'gvar'), so
   what else varies - advances ('HVAR'), color glyphs ('COLR') - stayed at the defaults. Such a font now has its
   instances, their outlines read as they are.

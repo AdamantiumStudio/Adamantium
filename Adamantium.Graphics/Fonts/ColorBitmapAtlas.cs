@@ -219,15 +219,7 @@ internal sealed class ColorBitmapAtlas : DisposableObject
             deepest = Math.Max(deepest, cell.Layer);
         }
 
-        if (_layers == null)
-        {
-            _layers = CreateLayers();
-            var commandBuffer = _device.BeginSingleTimeCommand();
-            _device.InsertImageMemoryBarrier(commandBuffer, Texture, 0, AccessFlagBits2.ShaderReadBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, PipelineStageFlagBits2.TopOfPipeBit,
-                PipelineStageFlagBits2.FragmentShaderBit);
-            _device.EndSingleTimeCommand(commandBuffer);
-        }
+        _layers ??= CreateLayers();
 
         while (_layers.Count <= deepest)
         {
