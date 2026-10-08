@@ -24,7 +24,7 @@ namespace Adamantium.Fonts
         private float[] coordinates;
         private int[] variedAdvances;
         private readonly ConcurrentDictionary<uint, ColorLayer[]> colorLayerCache = new();
-        private readonly ConcurrentDictionary<uint, ColorPaintLayer[]> colorPaintCache = new();
+        private readonly ConcurrentDictionary<uint, ColorPaintOperation[]> colorPaintCache = new();
         public Typeface Typeface { get; private set; }
         internal VariationStore VariationData { get; set; }
         internal List<InstanceRecord> InstanceData { get; set; }
@@ -189,14 +189,14 @@ namespace Adamantium.Fonts
         internal ColorPaintTable ColorPaints { get; set; }
 
         /// <inheritdoc />
-        public IReadOnlyList<ColorPaintLayer> GetColorPaint(uint glyphIndex)
+        public IReadOnlyList<ColorPaintOperation> GetColorPaint(uint glyphIndex)
         {
             if (ColorPaints == null)
             {
                 return [];
             }
 
-            return colorPaintCache.GetOrAdd(glyphIndex, g => ColorPaints.GetLayers(g, ColorPalettes, 0));
+            return colorPaintCache.GetOrAdd(glyphIndex, g => ColorPaints.GetOperations(g, ColorPalettes, 0));
         }
 
         /// <inheritdoc />

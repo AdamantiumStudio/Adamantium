@@ -361,20 +361,44 @@ namespace Adamantium.Graphics.Fonts
             return AtlasData.GetGlyphData(GlyphTextureData.KeyOf(font.Typeface, glyph.Index));
         }
 
-        internal int GetPaintRecord(IFont font, uint colorGlyph, int layerIndex, ColorPaintLayer layer)
+        internal int GetPaintProgram(IFont font, uint colorGlyph, IReadOnlyList<ColorPaintOperation> operations)
         {
-            var mask = font.GetGlyphByIndex(layer.GlyphIndex);
-            var cell = GetGlyphData(font, mask);
-            if (cell == null)
+            var key = GlyphTextureData.KeyOf(font.Typeface, colorGlyph);
+            if (_paints.TryGetProgram(key, out var known))
             {
-                return -1;
+                return known;
             }
 
-            return _paints.GetRecord(GlyphTextureData.KeyOf(font.Typeface, colorGlyph), layerIndex, layer, mask,
-                font.GetLeftSideBearing(mask.Index), cell, font.UnitsPerEm, MSDFTextureSize);
+            var masks = new Dictionary<uint, ColorPaintMask>();
+            foreach (var operation in operations)
+            {
+                if (operation.Kind != ColorPaintOperationKind.PushClip || masks.ContainsKey(operation.GlyphIndex))
+                {
+                    continue;
+                }
+
+                var mask = font.GetGlyphByIndex(operation.GlyphIndex);
+                var cell = GetGlyphData(font, mask);
+                if (cell == null && !mask.IsEmpty && !IsSettled(font, mask))
+                {
+                    return -1;
+                }
+
+                masks[operation.GlyphIndex] = new ColorPaintMask(mask, font.GetLeftSideBearing(mask.Index), cell);
+            }
+
+            return _paints.GetProgram(key, operations, masks, font.UnitsPerEm, MSDFTextureSize);
         }
 
-        internal (ulong Records, ulong Stops) UploadPaints()
+        private bool IsSettled(IFont font, Glyph glyph)
+        {
+            lock (_asyncGate)
+            {
+                return processedGlyphs.Contains(GlyphTextureData.KeyOf(font.Typeface, glyph.Index));
+            }
+        }
+
+        internal (ulong Programs, ulong Stops) UploadPaints()
         {
             return _paints.Upload(GraphicsDevice);
         }

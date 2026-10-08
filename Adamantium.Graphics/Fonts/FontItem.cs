@@ -71,9 +71,9 @@ public struct FontItem
     public Vector4F Synthesis;
 
     /// <summary>
-    /// A layer of a 'COLR' version 1 glyph: x = its paint record in the atlas plus one, 0 for an ordinary glyph. Such a
-    /// layer's <see cref="ArrangeRect"/> holds where its glyph's pen and baseline are and the pixels per font unit, as
-    /// x, y, z (and again w): the record places the quad.
+    /// A 'COLR' version 1 glyph, drawn by its paint program: x = the program in the atlas plus one, 0 for an ordinary
+    /// glyph. Such a glyph's <see cref="ArrangeRect"/> holds where its pen and baseline are and the pixels per font unit,
+    /// as x, y, z (and again w): the program places the quad.
     /// </summary>
     [VertexInputElement("TEXCOORD3")]
     public Vector4F Paint;

@@ -27,10 +27,13 @@ public class ColorGlyphLayoutTests
             HorizontalTextAlignment.Left, VerticalTextAlignment.Top);
 
         var drawn = layout.GetGlyphs().Select(g => g.Glyph.Index).ToArray();
-        var layers = font.GetColorPaint(smile).Select(l => l.GlyphIndex).ToArray();
+        var outlines = font.GetColorPaint(smile)
+            .Where(o => o.Kind == ColorPaintOperationKind.PushClip)
+            .Select(o => o.GlyphIndex)
+            .ToArray();
 
-        Assert.That(layers, Is.Not.Empty, "the emoji has a 'COLR' version 1 paint graph");
-        Assert.That(drawn.Take(layers.Length), Is.EqualTo(layers), "the paint graph's layers, bottom first");
+        Assert.That(outlines, Is.Not.Empty, "the emoji has a 'COLR' version 1 paint graph");
+        Assert.That(drawn.Take(outlines.Length), Is.EqualTo(outlines), "the outlines its paint program clips to");
         Assert.That(drawn, Does.Not.Contain(smile), "the color glyph's own outline is not drawn");
     }
 }

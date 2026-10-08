@@ -8,6 +8,10 @@ namespace Adamantium.Fonts.TextureGeneration
 {
     public static class MSDFGenerator
     {
+        private const double NearBandTexels = 1.0;
+        private const double FarBandTexels = 3.0;
+        private const double MisleadingTexels = 0.75;
+
         public static void GenerateGlyphData(this Glyph glyph, GlyphTextureData textureData, double pxRange, ushort unitsPerEm)
         {
             GenerateMSDFForExistingTextureData(glyph, textureData, pxRange, unitsPerEm);
@@ -341,9 +345,12 @@ namespace Adamantium.Fonts.TextureGeneration
                 }
             }
 
-            // 4. Fix artifacts
-            // FixArtifacts(coloredDistances, fullWidth, fullHeight); // disabled: the simple clash detector
-            // can collapse legitimate corners -> distorted/dark glyph chunks.
+            // 4. Fix artifacts: away from the outline the true distance stands in for channels that mislead - past an
+            // acute corner an edge's extension holds a channel at the contour's level, drawn as a line out to the cell's
+            // edge - and far from it for all of them. Near the outline corners keep their channels, for a bold or a
+            // weight that moves the contour too. (The simple clash detector, FixArtifacts, stays off: it collapsed
+            // legitimate corners.)
+            UseTrueDistanceAwayFromOutline(coloredDistances, fullWidth, fullHeight, pxRange);
 
             // 5. Normalize MSDF/SDF to [0 .. 255], written contiguously over the whole bitmap.
             var index = 0;
@@ -457,9 +464,8 @@ namespace Adamantium.Fonts.TextureGeneration
                 }
             }
 
-            // 5. Fix artifacts
-            // FixArtifacts(coloredDistances, (int)size.Width, (int)size.Height); // disabled: the simple
-            // clash detector can collapse legitimate corners -> distorted/dark glyph chunks.
+            // 5. Fix artifacts, as GenerateDirectMSDF does.
+            UseTrueDistanceAwayFromOutline(coloredDistances, (int)size.Width, (int)size.Height, pxRange);
 
             // 6. Normalize MSDF and SDF to [0 .. 255] range
             var margin = (int)textureData.Margin;
@@ -534,6 +540,78 @@ namespace Adamantium.Fonts.TextureGeneration
 
             return true;
         }
+
+        private static void UseTrueDistanceAwayFromOutline(ColoredDistance[,] data, int width, int height, double pxRange)
+        {
+            var replace = new bool[width, height];
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    replace[x, y] |= Texels(data[x, y].AlphaDistance, pxRange) > FarBandTexels;
+                    if (x + 1 < width)
+                    {
+                        MarkMisleading(data, replace, pxRange, (x, y), (x + 1, y));
+                    }
+
+                    if (y + 1 < height)
+                    {
+                        MarkMisleading(data, replace, pxRange, (x, y), (x, y + 1));
+                    }
+
+                    if (x + 1 < width && y + 1 < height)
+                    {
+                        MarkMisleading(data, replace, pxRange, (x, y), (x + 1, y), (x, y + 1), (x + 1, y + 1));
+                    }
+                }
+            }
+
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    if (!replace[x, y])
+                    {
+                        continue;
+                    }
+
+                    var distance = data[x, y];
+                    distance.RedDistance = distance.AlphaDistance;
+                    distance.GreenDistance = distance.AlphaDistance;
+                    distance.BlueDistance = distance.AlphaDistance;
+                    data[x, y] = distance;
+                }
+            }
+        }
+
+        private static void MarkMisleading(ColoredDistance[,] data, bool[,] replace, double pxRange,
+            params (int X, int Y)[] texels)
+        {
+            double red = 0, green = 0, blue = 0, alpha = 0;
+            foreach (var (x, y) in texels)
+            {
+                var distance = data[x, y];
+                red += distance.RedDistance;
+                green += distance.GreenDistance;
+                blue += distance.BlueDistance;
+                alpha += distance.AlphaDistance;
+            }
+
+            var median = MsdfGeneratorHelper.Median(red, green, blue) / texels.Length;
+            alpha /= texels.Length;
+            var wrongSide = median > 0.5 != alpha > 0.5;
+            if (!wrongSide && Texels(alpha, pxRange) - Texels(median, pxRange) <= MisleadingTexels)
+            {
+                return;
+            }
+
+            foreach (var (x, y) in texels)
+            {
+                replace[x, y] |= Texels(data[x, y].AlphaDistance, pxRange) > NearBandTexels;
+            }
+        }
+
+        private static double Texels(double normalized, double pxRange) => Math.Abs(normalized - 0.5) * pxRange;
 
         private static void FixArtifacts(ColoredDistance[,] data, int width, int height)
         {

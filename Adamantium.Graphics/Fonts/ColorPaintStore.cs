@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Adamantium.Fonts;
-using Adamantium.Fonts.TextureGeneration;
 using Adamantium.Graphics.Core;
 using Adamantium.Mathematics;
 using Adamantium.Vulkan.Core;
@@ -11,50 +10,63 @@ namespace Adamantium.Graphics.Fonts;
 
 internal sealed class ColorPaintStore : IDisposable
 {
-    private const int RecordSize = 6;
-    private const int StopSize = 2;
     private const int InitialCapacity = 256;
+    private const int MaxGroupDepth = 8;
+    private const int MaxClipDepth = 8;
+    private const float ClipCode = 1;
+    private const float PopClipCode = 2;
+    private const float GroupCode = 3;
+    private const float PopGroupCode = 4;
+    private const float FillCode = 5;
 
     private readonly object _gate = new();
-    private readonly Dictionary<(ulong Glyph, int Layer), int> _records = new();
-    private readonly List<Vector4F> _recordData = [];
+    private readonly Dictionary<ulong, int> _programs = new();
+    private readonly List<Vector4F> _programData = [];
     private readonly List<Vector4F> _stopData = [];
-    private Buffer<Vector4F> _recordBuffer;
+    private Buffer<Vector4F> _programBuffer;
     private Buffer<Vector4F> _stopBuffer;
-    private int _recordsUploaded;
+    private int _programsUploaded;
     private int _stopsUploaded;
     private IGraphicsDevice _device;
     private bool _disposed;
 
-    public int GetRecord(ulong colorGlyph, int layerIndex, ColorPaintLayer layer, Glyph mask, double leftSideBearing,
-        GlyphTextureData cell, double unitsPerEm, uint fieldSize)
+    public bool TryGetProgram(ulong colorGlyph, out int program)
     {
         lock (_gate)
         {
-            if (_records.TryGetValue((colorGlyph, layerIndex), out var known))
+            return _programs.TryGetValue(colorGlyph, out program);
+        }
+    }
+
+    public int GetProgram(ulong colorGlyph, IReadOnlyList<ColorPaintOperation> operations,
+        IReadOnlyDictionary<uint, ColorPaintMask> masks, double unitsPerEm, uint fieldSize)
+    {
+        lock (_gate)
+        {
+            if (_programs.TryGetValue(colorGlyph, out var known))
             {
                 return known;
             }
 
-            var record = Build(layer, mask, leftSideBearing, cell, unitsPerEm, fieldSize);
-            _records[(colorGlyph, layerIndex)] = record;
-            return record;
+            var program = Build(operations, masks, unitsPerEm, fieldSize);
+            _programs[colorGlyph] = program;
+            return program;
         }
     }
 
-    public (ulong Records, ulong Stops) Upload(IGraphicsDevice device)
+    public (ulong Programs, ulong Stops) Upload(IGraphicsDevice device)
     {
         lock (_gate)
         {
-            if (_disposed || _recordData.Count == 0)
+            if (_disposed || _programData.Count == 0)
             {
                 return (0, 0);
             }
 
             _device = device;
-            _recordsUploaded = Send(device, ref _recordBuffer, _recordData, _recordsUploaded);
+            _programsUploaded = Send(device, ref _programBuffer, _programData, _programsUploaded);
             _stopsUploaded = Send(device, ref _stopBuffer, _stopData, _stopsUploaded);
-            return (_recordBuffer.GetDeviceAddress(), _stopBuffer.GetDeviceAddress());
+            return (_programBuffer.GetDeviceAddress(), _stopBuffer.GetDeviceAddress());
         }
     }
 
@@ -63,42 +75,164 @@ internal sealed class ColorPaintStore : IDisposable
         lock (_gate)
         {
             _disposed = true;
-            Retire(_recordBuffer);
+            Retire(_programBuffer);
             Retire(_stopBuffer);
-            _recordBuffer = null;
+            _programBuffer = null;
             _stopBuffer = null;
         }
     }
 
-    private int Build(ColorPaintLayer layer, Glyph mask, double leftSideBearing, GlyphTextureData cell,
+    private int Build(IReadOnlyList<ColorPaintOperation> operations, IReadOnlyDictionary<uint, ColorPaintMask> masks,
         double unitsPerEm, uint fieldSize)
     {
-        var fill = layer.Fill;
-        var toGradient = fill.Transform;
-        if (fill.Stops.Count == 0 || Math.Abs(toGradient.Determinant()) < 1e-12 ||
-            Math.Abs(layer.Transform.Determinant()) < 1e-12)
+        var steps = new List<Vector4F>();
+        var stopCount = _stopData.Count;
+        var skippedGroups = new Stack<bool>();
+        var openClips = new Stack<int>();
+        var groupDepth = 0;
+        var box = new Box();
+        for (var i = 0; i < operations.Count; i++)
         {
+            var operation = operations[i];
+            switch (operation.Kind)
+            {
+                case ColorPaintOperationKind.PushClip:
+                    if (openClips.Count >= MaxClipDepth)
+                    {
+                        i = MatchingPopClip(operations, i);
+                        break;
+                    }
+
+                    openClips.Push(steps.Count);
+                    Clip(steps, operation, masks[operation.GlyphIndex], unitsPerEm, fieldSize, ref box);
+                    break;
+                case ColorPaintOperationKind.PopClip:
+                    var clip = openClips.Pop();
+                    var head = steps[clip];
+                    head.W = steps.Count + 1 - clip;
+                    steps[clip] = head;
+                    steps.Add(new Vector4F(PopClipCode, 1, 0, 0));
+                    break;
+                case ColorPaintOperationKind.PushGroup:
+                    var deepGroup = groupDepth >= MaxGroupDepth;
+                    skippedGroups.Push(deepGroup);
+                    if (!deepGroup)
+                    {
+                        groupDepth++;
+                        steps.Add(new Vector4F(GroupCode, 1, 0, 0));
+                    }
+
+                    break;
+                case ColorPaintOperationKind.PopGroup:
+                    if (!skippedGroups.Pop())
+                    {
+                        groupDepth--;
+                        steps.Add(new Vector4F(PopGroupCode, 1, (float)operation.Mode, 0));
+                    }
+
+                    break;
+                default:
+                    Fill(steps, operation.Fill);
+                    break;
+            }
+        }
+
+        if (box.IsEmpty)
+        {
+            _stopData.RemoveRange(stopCount, _stopData.Count - stopCount);
             return -1;
         }
 
-        toGradient = Matrix3x2.Invert(toGradient);
+        var program = _programData.Count;
+        _programData.Add(new Vector4F((float)box.MinX, (float)box.MinY, (float)(box.MaxX - box.MinX),
+            (float)(box.MaxY - box.MinY)));
+        _programData.Add(new Vector4F(steps.Count, 0, 0, 0));
+        _programData.AddRange(steps);
+        return program;
+    }
 
-        var bounds = mask.BoundingRectangle;
+    private static int MatchingPopClip(IReadOnlyList<ColorPaintOperation> operations, int pushClip)
+    {
+        var depth = 0;
+        for (var i = pushClip; i < operations.Count; i++)
+        {
+            if (operations[i].Kind == ColorPaintOperationKind.PushClip)
+            {
+                depth++;
+            }
+            else if (operations[i].Kind == ColorPaintOperationKind.PopClip && --depth == 0)
+            {
+                return i;
+            }
+        }
+
+        return operations.Count;
+    }
+
+    private static void Clip(List<Vector4F> steps, ColorPaintOperation operation, ColorPaintMask mask,
+        double unitsPerEm, uint fieldSize, ref Box box)
+    {
+        var bounds = mask.Glyph.BoundingRectangle;
+        var cell = mask.Cell;
+        if (cell == null)
+        {
+            ClipToNothing(steps);
+            return;
+        }
+
         var margin = cell.Margin - 0.5;
         var uniform = margin * unitsPerEm / fieldSize;
         var marginX = bounds.Width > 0 && cell.BoundingRect.Width > 0 ? margin * bounds.Width / cell.BoundingRect.Width : uniform;
         var marginY = bounds.Height > 0 && cell.BoundingRect.Height > 0 ? margin * bounds.Height / cell.BoundingRect.Height : uniform;
 
-        var corner = new Vector2(leftSideBearing - marginX, bounds.Y + bounds.Height + marginY);
-        var origin = Matrix3x2.TransformPoint(layer.Transform, corner);
-        var axisU = Linear(layer.Transform, new Vector2(bounds.Width + 2 * marginX, 0));
-        var axisV = Linear(layer.Transform, new Vector2(0, -(bounds.Height + 2 * marginY)));
-        var gradientOrigin = Matrix3x2.TransformPoint(toGradient, origin);
-        var gradientU = Linear(toGradient, axisU);
-        var gradientV = Linear(toGradient, axisV);
+        var transform = operation.Transform;
+        var origin = Matrix3x2.TransformPoint(transform, new Vector2(mask.Bearing - marginX, bounds.Y + bounds.Height + marginY));
+        var axisU = Linear(transform, new Vector2(bounds.Width + 2 * marginX, 0));
+        var axisV = Linear(transform, new Vector2(0, -(bounds.Height + 2 * marginY)));
+        var quad = new Matrix3x2(axisU.X, axisU.Y, axisV.X, axisV.Y, origin.X, origin.Y);
+        var source = TextLayout.CellSource(cell);
+        if (Math.Abs(quad.Determinant()) < 1e-12)
+        {
+            ClipToNothing(steps);
+            return;
+        }
 
-        var record = _recordData.Count / RecordSize;
-        var firstStop = _stopData.Count / StopSize;
+        var extent = new Box();
+        extent.Add(origin);
+        extent.Add(origin + axisU);
+        extent.Add(origin + axisV);
+        extent.Add(origin + axisU + axisV);
+        var toCell = Matrix3x2.Multiply(Matrix3x2.Multiply(Matrix3x2.Invert(quad),
+            Matrix3x2.Scaling(source.Width, source.Height)), Matrix3x2.Translation(source.Left, source.Top));
+        steps.Add(new Vector4F(ClipCode, 5, cell.DepthLayer, 0));
+        steps.Add(new Vector4F((float)extent.MinX, (float)extent.MinY, (float)extent.MaxX, (float)extent.MaxY));
+        steps.Add(new Vector4F((float)toCell.M11, (float)toCell.M12, (float)toCell.M21, (float)toCell.M22));
+        steps.Add(new Vector4F((float)toCell.M31, (float)toCell.M32, 0, 0));
+        steps.Add(new Vector4F(source.Left, source.Top, source.Right, source.Bottom));
+        box.Add(origin);
+        box.Add(origin + axisU);
+        box.Add(origin + axisV);
+        box.Add(origin + axisU + axisV);
+    }
+
+    private static void ClipToNothing(List<Vector4F> steps)
+    {
+        steps.Add(new Vector4F(ClipCode, 5, 0, 0));
+        steps.Add(new Vector4F(1, 1, 0, 0));
+        steps.Add(Vector4F.Zero);
+        steps.Add(Vector4F.Zero);
+        steps.Add(new Vector4F(1, 1, 0, 0));
+    }
+
+    private void Fill(List<Vector4F> steps, ColorFill fill)
+    {
+        if (fill.Stops.Count == 0 || Math.Abs(fill.Transform.Determinant()) < 1e-12)
+        {
+            return;
+        }
+
+        var toGradient = Matrix3x2.Invert(fill.Transform);
+        var firstStop = _stopData.Count / 2;
         foreach (var stop in fill.Stops)
         {
             if (stop.Color is { } color)
@@ -113,13 +247,11 @@ internal sealed class ColorPaintStore : IDisposable
             }
         }
 
-        _recordData.Add(new Vector4F((float)origin.X, (float)origin.Y, (float)axisU.X, (float)axisU.Y));
-        _recordData.Add(new Vector4F((float)axisV.X, (float)axisV.Y, (float)gradientOrigin.X, (float)gradientOrigin.Y));
-        _recordData.Add(new Vector4F((float)gradientU.X, (float)gradientU.Y, (float)gradientV.X, (float)gradientV.Y));
-        _recordData.Add(new Vector4F((float)fill.Kind, (float)fill.Extend, firstStop, fill.Stops.Count));
-        _recordData.Add(Shape(fill));
-        _recordData.Add(new Vector4F((float)fill.Radius0, (float)fill.Radius1, layer.Opacity, 0));
-        return record;
+        steps.Add(new Vector4F(FillCode, 5, (float)fill.Kind, (float)fill.Extend));
+        steps.Add(new Vector4F((float)toGradient.M11, (float)toGradient.M12, (float)toGradient.M21, (float)toGradient.M22));
+        steps.Add(new Vector4F((float)toGradient.M31, (float)toGradient.M32, firstStop, fill.Stops.Count));
+        steps.Add(Shape(fill));
+        steps.Add(new Vector4F((float)fill.Radius0, (float)fill.Radius1, 0, 0));
     }
 
     private static Vector4F Shape(ColorFill fill)
@@ -184,6 +316,33 @@ internal sealed class ColorPaintStore : IDisposable
         if (buffer != null)
         {
             _device.AddToDeferDisposeQueue(buffer);
+        }
+    }
+
+    private struct Box
+    {
+        public double MinX;
+        public double MinY;
+        public double MaxX;
+        public double MaxY;
+        private bool _any;
+
+        public readonly bool IsEmpty => !_any || MaxX <= MinX || MaxY <= MinY;
+
+        public void Add(Vector2 point)
+        {
+            if (!_any)
+            {
+                MinX = MaxX = point.X;
+                MinY = MaxY = point.Y;
+                _any = true;
+                return;
+            }
+
+            MinX = Math.Min(MinX, point.X);
+            MinY = Math.Min(MinY, point.Y);
+            MaxX = Math.Max(MaxX, point.X);
+            MaxY = Math.Max(MaxY, point.Y);
         }
     }
 }

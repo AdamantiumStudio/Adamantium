@@ -63,7 +63,7 @@ public class FontRenderer : GraphicsResource
     private EffectParameter effectDirectClipRadii;
     private EffectParameter effectGlyphInstances;   // BDA address of the per-instance GlyphItem storage buffer (instanced batch)
     private EffectParameter effectTransforms;       // BDA address of the transform table the glyph VS indexes by slot
-    private EffectParameter effectPaintRecords;
+    private EffectParameter effectPaintPrograms;
     private EffectParameter effectPaintStops;
 
     private Vector2F currentScreenSize;
@@ -99,7 +99,7 @@ public class FontRenderer : GraphicsResource
         effectDirectClipRadii = fontEffect.DirectClipRadii;
         effectGlyphInstances = fontEffect.GlyphInstancesAddress;
         effectTransforms = fontEffect.TransformsAddress;
-        effectPaintRecords = fontEffect.PaintRecordsAddress;
+        effectPaintPrograms = fontEffect.PaintProgramsAddress;
         effectPaintStops = fontEffect.PaintStopsAddress;
     }
 
@@ -286,8 +286,8 @@ public class FontRenderer : GraphicsResource
 
     private void SetPaints(FontAtlas atlas)
     {
-        var (records, stops) = atlas.UploadPaints();
-        effectPaintRecords.SetValue(records);
+        var (programs, stops) = atlas.UploadPaints();
+        effectPaintPrograms.SetValue(programs);
         effectPaintStops.SetValue(stops);
     }
 

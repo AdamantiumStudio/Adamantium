@@ -814,9 +814,12 @@ public class TextLayout : DisposableObject
             var paint = font.GetColorPaint(word.Glyph.Index);
             if (paint.Count > 0)
             {
-                foreach (var layer in paint)
+                foreach (var operation in paint)
                 {
-                    yield return (font, font.GetGlyphByIndex(layer.GlyphIndex));
+                    if (operation.Kind == ColorPaintOperationKind.PushClip)
+                    {
+                        yield return (font, font.GetGlyphByIndex(operation.GlyphIndex));
+                    }
                 }
 
                 continue;
@@ -881,7 +884,7 @@ public class TextLayout : DisposableObject
             var paint = word.Font.GetColorPaint(word.Glyph.Index);
             if (paint.Count > 0)
             {
-                AddPaintLayers(word, paint);
+                AddColorGlyph(word, paint);
                 continue;
             }
 
@@ -907,35 +910,27 @@ public class TextLayout : DisposableObject
         _textUpdated = true;
     }
 
-    private void AddPaintLayers(GlyphWordData word, IReadOnlyList<ColorPaintLayer> layers)
+    private void AddColorGlyph(GlyphWordData word, IReadOnlyList<ColorPaintOperation> operations)
     {
-        var scale = (float)(word.FontSize / word.Font.UnitsPerEm);
-        var origin = new Vector4F((float)(word.PenX + word.OffsetX), (float)Math.Round(Baseline(word)), scale, scale);
-        var color = GlyphColor(word);
-        for (var i = 0; i < layers.Count; i++)
+        var program = FontAtlas.GetPaintProgram(word.Font, word.Glyph.Index, operations);
+        if (program < 0)
         {
-            var record = FontAtlas.GetPaintRecord(word.Font, word.Glyph.Index, i, layers[i]);
-            if (record < 0)
-            {
-                continue;
-            }
-
-            var cell = FontAtlas.GetGlyphData(word.Font, word.Font.GetGlyphByIndex(layers[i].GlyphIndex));
-            EnsureItemCapacity((int)ElementsCount + 1);
-            fontItems[ElementsCount] = new FontItem
-            {
-                ArrangeRect = origin,
-                Source = CellSource(cell),
-                Layer = cell.DepthLayer,
-                Depth = 1.0f,
-                Color = color,
-                Paint = new Vector4F(record + 1, 0, 0, 0)
-            };
-            ElementsCount++;
+            return;
         }
+
+        var scale = (float)(word.FontSize / word.Font.UnitsPerEm);
+        EnsureItemCapacity((int)ElementsCount + 1);
+        fontItems[ElementsCount] = new FontItem
+        {
+            ArrangeRect = new Vector4F((float)(word.PenX + word.OffsetX), (float)Math.Round(Baseline(word)), scale, scale),
+            Depth = 1.0f,
+            Color = GlyphColor(word),
+            Paint = new Vector4F(program + 1, 0, 0, 0)
+        };
+        ElementsCount++;
     }
 
-    private static RectangleF CellSource(GlyphTextureData cell)
+    internal static RectangleF CellSource(GlyphTextureData cell)
     {
         var full = cell.UVRectFull;
         var halfTexelU = (full.Right - full.Left) / (float)cell.FullGlyphSize.Width / 2;

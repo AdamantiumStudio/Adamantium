@@ -15,7 +15,7 @@ struct FontItem
     // A face the font lacks: x = the outline's outward move for a bold, in field units; y = an italic's slant; z = the
     // baseline's place in the quad (0 top, 1 bottom), which the slant pivots on.
     float4 Synthesis : TEXCOORD2;
-    // A 'COLR' version 1 layer: x = its paint record plus one (0 = an ordinary glyph). Destination then holds the pen
+    // A 'COLR' version 1 glyph: x = its paint program plus one (0 = an ordinary glyph). Destination then holds the pen
     // and baseline (xy) and the pixels per font unit (zw).
     float4 Paint : TEXCOORD3;
 };
@@ -36,9 +36,9 @@ struct PSInput
     nointerpolation float Layer : TEXCOORD3;
     // How far a synthesized bold moves the glyph's edge out, in field units; 0 for a face drawn as it is.
     nointerpolation float Embolden : TEXCOORD4;
-    // A 'COLR' version 1 layer's paint record plus one (0 = an ordinary glyph), the pixel's point in its gradient's
-    // space, and the fade the layer's own colors take.
-    nointerpolation float PaintRecord : TEXCOORD5;
+    // A 'COLR' version 1 glyph's paint program plus one (0 = an ordinary glyph), the pixel's point in the glyph's space,
+    // and the fade the glyph's own colors take, raised to 2.2.
+    nointerpolation float PaintProgram : TEXCOORD5;
     float2 PaintPoint : TEXCOORD6;
     nointerpolation float OwnFade : TEXCOORD7;
 };
@@ -79,21 +79,24 @@ float4 DirectClipRadii;
 uint64_t GlyphInstancesAddress;
 uint64_t TransformsAddress;
 
-// The layers of 'COLR' version 1 glyphs (Adamantium.Graphics/Fonts/ColorPaintStore.cs): a record per layer, in font
-// units with y up, and the stops of its fill.
-uint64_t PaintRecordsAddress;
+// The paint programs of 'COLR' version 1 glyphs (Adamantium.Graphics/Fonts/ColorPaintStore.cs), in float4s: a header
+// - the glyph's box in font units with y up (xy = its lower left corner, zw = its size), then the number of float4s of
+// its steps - and the steps, each led by (code, length in float4s, a, b):
+//   1 clip      (1, 5, atlas layer, how far past its pop clip), the outline's box in the glyph's space
+//               (x0 y0 x1 y1), from the glyph's space to the outline's atlas cell (m11 m12 m21 m22),
+//               (m31 m32, -, -), the cell (u0 v0 u1 v1)
+//   2 pop clip  (2, 1, -, -)
+//   3 group     (3, 1, -, -)
+//   4 pop group (4, 1, mode, -), the modes of Adamantium.Fonts.ColorCompositeMode
+//   5 fill      (5, 5, kind, extend), from the glyph's space to the gradient's (m11 m12 m21 m22),
+//               (m31 m32, first stop, stop count), the shape, the radii (r0 r1, -, -)
+// Kinds: 0 solid, 1 linear (start, end), 2 radial (the two centers), 3 sweep (center, start and end angle in radians).
+// Extends: 0 pad, 1 repeat, 2 reflect.
+uint64_t PaintProgramsAddress;
 uint64_t PaintStopsAddress;
 
-struct PaintRecord
-{
-    float4 Quad;      // xy = the quad's top left corner, zw = its edge along u
-    float4 AxisV;     // xy = its edge along v, zw = the corner's point in the gradient's space
-    float4 Gradient;  // xy = the gradient-space step along u, zw = along v
-    float4 Fill;      // x = kind (0 solid, 1 linear, 2 radial, 3 sweep), y = extend (0 pad, 1 repeat, 2 reflect),
-                      // z = first stop, w = stop count
-    float4 Shape;     // linear: start, end; radial: the two centers; sweep: center, start and end angle in radians
-    float4 Extra;     // xy = a radial's two radii, z = the layer's opacity
-};
+static const uint PaintGroupDepth = 8;
+static const uint PaintClipDepth = 8;
 
 struct PaintStop
 {
@@ -146,27 +149,26 @@ void ClipFromSlot(float slotIndex, out float4 box, out float4 radii)
     radii = clip.World[1];
 }
 
-// ---- 'COLR' version 1 layers: the quad is the record's parallelogram, placed at the pen and baseline and scaled to
-// pixels; the fill is evaluated per pixel in the gradient's own space.
+// ---- 'COLR' version 1 glyphs: one quad over the glyph's box, placed at the pen and baseline and scaled to pixels; the
+// pixel shader runs the glyph's paint program at the pixel's point in the glyph's space.
 
-float2 PaintCorner(float paint, float2 corner, float4 origin, out float2 gradientPoint)
+float2 PaintCorner(float paint, float2 corner, float4 origin, out float2 glyphPoint)
 {
-    PaintRecord record = ((PaintRecord*)PaintRecordsAddress)[(uint)(paint - 1.0)];
-    float2 position = record.Quad.xy + corner.x * record.Quad.zw + corner.y * record.AxisV.xy;
-    gradientPoint = record.AxisV.zw + corner.x * record.Gradient.xy + corner.y * record.Gradient.zw;
-    return origin.xy + float2(position.x, -position.y) * origin.zw;
+    float4 box = ((float4*)PaintProgramsAddress)[(uint)(paint - 1.0)];
+    glyphPoint = float2(box.x + corner.x * box.z, box.y + (1.0 - corner.y) * box.w);
+    return origin.xy + float2(glyphPoint.x, -glyphPoint.y) * origin.zw;
 }
 
+// A stop's color with its alpha linear, and what that alpha is multiplied by: the text color's alpha for a stop in the
+// text's color, the fade for one of the font's own, both linear.
 float4 StopColor(PaintStop stop, float4 foreground)
 {
     return stop.Params.y > 0.5 ? float4(foreground.rgb, stop.Color.a) : stop.Color;
 }
 
-// What the stop's alpha is multiplied by after it is raised to 2.2: the text color's alpha for a stop in the text's
-// color, the fade for one of the font's own; both already stand raised, as the pixel shader's gamma boost expects.
-float StopFade(PaintStop stop, float4 foreground, float ownFade)
+float StopFade(PaintStop stop, float foregroundAlpha, float fade)
 {
-    return stop.Params.y > 0.5 ? foreground.a : ownFade;
+    return stop.Params.y > 0.5 ? foregroundAlpha : fade;
 }
 
 float ExtendPosition(float t, float extend)
@@ -176,40 +178,40 @@ float ExtendPosition(float t, float extend)
     return saturate(t);
 }
 
-// The color line at t, in the stops' own offsets: extended past its first and last stop, interpolated premultiplied,
-// its alpha linear; the stops' fades come out interpolated beside it.
-float4 ColorLine(PaintRecord record, float t, float4 foreground, float ownFade, out float fade)
+// The color line at t, in the stops' own offsets: extended past its first and last stop, interpolated premultiplied;
+// the stops' fades come out interpolated beside it.
+float4 ColorLine(uint firstStop, uint count, float extend, float t, float4 foreground, float foregroundAlpha,
+    float fade, out float lineFade)
 {
-    PaintStop* stops = ((PaintStop*)PaintStopsAddress) + (uint)record.Fill.z;
-    uint count = (uint)record.Fill.w;
-    fade = 0.0;
+    PaintStop* stops = ((PaintStop*)PaintStopsAddress) + firstStop;
+    lineFade = 0.0;
     if (count == 0) return float4(0.0, 0.0, 0.0, 0.0);
     float first = stops[0].Params.x;
     float last = stops[count - 1].Params.x;
     if (last > first)
     {
-        t = first + ExtendPosition((t - first) / (last - first), record.Fill.y) * (last - first);
+        t = first + ExtendPosition((t - first) / (last - first), extend) * (last - first);
     }
 
     float4 previous = StopColor(stops[0], foreground);
-    fade = StopFade(stops[0], foreground, ownFade);
+    lineFade = StopFade(stops[0], foregroundAlpha, fade);
     if (t <= first) return previous;
     for (uint i = 1; i < count; i++)
     {
         float4 next = StopColor(stops[i], foreground);
-        float nextFade = StopFade(stops[i], foreground, ownFade);
+        float nextFade = StopFade(stops[i], foregroundAlpha, fade);
         float from = stops[i - 1].Params.x;
         float to = stops[i].Params.x;
         if (t <= to)
         {
             float k = to > from ? (t - from) / (to - from) : 1.0;
-            fade = lerp(fade, nextFade, k);
+            lineFade = lerp(lineFade, nextFade, k);
             float4 mixed = lerp(float4(previous.rgb * previous.a, previous.a), float4(next.rgb * next.a, next.a), k);
             return mixed.a > 0.0 ? float4(mixed.rgb / mixed.a, mixed.a) : float4(0.0, 0.0, 0.0, 0.0);
         }
 
         previous = next;
-        fade = nextFade;
+        lineFade = nextFade;
     }
 
     return previous;
@@ -217,13 +219,13 @@ float4 ColorLine(PaintRecord record, float t, float4 foreground, float ownFade, 
 
 // A two-point conical gradient's t at a point: the largest t whose circle passes through it with a radius of 0 or more;
 // false where no circle does.
-bool RadialPosition(PaintRecord record, float2 p, out float t)
+bool RadialPosition(float4 shape, float2 radii, float2 p, out float t)
 {
-    float2 c0 = record.Shape.xy;
-    float r0 = record.Extra.x;
-    float2 cd = record.Shape.zw - c0;
+    float2 c0 = shape.xy;
+    float r0 = radii.x;
+    float2 cd = shape.zw - c0;
     float2 pd = p - c0;
-    float dr = record.Extra.y - r0;
+    float dr = radii.y - r0;
     float a = dot(cd, cd) - dr * dr;
     float b = dot(pd, cd) + r0 * dr;
     float c = dot(pd, pd) - r0 * r0;
@@ -246,39 +248,150 @@ bool RadialPosition(PaintRecord record, float2 p, out float t)
     return r0 + t * dr >= 0.0;
 }
 
-float4 PaintColor(float paint, float2 p, float4 foreground, float ownFade)
+// The fill step at `at`, at a point of the glyph's space: straight color, alpha linear.
+float4 FillColor(float4* steps, uint at, float2 glyphPoint, float4 foreground, float foregroundAlpha, float fade)
 {
-    PaintRecord record = ((PaintRecord*)PaintRecordsAddress)[(uint)(paint - 1.0)];
-    float kind = record.Fill.x;
+    float4 head = steps[at];
+    float4 linear = steps[at + 1];
+    float4 offset = steps[at + 2];
+    float4 shape = steps[at + 3];
+    float2 radii = steps[at + 4].xy;
+    float2 p = glyphPoint.x * linear.xy + glyphPoint.y * linear.zw + offset.xy;
+    float kind = head.z;
     float t = 0.0;
     if (kind > 2.5)
     {
-        float2 d = p - record.Shape.xy;
+        float2 d = p - shape.xy;
         float angle = atan2(d.y, d.x);
         if (angle < 0.0) angle += 6.28318530718;
-        float span = record.Shape.w - record.Shape.z;
+        float span = shape.w - shape.z;
         // An empty sweep keeps only its two end colors, padded; repeated or reflected it has nothing to repeat.
-        if (abs(span) <= 1e-6 && record.Fill.y > 0.5) return float4(0.0, 0.0, 0.0, 0.0);
-        t = abs(span) > 1e-6 ? (angle - record.Shape.z) / span : (angle < record.Shape.z ? -1e6 : 1e6);
+        if (abs(span) <= 1e-6 && head.w > 0.5) return float4(0.0, 0.0, 0.0, 0.0);
+        t = abs(span) > 1e-6 ? (angle - shape.z) / span : (angle < shape.z ? -1e6 : 1e6);
     }
     else if (kind > 1.5)
     {
-        if (!RadialPosition(record, p, t)) return float4(0.0, 0.0, 0.0, 0.0);
+        if (!RadialPosition(shape, radii, p, t)) return float4(0.0, 0.0, 0.0, 0.0);
     }
     else if (kind > 0.5)
     {
-        float2 d = record.Shape.zw - record.Shape.xy;
+        float2 d = shape.zw - shape.xy;
         float length2 = dot(d, d);
         if (length2 <= 0.0) return float4(0.0, 0.0, 0.0, 0.0);
-        t = dot(p - record.Shape.xy, d) / length2;
+        t = dot(p - shape.xy, d) / length2;
     }
 
-    // The pixel shader's gamma boost is for coverage: a gradient's alpha goes in raised to 2.2 so it comes out linear,
-    // or a translucent shading layer comes out as good as twice as dark.
-    float fade;
-    float4 color = ColorLine(record, t, foreground, ownFade, fade);
-    color.a = pow(color.a * record.Extra.z, 2.2) * fade;
+    float lineFade;
+    float4 color = ColorLine((uint)offset.z, (uint)offset.w, head.w, t, foreground, foregroundAlpha, fade, lineFade);
+    color.a *= lineFade;
     return color;
+}
+
+float PaintLum(float3 c)
+{
+    return dot(c, float3(0.3, 0.59, 0.11));
+}
+
+float3 PaintClipColor(float3 c)
+{
+    float l = PaintLum(c);
+    float n = min(c.r, min(c.g, c.b));
+    float x = max(c.r, max(c.g, c.b));
+    if (n < 0.0) c = l + (c - l) * l / max(l - n, 1e-6);
+    if (x > 1.0) c = l + (c - l) * (1.0 - l) / max(x - l, 1e-6);
+    return c;
+}
+
+float3 PaintSetLum(float3 c, float l)
+{
+    return PaintClipColor(c + (l - PaintLum(c)));
+}
+
+float PaintSat(float3 c)
+{
+    return max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
+}
+
+float3 PaintSetSat(float3 c, float s)
+{
+    float x = max(c.r, max(c.g, c.b));
+    float n = min(c.r, min(c.g, c.b));
+    return x > n ? (c - n) * s / (x - n) : float3(0.0, 0.0, 0.0);
+}
+
+float PaintHardLight(float s, float d)
+{
+    return s <= 0.5 ? d * 2.0 * s : d + (2.0 * s - 1.0) - d * (2.0 * s - 1.0);
+}
+
+float PaintSoftLight(float s, float d)
+{
+    if (s <= 0.5) return d - (1.0 - 2.0 * s) * d * (1.0 - d);
+    float e = d <= 0.25 ? ((16.0 * d - 12.0) * d + 4.0) * d : sqrt(d);
+    return d + (2.0 * s - 1.0) * (e - d);
+}
+
+float PaintColorDodge(float s, float d)
+{
+    if (d <= 0.0) return 0.0;
+    if (s >= 1.0) return 1.0;
+    return min(1.0, d / (1.0 - s));
+}
+
+float PaintColorBurn(float s, float d)
+{
+    if (d >= 1.0) return 1.0;
+    if (s <= 0.0) return 0.0;
+    return 1.0 - min(1.0, (1.0 - d) / s);
+}
+
+// A blend mode of the W3C Compositing and Blending specification, on straight colors.
+float3 PaintBlend(float3 s, float3 d, uint mode)
+{
+    switch (mode)
+    {
+        case 13: return s + d - s * d;
+        case 14: return float3(PaintHardLight(d.r, s.r), PaintHardLight(d.g, s.g), PaintHardLight(d.b, s.b));
+        case 15: return min(s, d);
+        case 16: return max(s, d);
+        case 17: return float3(PaintColorDodge(s.r, d.r), PaintColorDodge(s.g, d.g), PaintColorDodge(s.b, d.b));
+        case 18: return float3(PaintColorBurn(s.r, d.r), PaintColorBurn(s.g, d.g), PaintColorBurn(s.b, d.b));
+        case 19: return float3(PaintHardLight(s.r, d.r), PaintHardLight(s.g, d.g), PaintHardLight(s.b, d.b));
+        case 20: return float3(PaintSoftLight(s.r, d.r), PaintSoftLight(s.g, d.g), PaintSoftLight(s.b, d.b));
+        case 21: return abs(s - d);
+        case 22: return s + d - 2.0 * s * d;
+        case 23: return s * d;
+        case 24: return PaintSetLum(PaintSetSat(s, PaintSat(d)), PaintLum(d));
+        case 25: return PaintSetLum(PaintSetSat(d, PaintSat(s)), PaintLum(d));
+        case 26: return PaintSetLum(s, PaintLum(d));
+        default: return PaintSetLum(d, PaintLum(s));
+    }
+}
+
+// A group composited onto what is under it, both premultiplied.
+float4 PaintComposite(float4 s, float4 d, uint mode)
+{
+    switch (mode)
+    {
+        case 0: return float4(0.0, 0.0, 0.0, 0.0);
+        case 1: return s;
+        case 2: return d;
+        case 3: return s + d * (1.0 - s.a);
+        case 4: return d + s * (1.0 - d.a);
+        case 5: return s * d.a;
+        case 6: return d * s.a;
+        case 7: return s * (1.0 - d.a);
+        case 8: return d * (1.0 - s.a);
+        case 9: return s * d.a + d * (1.0 - s.a);
+        case 10: return d * s.a + s * (1.0 - d.a);
+        case 11: return s * (1.0 - d.a) + d * (1.0 - s.a);
+        case 12: return min(s + d, float4(1.0, 1.0, 1.0, 1.0));
+    }
+
+    float3 cs = s.a > 0.0 ? s.rgb / s.a : float3(0.0, 0.0, 0.0);
+    float3 cd = d.a > 0.0 ? d.rgb / d.a : float3(0.0, 0.0, 0.0);
+    float3 rgb = (1.0 - d.a) * s.rgb + (1.0 - s.a) * d.rgb + s.a * d.a * PaintBlend(cs, cd, mode);
+    return float4(rgb, s.a + d.a - s.a * d.a);
 }
 
 // Per-glyph quad expansion, now in the VERTEX stage (corner from SV_VertexID), so the geometry shader is gone:
@@ -312,7 +425,7 @@ PSInput ExpandGlyphCorner(FontItem item, int corner)
         vertex.Position.xy = PaintCorner(item.Paint.x, cornerCoord, item.Destination, paintPoint);
     }
 
-    vertex.PaintRecord = item.Paint.x;
+    vertex.PaintProgram = item.Paint.x;
     vertex.PaintPoint = paintPoint;
     vertex.OwnFade = GlyphFade;
 
@@ -359,6 +472,97 @@ float SampleGlyphCoverage(float4 samp, float2 uv)
     return lerp(msdf, samp.a, t);
 }
 
+// A clip step's outline coverage at a point of the glyph's space, dx and dy the point's steps per pixel: the same field
+// reconstruction as a glyph's, its derivatives carried through the step's mapping, as the loop that calls it is not
+// uniform. A point outside the outline's cell is outside the outline.
+float MaskCoverage(float4* steps, uint at, float2 p, float2 dx, float2 dy)
+{
+    float4 head = steps[at];
+    float4 linear = steps[at + 2];
+    float2 offset = steps[at + 3].xy;
+    float4 cell = steps[at + 4];
+    float2 uv = p.x * linear.xy + p.y * linear.zw + offset;
+    if (uv.x < cell.x || uv.y < cell.y || uv.x > cell.z || uv.y > cell.w) return 0.0;
+    float2 uvDx = dx.x * linear.xy + dx.y * linear.zw;
+    float2 uvDy = dy.x * linear.xy + dy.y * linear.zw;
+    float4 samp = Texture.SampleLevel(TextureSampler, float3(uv, head.z), 0.0);
+    float texelsPerPx = max(length(uvDx * MSDFAtlasSize), length(uvDy * MSDFAtlasSize));
+    float sd = lerp(Median(samp.r, samp.g, samp.b), samp.a, smoothstep(SdfBlendLo, SdfBlendHi, texelsPerPx));
+    float2 unitRange = float2(PxRange, PxRange) / MSDFAtlasSize;
+    float2 screenTexSize = float2(1.0, 1.0) / max(abs(uvDx) + abs(uvDy), float2(1e-9, 1e-9));
+    float range = max(0.5 * dot(unitRange, screenTexSize), 1.0);
+    return saturate(range * (sd - 0.5 + FontWeight) + 0.5);
+}
+
+// A 'COLR' version 1 glyph's paint program run at a point of its space: a stack of groups, each composited onto the
+// one under it, and a stack of clips whose coverage multiplies. Premultiplied, its alpha linear.
+float4 RunPaint(float paint, float2 p, float2 dx, float2 dy, float4 foreground, float foregroundAlpha, float fade)
+{
+    float4* steps = (float4*)PaintProgramsAddress;
+    uint at = (uint)(paint - 1.0);
+    uint end = at + 2 + (uint)steps[at + 1].x;
+    at += 2;
+    // The top of each stack lives in a register; only what lies under it goes to the arrays, at a push.
+    // A group is drawn at full coverage and takes the clips around it once, as it is composited.
+    float4 groups[PaintGroupDepth];
+    float groupCoverage[PaintGroupDepth];
+    float covered[PaintClipDepth];
+    float4 top = float4(0.0, 0.0, 0.0, 0.0);
+    float coverage = 1.0;
+    uint depth = 0;
+    uint clips = 0;
+    while (at < end)
+    {
+        float4 head = steps[at];
+        uint code = (uint)head.x;
+        if (code == 1)
+        {
+            // A point outside the outline skips everything the clip holds, its pop clip included.
+            float4 box = steps[at + 1];
+            float mask = p.x < box.x || p.y < box.y || p.x > box.z || p.y > box.w ? 0.0 : MaskCoverage(steps, at, p, dx, dy);
+            if (mask <= 0.0)
+            {
+                at += max((uint)head.w, 1u);
+                continue;
+            }
+
+            covered[clips] = coverage;
+            clips++;
+            coverage *= mask;
+        }
+        else if (code == 2)
+        {
+            clips--;
+            coverage = covered[clips];
+        }
+        else if (code == 3)
+        {
+            groups[depth] = top;
+            groupCoverage[depth] = coverage;
+            depth++;
+            top = float4(0.0, 0.0, 0.0, 0.0);
+            coverage = 1.0;
+        }
+        else if (code == 4)
+        {
+            depth--;
+            float4 under = groups[depth];
+            coverage = groupCoverage[depth];
+            top = lerp(under, PaintComposite(top, under, (uint)head.z), coverage);
+        }
+        else
+        {
+            float4 color = FillColor(steps, at, p, foreground, foregroundAlpha, fade);
+            float4 premultiplied = float4(color.rgb * color.a, color.a) * coverage;
+            top = premultiplied + top * (1.0 - premultiplied.a);
+        }
+
+        at += max((uint)head.y, 1u);
+    }
+
+    return top;
+}
+
 [shader("vertex")]
 PSInput FontVertexShader(FontItem item, uint vertexId : SV_VertexID)
 {
@@ -372,14 +576,19 @@ PSInput FontVertexShader(FontItem item, uint vertexId : SV_VertexID)
 [shader("fragment")]
 float4 FontPixelShaderMsdf(PSInput input) : SV_Target
 {
+    float2 glyphDx = ddx(input.PaintPoint);
+    float2 glyphDy = ddy(input.PaintPoint);
     float4 samp = Texture.Sample(TextureSampler, float3(input.UV, input.Layer));
     float sd = SampleGlyphCoverage(samp, input.UV);
     float opacity = clamp(ScreenPxRange(input.UV) * (sd - 0.5 + FontWeight + input.Embolden) + 0.5, 0.0, 1.0);
     // A glyph of attributed text brings its own color; a negative alpha means the element's foreground.
     float4 color = input.Color.a < 0 ? ForegroundColor : float4(input.Color.rgb, input.Color.a * GlyphFade);
-    if (input.PaintRecord > 0.5)
+    if (input.PaintProgram > 0.5)
     {
-        color = PaintColor(input.PaintRecord, input.PaintPoint, color, input.OwnFade);
+        // A color glyph draws its own coverage, so no gamma boost: its alphas and fades go in linear.
+        float4 painted = RunPaint(input.PaintProgram, input.PaintPoint, glyphDx, glyphDy, color,
+            pow(max(color.a, 0.0), 1.0 / 2.2), pow(input.OwnFade, 1.0 / 2.2));
+        return painted * ClipCoverage(input.Position.xy, input.ClipBox, input.ClipRadii);
     }
     // Gamma-boost coverage times the color's alpha so thin stems keep their color; splitting the two washed text out.
     // The element's fade arrives pre-raised to 2.2, so the boost hands it back linear.
@@ -396,15 +605,20 @@ float4 FontPixelShaderMsdf(PSInput input) : SV_Target
 [shader("fragment")]
 float4 FontPixelShaderMsdfBatch(PSInput input) : SV_Target
 {
+    float2 glyphDx = ddx(input.PaintPoint);
+    float2 glyphDy = ddy(input.PaintPoint);
     float4 samp = Texture.Sample(TextureSampler, float3(input.UV, input.Layer));
     float sd = SampleGlyphCoverage(samp, input.UV);
     float opacity = clamp(ScreenPxRange(input.UV) * (sd - 0.5 + FontWeight + input.Embolden) + 0.5, 0.0, 1.0);
     // Unchanged on purpose - the element's fade is pre-compensated in the vertex stage so that this very boost hands
     // it back linear. See the FADE line in FontBatchInstancedVS.
     float4 color = input.Color;
-    if (input.PaintRecord > 0.5)
+    if (input.PaintProgram > 0.5)
     {
-        color = PaintColor(input.PaintRecord, input.PaintPoint, color, input.OwnFade);
+        // A color glyph draws its own coverage, so no gamma boost: its alphas and fades go in linear.
+        float4 painted = RunPaint(input.PaintProgram, input.PaintPoint, glyphDx, glyphDy, color,
+            pow(max(color.a, 0.0), 1.0 / 2.2), pow(input.OwnFade, 1.0 / 2.2));
+        return painted * ClipCoverage(input.Position.xy, input.ClipBox, input.ClipRadii);
     }
 
     float alpha = pow(color.a * opacity, 1.0 / 2.2);
@@ -425,9 +639,9 @@ struct GlyphData
     float4 Params;      // .x = transform-table slot; .y = atlas layer (read by the PS); .z = depth; .w reserved
     float4 Clip;        // .x = the ROUNDED CLIP's slot, or -1; .yzw = the glyph's synthesis (FontItem.Synthesis.xyz)
     float4 Color;       // straight RGBA, element/brush opacity folded into .w
-    float4 Paint;       // .x = a 'COLR' version 1 layer's paint record plus one, or 0 (LocalRect is then the pen and
+    float4 Paint;       // .x = a 'COLR' version 1 glyph's paint program plus one, or 0 (LocalRect is then the pen and
                         // baseline, xy, and pixels per font unit, zw); .y = the element's opacity raised to 2.2, for the
-                        // layer's own colors
+                        // glyph's own colors
 };
 
 [shader("vertex")]
@@ -459,7 +673,7 @@ PSInput FontBatchInstancedVS(uint vertexId : SV_VertexID, uint instanceId : SV_I
     fade = lerp(1.0, fade, step(0.0, fadeSlot));
     // The fade is raised to 2.2 so the pixel shader's gamma boost hands back exactly `fade`, matching the shapes beside it.
     o.Color = float4(g.Color.rgb, g.Color.a * pow(fade, 2.2));
-    o.PaintRecord = g.Paint.x;
+    o.PaintProgram = g.Paint.x;
     o.PaintPoint = paintPoint;
     o.OwnFade = g.Paint.y * pow(fade, 2.2);
     // The clip's shape, from the table by the slot the record carries - one fetch per instance, as everywhere else.

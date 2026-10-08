@@ -44,18 +44,43 @@ public class SegmentGridTests
         foreach (var segment in segments)
         {
             var distance = GlyphSegmentsMath.GetDistanceToSegment(segment, point);
-            if (distance < best)
+            var tolerance = 1e-9 * System.Math.Max(System.Math.Min(best, distance), 1);
+            if (distance < best - tolerance)
             {
                 best = distance;
                 nearest.Clear();
                 nearest.Add(segment);
             }
-            else if (distance == best)
+            else if (distance <= best + tolerance)
             {
+                best = System.Math.Min(best, distance);
                 nearest.Add(segment);
             }
         }
 
         return nearest;
     }
+
+    [Test]
+    public void BothEdgesOfAVertex_AreNearest_WhenTheirDistancesDifferInTheLastDigits()
+    {
+        LineSegment2D[] diamond =
+        [
+            Segment(0, 710, 600, 1310),
+            Segment(600, 1310, 1200, 710),
+            Segment(1200, 710, 600, 110),
+            Segment(600, 110, 0, 710),
+        ];
+        var point = new Vector2(1342.1052631578946, 852.1052631578948);
+        var found = new List<LineSegment2D>();
+
+        new SegmentGrid(diamond.ToList()).FindNearest(point, found);
+
+        Assert.That(found, Is.EqualTo(new[] { diamond[1], diamond[2] }), "the two edges meeting at (1200, 710)");
+        Assert.That(GlyphSegmentsMath.GetSignedDistanceToSegmentsJoint(found, point, false), Is.GreaterThan(0),
+            "the point lies outside the diamond, whichever edge its distance is taken from");
+    }
+
+    private static LineSegment2D Segment(double x0, double y0, double x1, double y1) =>
+        new(new Vector2(x0, y0), new Vector2(x1, y1));
 }
