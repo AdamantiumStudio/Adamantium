@@ -479,7 +479,17 @@ namespace Adamantium.Fonts.Parsers
             CurrentFont.Layout.Gsub = gsub;
 
             ProcessFeatures(gsub, FeatureKind.GSUB);
-
+            foreach (var feature in CurrentFont.FeatureCatalog.GSUBFeatures)
+            {
+                feature.ValueCount = Math.Max(1, feature.Lookups
+                    .Where(index => index < gsub.LookupList.Length)
+                    .SelectMany(index => gsub.LookupList[index].SubTables)
+                    .OfType<AlternateSubstitutionSubTable>()
+                    .SelectMany(table => table.AlternateSetTables)
+                    .Select(set => set.AlternateGlyphIDs.Length)
+                    .DefaultIfEmpty(0)
+                    .Max());
+            }
         }
 
         private void ProcessFeatures(IFontLayout layout, FeatureKind featureKind)
@@ -513,9 +523,7 @@ namespace Adamantium.Fonts.Parsers
                     continue;
                 }
 
-                var featureTable = layout.FeatureList[index];
-                language.AddFeature(catalog.GetOrAddFeature(featureTable.Name, featureKind,
-                    featureTable.FeatureParameters));
+                language.AddFeature(catalog.GetOrAddFeature(layout.FeatureList[index], featureKind, CurrentFont.GetName));
             }
 
             if (!langSysTable.HasRequireFeature || langSysTable.RequiredFeatureIndex >= layout.FeatureList.Length)
@@ -523,8 +531,8 @@ namespace Adamantium.Fonts.Parsers
                 return;
             }
 
-            var required = layout.FeatureList[langSysTable.RequiredFeatureIndex];
-            var feature = catalog.GetOrAddFeature(required.Name, featureKind, required.FeatureParameters);
+            var feature = catalog.GetOrAddFeature(layout.FeatureList[langSysTable.RequiredFeatureIndex], featureKind,
+                CurrentFont.GetName);
             if (featureKind == FeatureKind.GSUB)
             {
                 language.RequiredGSUBFeature = feature;

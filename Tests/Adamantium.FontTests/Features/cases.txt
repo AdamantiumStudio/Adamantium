@@ -1,0 +1,4 @@
+# Fonts whose 'GSUB' feature names and glyph alternates are checked against HarfBuzz (FeatureTests).
+OTFFonts/Poppins-Medium.otf
+TTFFonts/CascadiaCode-Regular.ttf
+source-sans-3v028R/VAR/SourceSans3VF-Roman.ttf

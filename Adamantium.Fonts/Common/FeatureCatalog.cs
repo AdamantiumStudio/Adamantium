@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Adamantium.Fonts.Tables.Layout;
@@ -36,15 +37,16 @@ public sealed class FeatureCatalog
         return script;
     }
 
-    internal Feature GetOrAddFeature(string tag, FeatureKind kind, FeatureParametersTable parameters)
+    internal Feature GetOrAddFeature(FeatureTable table, FeatureKind kind, Func<ushort, string> names)
     {
-        var feature = _features.FirstOrDefault(f => f.Info.Tag == tag && f.Kind == kind);
+        var feature = _features.FirstOrDefault(f => f.Info.Tag == table.Name && f.Kind == kind);
         if (feature == null)
         {
-            feature = new Feature(FeatureInfos.GetFeature(tag), kind, parameters);
+            feature = new Feature(FeatureInfos.GetFeature(table.Name), kind, table.FeatureParameters, names);
             _features.Add(feature);
         }
 
+        feature.AddLookups(table.LookupListIndices ?? []);
         return feature;
     }
 }

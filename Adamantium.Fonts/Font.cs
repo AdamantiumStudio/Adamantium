@@ -31,6 +31,8 @@ namespace Adamantium.Fonts
         private readonly ConcurrentDictionary<ulong, ColorBitmap> colorBitmapCache = new();
         private readonly Dictionary<uint, Glyph> outlineGlyphs = new();
         private readonly Dictionary<string, Glyph> outlineGlyphsByKey = new();
+        private readonly Dictionary<ushort, string> names = new();
+        private readonly Lazy<GlyphSubstitutionMap> substitutionMap;
         public Typeface Typeface { get; private set; }
         internal VariationStore VariationData { get; set; }
         internal List<InstanceRecord> InstanceData { get; set; }
@@ -45,6 +47,7 @@ namespace Adamantium.Fonts
             unicodeToGlyph = new Dictionary<uint, Glyph>();
 
             featuresMap = new Dictionary<string, List<Feature>>();
+            substitutionMap = new Lazy<GlyphSubstitutionMap>(() => new GlyphSubstitutionMap(this));
 
             Copyright = String.Empty;
             FontFamily = String.Empty;
@@ -92,8 +95,21 @@ namespace Adamantium.Fonts
         public string LightBackgroundPalette { get; internal set; }
         public string DarkBackgroundPalette { get; internal set; }
 
+        /// <inheritdoc />
+        public string GetName(ushort nameId) => names.TryGetValue(nameId, out var text) ? text : null;
+
+        internal void SetName(ushort nameId, string text) => names[nameId] = text;
+
         // ------
         public FeatureCatalog FeatureCatalog { get; } = new FeatureCatalog();
+
+        /// <inheritdoc />
+        public IReadOnlyList<GlyphAlternate> GetGlyphAlternates(uint glyphIndex) => substitutionMap.Value.Alternates(glyphIndex);
+
+        /// <inheritdoc />
+        public IReadOnlyList<string> GetGlyphText(uint glyphIndex) => substitutionMap.Value.Text(glyphIndex);
+
+        internal IReadOnlyDictionary<uint, Glyph> UnicodeToGlyph => unicodeToGlyph;
         public uint GlyphCount => (uint)glyphs.Count;
         public ushort UnitsPerEm { get; internal set; }
         public Int16 Ascender { get; internal set; }

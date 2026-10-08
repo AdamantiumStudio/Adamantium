@@ -22,4 +22,29 @@ public static class HarfBuzzInterop
 
     [DllImport("libHarfBuzzSharp", EntryPoint = "hb_blob_destroy")]
     public static extern void DestroyBlob(IntPtr blob);
+
+    [DllImport("libHarfBuzzSharp", EntryPoint = "hb_ot_layout_table_get_feature_tags")]
+    public static extern uint GetFeatureTags(IntPtr face, uint table, uint start, ref uint count, uint[] tags);
+
+    [DllImport("libHarfBuzzSharp", EntryPoint = "hb_ot_layout_feature_get_name_ids")]
+    public static extern bool GetFeatureNameIds(IntPtr face, uint table, uint feature, out uint label, out uint tooltip,
+        out uint sample, out uint parameterCount, out uint firstParameter);
+
+    [DllImport("libHarfBuzzSharp", EntryPoint = "hb_ot_layout_feature_get_characters")]
+    public static extern uint GetFeatureCharacters(IntPtr face, uint table, uint feature, uint start, ref uint count,
+        uint[] characters);
+
+    [DllImport("libHarfBuzzSharp", EntryPoint = "hb_ot_layout_feature_get_lookups")]
+    public static extern uint GetFeatureLookups(IntPtr face, uint table, uint feature, uint start, ref uint count,
+        uint[] lookups);
+
+    [DllImport("libHarfBuzzSharp", EntryPoint = "hb_ot_layout_lookup_get_glyph_alternates")]
+    public static extern uint GetGlyphAlternates(IntPtr face, uint lookup, uint glyph, uint start, ref uint count,
+        uint[] alternates);
+
+    [DllImport("libHarfBuzzSharp", EntryPoint = "hb_ot_name_get_utf8")]
+    public static extern uint GetName(IntPtr face, uint nameId, IntPtr language, ref uint size, byte[] text);
+
+    [DllImport("libHarfBuzzSharp", EntryPoint = "hb_language_from_string")]
+    public static extern IntPtr LanguageFromString(string text, int length);
 }
