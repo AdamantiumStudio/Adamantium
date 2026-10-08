@@ -144,6 +144,9 @@ All packages share one version.
 
 ### Fixed
 
+- A render device's per-frame constants are rewound when that device begins its own frame, not when the main device's
+  frame finishes. A device recording beside the window's loop - an off-screen render - had its pool rewound mid-frame,
+  and its later draws overwrote the constants of its earlier ones.
 - `TransitionImageLayout` moves every mip level, not only the first: a texture made with mip levels left the rest
   undefined while it said they were in its layout, and the validation layer reported the first barrier that relied on
   it.

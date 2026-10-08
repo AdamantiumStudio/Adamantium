@@ -78,13 +78,6 @@ public sealed class EffectPass : DisposableObject, IEffectPass
         shaderStages = new List<PipelineShaderStageCreateInfo>();
         layoutBindings = new List<DescriptorSetLayoutBinding>();
         PropertiesKey = PrepareProperties(logger, pass.Properties);
-        graphicsDevice.MainDevice.FrameFinished += GraphicsDeviceOnFrameFinished;
-    }
-
-    private void GraphicsDeviceOnFrameFinished()
-    {
-        appliesCounter = 0;
-        CurrentBufferPool.Reset();
     }
 
     private void ClearLayoutBindings()
@@ -744,7 +737,6 @@ public sealed class EffectPass : DisposableObject, IEffectPass
     protected override void Dispose(bool disposeManagedResources)
     {
         Log.Logger.Debug("Disposing EffectPass resources");
-        graphicsDevice.MainDevice.FrameFinished -= GraphicsDeviceOnFrameFinished;
         ClearLayoutBindings();
         RetireStages();
         base.Dispose(disposeManagedResources);

@@ -36,6 +36,24 @@ namespace Adamantium.Engine.GraphicsTests
             Assert.That(effect.Techniques.Count, Is.GreaterThan(0), "compute technique should be present");
         }
 
+        // A render device's constants live until ITS next frame. The main device's frame end used to rewind every device's
+        // pool, so a device recording beside the window's loop got its earlier draws' constants overwritten by its later
+        // ones.
+        [Test]
+        public void TheMainDevicesFrameEnd_LeavesARenderDevicesConstantsAlone()
+        {
+            var device = (GraphicsDevice)GpuFixture.CreateRenderDevice();
+            using var effect = Effect.CompileFromFile(Path.Combine("EffectsData", "FontEffect.fx"), device);
+            var pool = device.CurrentBufferPool;
+            var first = pool.Allocate(64, 16);
+
+            GpuFixture.Main.OnFrameFinished();
+            var second = pool.Allocate(64, 16);
+
+            Assert.That(second.Page != first.Page || second.Offset >= first.Offset + 64, Is.True,
+                "the second constants landed on the first ones");
+        }
+
         // The pool keeps one copy of a stage two effects share word for word. It used to refuse the second effect: every
         // shader was named after its effect, and one shader under two names read as a clash.
         [Test]
