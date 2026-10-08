@@ -29,10 +29,12 @@ internal struct GlyphInfo
 
     public bool IsUnicodeMark => UnicodeData.IsMark(Category);
 
-    public bool IsDefaultIgnorable => (Flags & UnicodeFlags.Ignorable) != 0;
+    public bool IsDefaultIgnorable => (Flags & UnicodeFlags.Ignorable) != 0 && !IsSubstituted;
 
     public bool IsDefaultIgnorableAndNotHidden =>
-        (Flags & (UnicodeFlags.Ignorable | UnicodeFlags.Hidden)) == UnicodeFlags.Ignorable;
+        (Flags & (UnicodeFlags.Ignorable | UnicodeFlags.Hidden)) == UnicodeFlags.Ignorable && !IsSubstituted;
+
+    public bool IsSubstituted => (Props & GlyphProps.Substituted) != 0;
 
     public bool IsZwnj => (Flags & UnicodeFlags.Zwnj) != 0;
 

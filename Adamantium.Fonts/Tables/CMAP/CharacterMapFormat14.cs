@@ -25,26 +25,57 @@ namespace Adamantium.Fonts.Tables.CMAP
 
         public uint CharacterPairToGlyphIndex(uint character, ushort defaultGlyphIndex, uint nextCharacter)
         {
-            if (VarSelectors.TryGetValue(nextCharacter, out var selector))
+            if (!TryGetVariant(character, nextCharacter, out var glyphIndex, out var isDefault))
             {
-                if (selector.UVSMappings.TryGetValue(character, out var glyphIndex))
-                {
-                    return glyphIndex;
-                }
-
-                // If the sequence is a default UVS, return the default glyph
-                for (int i = 0; i < selector.DefaultStartCodes.Count; ++i)
-                {
-                    if (character >= selector.DefaultStartCodes[i] && character < selector.DefaultStartCodes[i])
-                    {
-                        return defaultGlyphIndex;
-                    }
-                }
-
-                return defaultGlyphIndex;
+                return 0;
             }
 
-            return 0;
+            return isDefault ? defaultGlyphIndex : glyphIndex;
+        }
+
+        /// <summary>Whether the font supports <paramref name="character"/> followed by <paramref name="selector"/>: with a
+        /// glyph of its own, or, for a default sequence (<paramref name="isDefault"/>), with the character's usual
+        /// glyph.</summary>
+        public bool TryGetVariant(uint character, uint selector, out uint glyphIndex, out bool isDefault)
+        {
+            glyphIndex = 0;
+            isDefault = false;
+            if (!VarSelectors.TryGetValue(selector, out var record))
+            {
+                return false;
+            }
+
+            if (InDefaultRanges(record, character))
+            {
+                isDefault = true;
+                return true;
+            }
+
+            return record.UVSMappings.TryGetValue(character, out glyphIndex) && glyphIndex != 0;
+        }
+
+        private static bool InDefaultRanges(VariationSelector record, uint character)
+        {
+            var low = 0;
+            var high = record.DefaultStartCodes.Count - 1;
+            while (low <= high)
+            {
+                var middle = (low + high) / 2;
+                if (character < record.DefaultStartCodes[middle])
+                {
+                    high = middle - 1;
+                }
+                else if (character > record.DefaultEndCodes[middle])
+                {
+                    low = middle + 1;
+                }
+                else
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         public override void CollectUnicodeChars(List<uint> unicodes)

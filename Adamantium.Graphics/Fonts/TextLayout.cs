@@ -245,6 +245,7 @@ public class TextLayout : DisposableObject
         }
 
         RenderingParameters = renderingParameters;
+        _graphemes = null;
 
         var _b0 = System.GC.GetAllocatedBytesForCurrentThread();
 
@@ -364,7 +365,6 @@ public class TextLayout : DisposableObject
         _lineBaselines = lineBaselines;
         _verticalShift = verticalShift;
         _caretStops = null;
-        _graphemes = null;
         _words = null;
 
         var _b4 = System.GC.GetAllocatedBytesForCurrentThread();
@@ -1473,6 +1473,9 @@ public class TextLayout : DisposableObject
         var items = new List<ShapedItem>(text.Length);
         var runs = _attributed?.Runs;
         var runIndex = 0;
+        var graphemes = Fallback == null ? null
+            : ReferenceEquals(text, Text) ? Graphemes()
+            : TextBoundaries.Graphemes(text);
         foreach (var (start, end, attributes) in ShapingSegments(text))
         {
             var options = attributes == null
@@ -1484,7 +1487,7 @@ public class TextLayout : DisposableObject
             {
                 var newline = text.IndexOf('\n', position, end - position);
                 var stop = newline < 0 ? end : newline;
-                foreach (var (runStart, runEnd, runFont, pending) in FontRuns(text, position, stop, font, attributes?.Language))
+                foreach (var (runStart, runEnd, runFont, pending) in FontRuns(text, graphemes, position, stop, font, attributes?.Language))
                 {
                     var piece = text.Substring(runStart, runEnd - runStart);
                     var blank = pending ? runFont.GetGlyphByCharacter(' ') : null;
@@ -1536,11 +1539,17 @@ public class TextLayout : DisposableObject
         }
     }
 
-    private IEnumerable<(int Start, int End, IFont Font, bool Pending)> FontRuns(string text, int start, int end,
-        IFont font, string language)
+    private IEnumerable<(int Start, int End, IFont Font, bool Pending)> FontRuns(string text, bool[] graphemes, int start,
+        int end, IFont font, string language)
     {
         if (end <= start)
         {
+            yield break;
+        }
+
+        if (Fallback == null)
+        {
+            yield return (start, end, font, false);
             yield break;
         }
 
@@ -1553,6 +1562,8 @@ public class TextLayout : DisposableObject
             var codepoint = char.IsHighSurrogate(text[index]) && index + 1 < end && char.IsLowSurrogate(text[index + 1])
                 ? char.ConvertToUtf32(text[index], text[index + 1])
                 : text[index];
+            var nextGrapheme = TextBoundaries.Next(graphemes, index);
+            var graphemeEnd = Math.Min(nextGrapheme, end);
             IFont chosen;
             var pending = false;
             if (runFont != null && (JoinsPrevious(codepoint) || IsSpaceOrControl(codepoint)))
@@ -1560,22 +1571,26 @@ public class TextLayout : DisposableObject
                 chosen = runFont;
                 pending = runPending;
             }
-            else if (IsSpaceOrControl(codepoint) || font.TryGetGlyphIndex(codepoint, out _))
+            else if (IsSpaceOrControl(codepoint))
             {
                 chosen = font;
-            }
-            else if (Fallback == null)
-            {
-                chosen = font;
-            }
-            else if (LoadFontsInBackground)
-            {
-                chosen = Fallback.FontFor(codepoint, font, language, out pending) ?? font;
-                HasPendingFonts |= pending;
             }
             else
             {
-                chosen = Fallback.FontFor(codepoint, font, language) ?? font;
+                var emoji = EmojiPresentation.IsEmoji(text, index, nextGrapheme);
+                if (emoji ? HasColorGlyph(font, codepoint) : font.TryGetGlyphIndex(codepoint, out _))
+                {
+                    chosen = font;
+                }
+                else if (LoadFontsInBackground)
+                {
+                    chosen = Fallback.FontFor(codepoint, font, language, emoji, out pending) ?? font;
+                    HasPendingFonts |= pending;
+                }
+                else
+                {
+                    chosen = Fallback.FontFor(codepoint, font, language, emoji) ?? font;
+                }
             }
 
             if (runFont == null)
@@ -1591,10 +1606,20 @@ public class TextLayout : DisposableObject
                 runPending = pending;
             }
 
-            index += codepoint > 0xFFFF ? 2 : 1;
+            index = graphemeEnd;
         }
 
         yield return (runStart, end, runFont, runPending);
+    }
+
+    private static bool HasColorGlyph(IFont font, int codepoint)
+    {
+        if (!font.TryGetGlyphIndex(codepoint, 0xFE0F, out var glyph) && !font.TryGetGlyphIndex(codepoint, out glyph))
+        {
+            return false;
+        }
+
+        return font.GetColorPaint(glyph).Count > 0 || font.GetColorLayers(glyph).Count > 0;
     }
 
     private static bool JoinsPrevious(int codepoint)

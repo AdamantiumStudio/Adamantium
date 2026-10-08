@@ -20,11 +20,11 @@ public sealed class FontFallback
     private readonly IReadOnlyList<string> _families;
     private readonly IReadOnlyDictionary<string, string> _cjkByLanguage;
     private readonly string _emojiFamily;
-    private readonly Dictionary<(int Codepoint, int Weight, FontStyle Style, double Stretch, string Preferred), IFont> _found = new();
+    private readonly Dictionary<(int Codepoint, int Weight, FontStyle Style, double Stretch, string Preferred, bool PreferredOnly), IFont> _found = new();
 
     /// <summary>A fallback over <paramref name="families"/> of <paramref name="fonts"/>, in order; Chinese, Japanese and
     /// Korean characters (Han, kana, Hangul, Bopomofo) try <paramref name="cjkByLanguage"/>'s family for the text's
-    /// language (by its primary subtag, or the whole tag for "zh-Hant") first, and pictographs (emoji) try
+    /// language (by its primary subtag, or the whole tag for "zh-Hant") first, and characters drawn as emoji try
     /// <paramref name="emojiFamily"/> first.</summary>
     public FontFallback(FontCollection fonts, IReadOnlyList<string> families,
         IReadOnlyDictionary<string, string> cjkByLanguage = null, string emojiFamily = null)
@@ -39,10 +39,11 @@ public sealed class FontFallback
     public static FontFallback System => SystemFallback.Value;
 
     /// <summary>The font that draws <paramref name="codepoint"/> in place of <paramref name="like"/>, in its weight,
-    /// slant and width; null when none of the families has it.</summary>
+    /// slant and width, as an emoji when the character is one by default (Emoji_Presentation); null when none of the
+    /// families has it.</summary>
     public IFont FontFor(int codepoint, IFont like, string language = null)
     {
-        return FontFor(codepoint, like, language, true, out _);
+        return FontFor(codepoint, like, language, UnicodeData.IsEmojiPresentation(codepoint));
     }
 
     /// <summary>The font that draws <paramref name="codepoint"/> in place of <paramref name="like"/>, as
@@ -51,16 +52,34 @@ public sealed class FontFallback
     /// <see cref="TypefaceStore.Loaded"/> when done.</summary>
     public IFont FontFor(int codepoint, IFont like, string language, out bool pending)
     {
-        return FontFor(codepoint, like, language, false, out pending);
+        return FontFor(codepoint, like, language, UnicodeData.IsEmojiPresentation(codepoint), out pending);
     }
 
-    private IFont FontFor(int codepoint, IFont like, string language, bool wait, out bool pending)
+    /// <summary>The font that draws <paramref name="codepoint"/> in place of <paramref name="like"/>, as an emoji (the
+    /// emoji family first, and only it when <paramref name="like"/> has the character: null then means drawing it with
+    /// <paramref name="like"/>) or as text (<paramref name="emoji"/> false), as a variation selector or a sequence
+    /// asks.</summary>
+    public IFont FontFor(int codepoint, IFont like, string language, bool emoji)
+    {
+        return FontFor(codepoint, like, language, emoji, true, out _);
+    }
+
+    /// <summary>The font that draws <paramref name="codepoint"/> as an emoji or as text, as
+    /// <see cref="FontFor(int, IFont, string, bool)"/> finds it, without waiting for a font file, as
+    /// <see cref="FontFor(int, IFont, string, out bool)"/> does.</summary>
+    public IFont FontFor(int codepoint, IFont like, string language, bool emoji, out bool pending)
+    {
+        return FontFor(codepoint, like, language, emoji, false, out pending);
+    }
+
+    private IFont FontFor(int codepoint, IFont like, string language, bool emoji, bool wait, out bool pending)
     {
         pending = false;
         var preferred = IsCjk(codepoint) ? CjkFamily(language)
-            : UnicodeData.IsExtendedPictographic(codepoint) ? _emojiFamily
+            : emoji ? _emojiFamily
             : null;
-        var key = (codepoint, like.Weight.Value, like.Style, like.Stretch.Percent, preferred);
+        var preferredOnly = emoji && preferred != null && like.TryGetGlyphIndex(codepoint, out _);
+        var key = (codepoint, like.Weight.Value, like.Style, like.Stretch.Percent, preferred, preferredOnly);
         lock (_gate)
         {
             if (_found.TryGetValue(key, out var known))
@@ -70,7 +89,7 @@ public sealed class FontFallback
         }
 
         var font = preferred != null ? Find(preferred, codepoint, like, wait, ref pending) : null;
-        if (font == null && !pending)
+        if (font == null && !pending && !preferredOnly)
         {
             foreach (var family in _families)
             {
