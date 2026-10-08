@@ -95,11 +95,7 @@ internal sealed class Normalizer
         {
             if (UnicodeProps.IsVariationSelector(input[i].Codepoint))
             {
-                for (var j = start; j < end; j++)
-                {
-                    Output(input[j], MapGlyph(input[j].Codepoint));
-                }
-
+                MapVariationSequences(input, start, end);
                 return;
             }
         }
@@ -107,6 +103,44 @@ internal sealed class Normalizer
         for (var i = start; i < end; i++)
         {
             DecomposeCurrent(input[i], false);
+        }
+    }
+
+    private void MapVariationSequences(GlyphInfo[] input, int start, int end)
+    {
+        var i = start;
+        while (i < end - 1)
+        {
+            if (!UnicodeProps.IsVariationSelector(input[i + 1].Codepoint))
+            {
+                Output(input[i], MapGlyph(input[i].Codepoint));
+                i++;
+                continue;
+            }
+
+            if (_font.TryGetGlyphIndex(input[i].Codepoint, input[i + 1].Codepoint, out var variant))
+            {
+                var info = input[i];
+                info.Cluster = Math.Min(info.Cluster, input[i + 1].Cluster);
+                Output(info, variant);
+            }
+            else
+            {
+                Output(input[i], MapGlyph(input[i].Codepoint));
+                Output(input[i + 1], MapGlyph(input[i + 1].Codepoint));
+            }
+
+            i += 2;
+            while (i < end && UnicodeProps.IsVariationSelector(input[i].Codepoint))
+            {
+                Output(input[i], MapGlyph(input[i].Codepoint));
+                i++;
+            }
+        }
+
+        if (i < end)
+        {
+            Output(input[i], MapGlyph(input[i].Codepoint));
         }
     }
 

@@ -52,3 +52,7 @@ OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani	zh-Hans		骨直刃
 OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani	zh-Hant		骨直刃
 OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani	zh-TW		骨直刃
 OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani	ko		骨直刃
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani			葛{U+E0100}葛{U+E0101}葛 辻{U+E0100}辻
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani			葛{U+E0101}{U+E0100}葛{U+E01EF}
+OTFFonts/CFF2/SourceHanSerifVFProtoJP.otf	Hani			葛{U+E0100}辻{U+E0100}
+TTFFonts/SourceSans3-Regular.ttf	Latn			{U+2764}{U+FE0F} {U+2764}{U+FE0E} 1{U+FE0F}{U+20E3}

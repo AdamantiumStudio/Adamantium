@@ -834,6 +834,10 @@ namespace Adamantium.Fonts.Parsers
                 map.EncodingId = encoding.EncodingId;
 
                 cmap.CharacterMaps[index] = map;
+                if (map is CharacterMapFormat14 sequences)
+                {
+                    CurrentFont.VariationSequences = sequences;
+                }
             }
             
             cmap.CollectUnicodeToGlyphMappings();

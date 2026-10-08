@@ -139,6 +139,11 @@ namespace Adamantium.Fonts
         /// <summary>The glyph the font maps <paramref name="codepoint"/> to; false when it has none.</summary>
         public bool TryGetGlyphIndex(int codepoint, out uint glyphIndex);
 
+        /// <summary>The glyph the font maps <paramref name="codepoint"/> followed by <paramref name="variationSelector"/>
+        /// to ('cmap' format 14): a glyph of the sequence's own, or the character's usual glyph for a default sequence;
+        /// false when the font does not support the sequence.</summary>
+        public bool TryGetGlyphIndex(int codepoint, int variationSelector, out uint glyphIndex);
+
         IReadOnlyList<Glyph> TranslateIntoGlyphs(string input);
 
         Glyph GetGlyphByIndex(uint index);

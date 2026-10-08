@@ -23,8 +23,8 @@ All packages share one version.
 - Font fallback: a character the text's font lacks is drawn from another font, in the weight, slant and width of the
   text's (`FontFallback`, `TextLayout.Fallback`; the operating system's fallback families unless set, none with null).
   Han, kana and Hangul take the family of the text's language first (Japanese, Korean, Traditional or Simplified
-  Chinese), pictographs the emoji family; marks, joiners, variation selectors and emoji modifiers stay with the
-  character before them. A family's character map is read without loading the font (`FontFace.HasCharacter`), so only
+  Chinese), emoji the emoji family; a grapheme (with its marks, joiners, variation selectors and emoji modifiers)
+  stays in one font. A family's character map is read without loading the font (`FontFace.HasCharacter`), so only
   the font chosen is loaded. A character no font has draws the font's missing-glyph box.
 - `IFont.Weight`, `Style` and `Stretch` from 'OS/2'; `IFont.GetAdvanceWidth` and `GetLeftSideBearing` from the font's own
   'hmtx'; `IFont.TryGetGlyphIndex` is public.
@@ -99,6 +99,15 @@ All packages share one version.
   the atlas's distance field, transformed. The atlas keeps one program per glyph in font units, so one serves every size
   (`FontItem.Paint`; FontEffect's `PaintProgramsAddress` and `PaintStopsAddress`). Segoe UI Emoji's emoji come out
   with their gradients, shading and translucent groups, as Edge draws them; the 28 modes of Google's test font too.
+- Emoji sequences: a variation sequence the font maps ('cmap' format 14) shapes to its own glyph, its selector dropped,
+  as HarfBuzz does (`IFont.TryGetGlyphIndex(codepoint, variationSelector, out glyph)`), and a default-ignorable
+  character the font's substitutions have replaced is no longer hidden or zeroed: a keycap, a joined flag, a skin tone
+  and the ideographic variants of Noto Sans CJK shape as HarfBuzz shapes them. A grapheme takes one font, the one its
+  first character picks; one drawn as an emoji (`EmojiPresentation.IsEmoji`: VS16 after an emoji character, a flag, a
+  skin tone, a joined sequence, or an emoji by default) takes the emoji family unless the text's font has the glyph in
+  color, keeping the text's font when no family has it in color; one drawn as text (VS15, or text by default, as a bare
+  heart) does not prefer it (`FontFallback.FontFor(..., emoji)`). Segoe UI Emoji's sequences come out as Edge draws
+  them.
 - Synthesized bold and italic for a face a family lacks (`FontSynthesis`, `TextAttributes.Synthesis`): a bold moves
   the glyph's edge out in the distance field, by a 48th of the size per side at 9 pixels down to a 64th at 36, and
   advances it further by twice that; an italic slants the glyph's quad about its baseline by a quarter of its height

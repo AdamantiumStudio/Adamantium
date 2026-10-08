@@ -38,9 +38,11 @@ public static class Program
         var classes = ParseRanges(await Download(ucd + "extracted/DerivedCombiningClass.txt")).Where(r => r.Value != "0");
         Write(output, "CombiningClass.ucd", FormatRanges(classes, true));
 
-        var pictographic = ParseRanges(await Download(ucd + "emoji/emoji-data.txt"))
-            .Where(r => r.Value == "Extended_Pictographic");
+        var emojiData = ParseRanges(await Download(ucd + "emoji/emoji-data.txt")).ToList();
+        var pictographic = emojiData.Where(r => r.Value == "Extended_Pictographic");
         Write(output, "ExtendedPictographic.ucd", FormatRanges(pictographic, false));
+        var emojiPresentation = emojiData.Where(r => r.Value == "Emoji_Presentation");
+        Write(output, "EmojiPresentation.ucd", FormatRanges(emojiPresentation, false));
 
         var exclusions = new HashSet<int>();
         foreach (var range in ParseRanges(await Download(ucd + "DerivedNormalizationProps.txt"))

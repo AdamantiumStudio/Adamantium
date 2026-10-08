@@ -7,6 +7,7 @@ using Adamantium.Fonts.Common;
 using Adamantium.Fonts.Parsers;
 using Adamantium.Fonts.Tables;
 using Adamantium.Fonts.Tables.CFF;
+using Adamantium.Fonts.Tables.CMAP;
 
 namespace Adamantium.Fonts
 {
@@ -140,6 +141,20 @@ namespace Adamantium.Fonts
             glyphIndex = 0;
             return false;
         }
+
+        bool IFont.TryGetGlyphIndex(int codepoint, int variationSelector, out uint glyphIndex)
+        {
+            glyphIndex = 0;
+            if (VariationSequences == null ||
+                !VariationSequences.TryGetVariant((uint)codepoint, (uint)variationSelector, out glyphIndex, out var isDefault))
+            {
+                return false;
+            }
+
+            return !isDefault || ((IFont)this).TryGetGlyphIndex(codepoint, out glyphIndex);
+        }
+
+        internal CharacterMapFormat14 VariationSequences { get; set; }
 
         internal void SetGlyphs(IEnumerable<Glyph> inputGlyphs)
         {

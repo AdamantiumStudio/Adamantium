@@ -551,17 +551,17 @@ namespace Adamantium.Fonts.TextureGeneration
                     replace[x, y] |= Texels(data[x, y].AlphaDistance, pxRange) > FarBandTexels;
                     if (x + 1 < width)
                     {
-                        MarkMisleading(data, replace, pxRange, (x, y), (x + 1, y));
+                        MarkMisleading(data, replace, pxRange, x, y, x + 1, y);
                     }
 
                     if (y + 1 < height)
                     {
-                        MarkMisleading(data, replace, pxRange, (x, y), (x, y + 1));
+                        MarkMisleading(data, replace, pxRange, x, y, x, y + 1);
                     }
 
                     if (x + 1 < width && y + 1 < height)
                     {
-                        MarkMisleading(data, replace, pxRange, (x, y), (x + 1, y), (x, y + 1), (x + 1, y + 1));
+                        MarkMisleading(data, replace, pxRange, x, y, x + 1, y + 1);
                     }
                 }
             }
@@ -584,30 +584,37 @@ namespace Adamantium.Fonts.TextureGeneration
             }
         }
 
-        private static void MarkMisleading(ColoredDistance[,] data, bool[,] replace, double pxRange,
-            params (int X, int Y)[] texels)
+        private static void MarkMisleading(ColoredDistance[,] data, bool[,] replace, double pxRange, int x0, int y0,
+            int x1, int y1)
         {
             double red = 0, green = 0, blue = 0, alpha = 0;
-            foreach (var (x, y) in texels)
+            for (var y = y0; y <= y1; y++)
             {
-                var distance = data[x, y];
-                red += distance.RedDistance;
-                green += distance.GreenDistance;
-                blue += distance.BlueDistance;
-                alpha += distance.AlphaDistance;
+                for (var x = x0; x <= x1; x++)
+                {
+                    ref var distance = ref data[x, y];
+                    red += distance.RedDistance;
+                    green += distance.GreenDistance;
+                    blue += distance.BlueDistance;
+                    alpha += distance.AlphaDistance;
+                }
             }
 
-            var median = MsdfGeneratorHelper.Median(red, green, blue) / texels.Length;
-            alpha /= texels.Length;
+            var count = (x1 - x0 + 1) * (y1 - y0 + 1);
+            var median = MsdfGeneratorHelper.Median(red, green, blue) / count;
+            alpha /= count;
             var wrongSide = median > 0.5 != alpha > 0.5;
             if (!wrongSide && Texels(alpha, pxRange) - Texels(median, pxRange) <= MisleadingTexels)
             {
                 return;
             }
 
-            foreach (var (x, y) in texels)
+            for (var y = y0; y <= y1; y++)
             {
-                replace[x, y] |= Texels(data[x, y].AlphaDistance, pxRange) > NearBandTexels;
+                for (var x = x0; x <= x1; x++)
+                {
+                    replace[x, y] |= Texels(data[x, y].AlphaDistance, pxRange) > NearBandTexels;
+                }
             }
         }
 
