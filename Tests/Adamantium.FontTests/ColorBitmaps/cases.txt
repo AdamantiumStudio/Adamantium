@@ -1,0 +1,33 @@
+# font	pixels per em (0: the largest size)
+# Every glyph with a color image at that size is checked. Expected results: expected.txt, written from this file by
+# Tests/Adamantium.ShapingOracle in its bitmaps mode.
+ColorFonts/NotoColorEmoji.subset.ttf	0
+ColorFonts/NotoColorEmoji.subset.ttf	16
+ColorFonts/NotoColorEmoji.subset.ttf	64
+ColorFonts/NotoColorEmoji.subset.ttf	109
+ColorFonts/NotoColorEmoji.subset.ttf	200
+ColorFonts/NotoColorEmoji.subset.multiple_size_tables.ttf	0
+ColorFonts/NotoColorEmoji.subset.multiple_size_tables.ttf	16
+ColorFonts/NotoColorEmoji.subset.multiple_size_tables.ttf	64
+ColorFonts/NotoColorEmoji.subset.multiple_size_tables.ttf	109
+ColorFonts/NotoColorEmoji.subset.multiple_size_tables.ttf	200
+ColorFonts/NotoColorEmoji.subset.index_format3.ttf	0
+ColorFonts/NotoColorEmoji.subset.index_format3.ttf	16
+ColorFonts/NotoColorEmoji.subset.index_format3.ttf	64
+ColorFonts/NotoColorEmoji.subset.index_format3.ttf	109
+ColorFonts/NotoColorEmoji.subset.index_format3.ttf	200
+ColorFonts/chromacheck-cbdt.ttf	0
+ColorFonts/chromacheck-cbdt.ttf	16
+ColorFonts/chromacheck-cbdt.ttf	64
+ColorFonts/chromacheck-cbdt.ttf	109
+ColorFonts/chromacheck-cbdt.ttf	200
+ColorFonts/chromacheck-sbix.ttf	0
+ColorFonts/chromacheck-sbix.ttf	16
+ColorFonts/chromacheck-sbix.ttf	64
+ColorFonts/chromacheck-sbix.ttf	109
+ColorFonts/chromacheck-sbix.ttf	200
+ColorFonts/samples-sbix.ttf	0
+ColorFonts/samples-sbix.ttf	16
+ColorFonts/samples-sbix.ttf	64
+ColorFonts/samples-sbix.ttf	109
+ColorFonts/samples-sbix.ttf	200

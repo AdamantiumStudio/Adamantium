@@ -18,6 +18,7 @@ internal sealed class ColorPaintStore : IDisposable
     private const float GroupCode = 3;
     private const float PopGroupCode = 4;
     private const float FillCode = 5;
+    private const float ImageCode = 6;
 
     private readonly object _gate = new();
     private readonly Dictionary<ulong, int> _programs = new();
@@ -39,7 +40,7 @@ internal sealed class ColorPaintStore : IDisposable
     }
 
     public int GetProgram(ulong colorGlyph, IReadOnlyList<ColorPaintOperation> operations,
-        IReadOnlyDictionary<uint, ColorPaintMask> masks, double unitsPerEm, uint fieldSize)
+        IReadOnlyDictionary<uint, ColorPaintMask> masks, double unitsPerEm, uint fieldSize, RectangleF? clipBox)
     {
         lock (_gate)
         {
@@ -48,9 +49,49 @@ internal sealed class ColorPaintStore : IDisposable
                 return known;
             }
 
-            var program = Build(operations, masks, unitsPerEm, fieldSize);
+            var program = Build(operations, masks, unitsPerEm, fieldSize, clipBox);
             _programs[colorGlyph] = program;
             return program;
+        }
+    }
+
+    public int AddImage(ulong colorGlyph, double left, double bottom, double width, double height, ColorBitmapCell cell)
+    {
+        lock (_gate)
+        {
+            if (_programs.TryGetValue(colorGlyph, out var known))
+            {
+                return known;
+            }
+
+            if (width <= 0 || height <= 0)
+            {
+                _programs[colorGlyph] = -1;
+                return -1;
+            }
+
+            const float size = ColorBitmapAtlas.LayerSize;
+            var scaleU = cell.Width / width / size;
+            var scaleV = cell.Height / height / size;
+            var program = _programData.Count;
+            _programData.Add(new Vector4F((float)left, (float)bottom, (float)width, (float)height));
+            _programData.Add(new Vector4F(4, 0, 0, 0));
+            _programData.Add(new Vector4F(ImageCode, 4, cell.Layer, size));
+            _programData.Add(new Vector4F((float)scaleU, 0, 0, (float)-scaleV));
+            _programData.Add(new Vector4F((float)(cell.X / size - left * scaleU), (float)(cell.Y / size + (bottom + height) * scaleV),
+                cell.Levels - 1, 0));
+            _programData.Add(new Vector4F(cell.X / size, cell.Y / size, (cell.X + cell.CellWidth) / size,
+                (cell.Y + cell.CellHeight) / size));
+            _programs[colorGlyph] = program;
+            return program;
+        }
+    }
+
+    public void AddNone(ulong colorGlyph)
+    {
+        lock (_gate)
+        {
+            _programs.TryAdd(colorGlyph, -1);
         }
     }
 
@@ -83,7 +124,7 @@ internal sealed class ColorPaintStore : IDisposable
     }
 
     private int Build(IReadOnlyList<ColorPaintOperation> operations, IReadOnlyDictionary<uint, ColorPaintMask> masks,
-        double unitsPerEm, uint fieldSize)
+        double unitsPerEm, uint fieldSize, RectangleF? clipBox)
     {
         var steps = new List<Vector4F>();
         var stopCount = _stopData.Count;
@@ -135,6 +176,11 @@ internal sealed class ColorPaintStore : IDisposable
                     Fill(steps, operation.Fill);
                     break;
             }
+        }
+
+        if (clipBox is { } limit)
+        {
+            box.Clip(limit.X, limit.Y, limit.X + limit.Width, limit.Y + limit.Height);
         }
 
         if (box.IsEmpty)
@@ -328,6 +374,14 @@ internal sealed class ColorPaintStore : IDisposable
         private bool _any;
 
         public readonly bool IsEmpty => !_any || MaxX <= MinX || MaxY <= MinY;
+
+        public void Clip(double minX, double minY, double maxX, double maxY)
+        {
+            MinX = Math.Max(MinX, minX);
+            MinY = Math.Max(MinY, minY);
+            MaxX = Math.Min(MaxX, maxX);
+            MaxY = Math.Min(MaxY, maxY);
+        }
 
         public void Add(Vector2 point)
         {

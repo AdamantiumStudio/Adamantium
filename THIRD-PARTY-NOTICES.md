@@ -125,9 +125,29 @@ codes, unchanged, taken from the code tables SIL International publishes as the 
 
 ## Google color font test glyphs
 
-**Where:** `Tests/Adamantium.FontTests/ColorFonts/` — `test_glyphs-glyf_colr_1.ttf` and
-`test_glyphs-glyf_colr_1_variable.ttf`, unchanged, from https://github.com/googlefonts/color-fonts, used only by the
-tests. Copyright Google LLC, under the Apache License 2.0, whose text is `LICENSE.txt` beside them.
+**Where:** `Tests/Adamantium.FontTests/ColorFonts/` — `test_glyphs-glyf_colr_1.ttf`,
+`test_glyphs-glyf_colr_1_variable.ttf`, `samples-sbix.ttf`, `samples-picosvg.ttf`, `samples-untouchedsvg.ttf` and
+`samples-glyf_colr_1.ttf`, unchanged, from https://github.com/googlefonts/color-fonts,
+used only by the tests. Copyright Google LLC, under the Apache License 2.0, whose text is `LICENSE.txt` beside them.
+
+---
+
+## ChromaCheck test fonts
+
+**Where:** `Tests/Adamantium.FontTests/ColorFonts/` — `chromacheck-cbdt.ttf`, `chromacheck-sbix.ttf` and
+`chromacheck-colr.ttf`, unchanged, from
+https://github.com/RoelN/ChromaCheck (as HarfBuzz's tests carry them), used only by the tests. Copyright Roel Nieskens
+and Google LLC, under the MIT License, whose text is `LICENSE-chromacheck.txt` beside them.
+
+---
+
+## Noto Color Emoji subsets
+
+**Where:** `Tests/Adamantium.FontTests/ColorFonts/` — `NotoColorEmoji.subset.ttf`,
+`NotoColorEmoji.subset.multiple_size_tables.ttf` and `NotoColorEmoji.subset.index_format3.ttf`, unchanged, the subsets
+of Noto Color Emoji HarfBuzz's tests carry (https://github.com/harfbuzz/harfbuzz/tree/main/test/api/fonts), used only by
+the tests. Copyright Google LLC, under the SIL Open Font License 1.1, whose text is `LICENSE-NotoColorEmoji.txt` beside
+them.
 
 ---
 

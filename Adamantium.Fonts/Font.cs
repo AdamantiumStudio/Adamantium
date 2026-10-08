@@ -5,9 +5,11 @@ using System.Linq;
 using System.Threading;
 using Adamantium.Fonts.Common;
 using Adamantium.Fonts.Parsers;
+using Adamantium.Fonts.Svg;
 using Adamantium.Fonts.Tables;
 using Adamantium.Fonts.Tables.CFF;
 using Adamantium.Fonts.Tables.CMAP;
+using Adamantium.Mathematics;
 
 namespace Adamantium.Fonts
 {
@@ -24,8 +26,11 @@ namespace Adamantium.Fonts
         private Font baseFont;
         private float[] coordinates;
         private int[] variedAdvances;
-        private readonly ConcurrentDictionary<uint, ColorLayer[]> colorLayerCache = new();
-        private readonly ConcurrentDictionary<uint, ColorPaintOperation[]> colorPaintCache = new();
+        private readonly ConcurrentDictionary<ulong, ColorLayer[]> colorLayerCache = new();
+        private ConcurrentDictionary<ulong, ColorPaintOperation[]> colorPaintCache = new();
+        private readonly ConcurrentDictionary<ulong, ColorBitmap> colorBitmapCache = new();
+        private readonly Dictionary<uint, Glyph> outlineGlyphs = new();
+        private readonly Dictionary<string, Glyph> outlineGlyphsByKey = new();
         public Typeface Typeface { get; private set; }
         internal VariationStore VariationData { get; set; }
         internal List<InstanceRecord> InstanceData { get; set; }
@@ -188,30 +193,117 @@ namespace Adamantium.Fonts
 
         internal ColorLayerTable ColorLayers { get; set; }
 
-        internal ColorPaletteTable ColorPalettes { get; set; }
+        internal ColorPaletteTable ColorPaletteTable { get; set; }
 
         /// <inheritdoc />
-        public IReadOnlyList<ColorLayer> GetColorLayers(uint glyphIndex)
+        public IReadOnlyList<ColorPalette> ColorPalettes => ColorPaletteTable?.Palettes ?? [];
+
+        /// <inheritdoc />
+        public IReadOnlyList<ColorLayer> GetColorLayers(uint glyphIndex) => GetColorLayers(glyphIndex, 0);
+
+        /// <inheritdoc />
+        public IReadOnlyList<ColorLayer> GetColorLayers(uint glyphIndex, int palette)
         {
             if (ColorLayers == null)
             {
                 return [];
             }
 
-            return colorLayerCache.GetOrAdd(glyphIndex, g => ColorLayers.GetLayers(g, ColorPalettes, 0));
+            var chosen = ChoosePalette(palette);
+            return colorLayerCache.GetOrAdd(PaletteKey(glyphIndex, chosen),
+                _ => ColorLayers.GetLayers(glyphIndex, ColorPaletteTable, chosen));
+        }
+
+        private int ChoosePalette(int palette) =>
+            ColorPaletteTable != null && palette > 0 && palette < ColorPaletteTable.PaletteCount ? palette : 0;
+
+        private static ulong PaletteKey(uint glyphIndex, int palette) => (ulong)(uint)palette << 32 | glyphIndex;
+
+        internal ColorBitmapTable ColorBitmaps { get; set; }
+
+        /// <inheritdoc />
+        public IReadOnlyList<int> ColorBitmapSizes => ColorBitmaps?.Sizes ?? [];
+
+        /// <inheritdoc />
+        public ColorBitmap GetColorBitmap(uint glyphIndex, int pixelsPerEm)
+        {
+            if (ColorBitmaps == null)
+            {
+                return null;
+            }
+
+            return colorBitmapCache.GetOrAdd((ulong)(uint)pixelsPerEm << 32 | glyphIndex,
+                _ => ColorBitmaps.GetBitmap(glyphIndex, pixelsPerEm));
         }
 
         internal ColorPaintTable ColorPaints { get; set; }
 
         /// <inheritdoc />
-        public IReadOnlyList<ColorPaintOperation> GetColorPaint(uint glyphIndex)
+        public IReadOnlyList<ColorPaintOperation> GetColorPaint(uint glyphIndex) => GetColorPaint(glyphIndex, 0);
+
+        /// <inheritdoc />
+        public IReadOnlyList<ColorPaintOperation> GetColorPaint(uint glyphIndex, int palette)
         {
-            if (ColorPaints == null)
+            if (ColorPaints == null && SvgDocuments == null)
             {
                 return [];
             }
 
-            return colorPaintCache.GetOrAdd(glyphIndex, g => ColorPaints.GetOperations(g, ColorPalettes, 0));
+            var chosen = ChoosePalette(palette);
+            return colorPaintCache.GetOrAdd(PaletteKey(glyphIndex, chosen), _ => PaintOf(glyphIndex, chosen));
+        }
+
+        /// <inheritdoc />
+        public bool TryGetColorClipBox(uint glyphIndex, out RectangleF box)
+        {
+            box = default;
+            return ColorPaints != null && ColorPaints.TryGetClipBox(glyphIndex, coordinates, out box);
+        }
+
+        internal SvgDocumentTable SvgDocuments { get; set; }
+
+        private ColorPaintOperation[] PaintOf(uint glyphIndex, int palette)
+        {
+            var operations = ColorPaints?.GetOperations(glyphIndex, ColorPaletteTable, palette, coordinates) ?? [];
+            if (operations.Length > 0 || SvgDocuments == null)
+            {
+                return operations;
+            }
+
+            return SvgGlyphConverter.Convert(SvgDocuments.GetDocument(glyphIndex), glyphIndex, ColorPaletteTable, palette,
+                AddOutlineGlyph);
+        }
+
+        private uint AddOutlineGlyph(string key, List<List<OutlinePoint>> contours)
+        {
+            lock (outlineGlyphs)
+            {
+                if (outlineGlyphsByKey.TryGetValue(key, out var known))
+                {
+                    return known.Index;
+                }
+
+                var glyph = new Glyph(Typeface.GlyphCount + (uint)outlineGlyphs.Count, OutlineType.CompactFontFormat);
+                foreach (var contour in contours)
+                {
+                    var outline = new Outline();
+                    outline.Points.AddRange(contour);
+                    glyph.AddOutline(outline);
+                }
+
+                glyph.RecalculateBounds(true);
+                outlineGlyphs[glyph.Index] = glyph;
+                outlineGlyphsByKey[key] = glyph;
+                return glyph.Index;
+            }
+        }
+
+        private bool TryGetOutlineGlyph(uint index, out Glyph glyph)
+        {
+            lock (outlineGlyphs)
+            {
+                return outlineGlyphs.TryGetValue(index, out glyph);
+            }
         }
 
         /// <inheritdoc />
@@ -275,7 +367,12 @@ namespace Adamantium.Fonts
             var source = variable.Vary(this, normalized, glyphs);
             if (source == null)
             {
-                return this;
+                if (MetricsVariations == null && ColorPaints?.Varies != true)
+                {
+                    return this;
+                }
+
+                source = (IGlyphOutlineSource)variable;
             }
 
             var typeface = new Typeface { Parser = Typeface.Parser };
@@ -283,6 +380,7 @@ namespace Adamantium.Fonts
             instance.Typeface = typeface;
             instance.baseFont = this;
             instance.coordinates = normalized;
+            instance.colorPaintCache = new ConcurrentDictionary<ulong, ColorPaintOperation[]>();
             instance.Variations = values;
             instance.Weight = values.FirstOrDefault(v => v.Tag == "wght") is { Tag: not null } weight
                 ? new FontWeight(Math.Max(1, Math.Min(1000, (int)Math.Round(weight.Value))))
@@ -364,6 +462,11 @@ namespace Adamantium.Fonts
 
         public short GetLeftSideBearing(uint glyphIndex)
         {
+            if (TryGetOutlineGlyph(glyphIndex, out var outlineGlyph))
+            {
+                return (short)outlineGlyph.BoundingRectangle.X;
+            }
+
             if (baseFont != null)
             {
                 return Typeface.GetGlyphByIndex(glyphIndex, out var varied) ? (short)varied.BoundingRectangle.X : (short)0;
@@ -454,7 +557,7 @@ namespace Adamantium.Fonts
 
         public Glyph GetGlyphByIndex(uint index)
         {
-            if (!Typeface.GetGlyphByIndex(index, out var glyph))
+            if (!Typeface.GetGlyphByIndex(index, out var glyph) && !TryGetOutlineGlyph(index, out glyph))
             {
                 Typeface.GetGlyphByIndex(0, out glyph);
             }

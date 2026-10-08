@@ -9,7 +9,7 @@ namespace Adamantium.Imaging.Png.Chunks
             Name = "PLTE";
         }
 
-        public int PaletteSize => Palette == null ? 0 : Palette.Length;
+        public int PaletteSize => Palette == null ? 0 : Palette.Length / 4;
 
         public byte[] Palette { get; set; }
 

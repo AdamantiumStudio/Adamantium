@@ -61,6 +61,12 @@
     <Content Include="..\Adamantium.FontTests\ColorFonts\test_glyphs-glyf_colr_1.ttf" Link="Fonts\test_glyphs-glyf_colr_1.ttf">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="..\Adamantium.FontTests\ColorFonts\NotoColorEmoji.subset.ttf" Link="Fonts\NotoColorEmoji.subset.ttf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\Adamantium.FontTests\ColorFonts\chromacheck-colr.ttf" Link="Fonts\chromacheck-colr.ttf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>

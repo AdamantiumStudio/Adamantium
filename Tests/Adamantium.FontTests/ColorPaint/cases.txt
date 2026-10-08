@@ -1,5 +1,14 @@
-# font
+# font	palette (the first unless given)	axis values
 # Every glyph with a 'COLR' version 1 paint graph is checked. Expected results: expected.txt, written from this file by
 # Tests/Adamantium.ShapingOracle in its paint mode.
 ColorFonts/test_glyphs-glyf_colr_1.ttf
 ColorFonts/test_glyphs-glyf_colr_1_variable.ttf
+ColorFonts/test_glyphs-glyf_colr_1.ttf	1
+ColorFonts/test_glyphs-glyf_colr_1.ttf	2
+ColorFonts/test_glyphs-glyf_colr_1_variable.ttf		SWPS=45,SWPE=-30,SWC1=0.5,SWC2=-1,SWC3=1,SWC4=0.25
+ColorFonts/test_glyphs-glyf_colr_1_variable.ttf		SCOX=100,SCOY=-50,SCSX=1.5,SCSY=-0.5
+ColorFonts/test_glyphs-glyf_colr_1_variable.ttf		GRX0=200,GRY0=-300,GRX1=100,GRY1=400,GRX2=-150,GRY2=250,GRR0=100,GRR1=-200
+ColorFonts/test_glyphs-glyf_colr_1_variable.ttf		COL1=0.5,COL2=-1,COL3=1.5,APH1=-0.5,APH2=-1,APH3=-0.25
+ColorFonts/test_glyphs-glyf_colr_1_variable.ttf		ROTA=90,ROTX=100,ROTY=-50,SKXA=20,SKYA=-15,SKCX=100,SKCY=-100
+ColorFonts/test_glyphs-glyf_colr_1_variable.ttf		TRXX=0.5,TRYX=-0.3,TRXY=0.2,TRYY=1.5,TRDX=100,TRDY=-200,TLDX=150,TLDY=-75
+ColorFonts/test_glyphs-glyf_colr_1_variable.ttf		CLXI=100,CLYI=-50,CLXA=-80,CLYA=60

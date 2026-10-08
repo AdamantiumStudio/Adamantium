@@ -130,4 +130,65 @@ public class FontAtlasStoreTests
         Assert.That(run.Glyphs.Take(run.Count).All(g => g.Paint.X >= 1), "each quad names its paint program");
         Assert.That(run.Glyphs[0].Paint.X, Is.Not.EqualTo(run.Glyphs[1].Paint.X), "each glyph has a program of its own");
     }
+
+    [Test]
+    public void AColorGlyph_InAnotherPalette_RunsAProgramOfItsOwn()
+    {
+        var device = GpuFixture.CreateRenderDevice();
+        FontAtlasStore.SynchronousFill = true;
+        var typeface = Typeface.LoadFont(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fonts",
+            "test_glyphs-glyf_colr_1.ttf"));
+        var text = char.ConvertFromUtf32(0xF0100);
+
+        float Program(int palette)
+        {
+            var layout = new TextLayout(typeface, typeface.Fonts[0]);
+            layout.ProcessText(new AttributedText(text, new TextAttributes { ColorPalette = palette }), 20,
+                new Size(double.NaN, double.NaN), TextWrapping.NoWrap, TextTrimming.None, HorizontalTextAlignment.Left,
+                VerticalTextAlignment.Top);
+            layout.Update(device);
+            return layout.SnapshotGlyphs().Glyphs[0].Paint.X;
+        }
+
+        Assert.That(Program(1), Is.Not.EqualTo(Program(0)), "the palette's colors are a program of their own");
+        Assert.That(Program(1), Is.EqualTo(Program(1)), "and the same palette asks for the same program");
+    }
+
+    [Test]
+    public void AColorGlyphOfLayers_DrawsAQuadPerLayerInItsPaletteColor()
+    {
+        var device = GpuFixture.CreateRenderDevice();
+        FontAtlasStore.SynchronousFill = true;
+        var layout = Layout("chromacheck-colr.ttf", "\U0000E900");
+        var font = layout.Font;
+        font.TryGetGlyphIndex(0xE900, out var glyph);
+        var layers = font.GetColorLayers(glyph);
+
+        layout.Update(device);
+        var run = layout.SnapshotGlyphs();
+
+        Assert.That(layers, Is.Not.Empty, "the glyph has 'COLR' version 0 layers");
+        Assert.That(run.Count, Is.EqualTo(layers.Count), "a quad per layer");
+        for (var i = 0; i < layers.Count; i++)
+        {
+            Assert.That(run.Glyphs[i].Paint.X, Is.Zero, "a layer is an ordinary glyph, not a paint program");
+            Assert.That(run.Glyphs[i].Color, Is.EqualTo(layers[i].Color.Value.ToVector4()), "in the palette's color");
+        }
+    }
+
+    [Test]
+    public void AGlyphFromAnImage_DrawsOneQuadThatRunsItsProgram()
+    {
+        var device = GpuFixture.CreateRenderDevice();
+        FontAtlasStore.SynchronousFill = true;
+        var layout = Layout("NotoColorEmoji.subset.ttf", "\U00002049\U00002049");
+
+        layout.Update(device);
+        var run = layout.SnapshotGlyphs();
+
+        Assert.That(run.Count, Is.EqualTo(2), "a quad per glyph");
+        Assert.That(run.Glyphs[0].Paint.X, Is.GreaterThanOrEqualTo(1), "the quad names the program that samples the image");
+        Assert.That(run.Glyphs[1].Paint.X, Is.EqualTo(run.Glyphs[0].Paint.X), "the image is in the atlas once");
+        Assert.That(layout.FontAtlas.HasPendingGlyphs, Is.False, "the image has landed");
+    }
 }

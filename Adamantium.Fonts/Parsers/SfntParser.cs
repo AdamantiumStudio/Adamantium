@@ -486,6 +486,11 @@ namespace Adamantium.Fonts.Parsers
                         break;
                     case TableNames.maxp:
                         ReadMaximumProfileTable(tableEntry);
+                        if (!HasOutlines(tableDirectory) && Typeface.GlyphCount == 0)
+                        {
+                            CreateGlyphsWithoutOutlines();
+                        }
+
                         break;
                     case TableNames.name:
                         ReadNameTable(tableEntry);
@@ -1115,6 +1120,24 @@ namespace Adamantium.Fonts.Parsers
                 {
                     glyph.SetOutlineSource(source);
                 }
+            }
+
+            Typeface.SetGlyphs(glyphs);
+        }
+
+        private static bool HasOutlines(TableDirectory tableDirectory)
+        {
+            return tableDirectory.TablesOffsets.ContainsKey(TableNames.glyf) ||
+                   tableDirectory.TablesOffsets.ContainsKey(TableNames.CFF) ||
+                   tableDirectory.TablesOffsets.ContainsKey(TableNames.CFF2);
+        }
+
+        private void CreateGlyphsWithoutOutlines()
+        {
+            var glyphs = new Glyph[maxp.NumGlyphs];
+            for (uint i = 0; i < glyphs.Length; ++i)
+            {
+                glyphs[i] = new Glyph(i, OutlineType.TrueType);
             }
 
             Typeface.SetGlyphs(glyphs);

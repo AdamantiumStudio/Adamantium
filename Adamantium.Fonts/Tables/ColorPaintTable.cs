@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Adamantium.Fonts.Common;
+using Adamantium.Fonts.Extensions;
+using Adamantium.Fonts.Tables.CFF;
 using Adamantium.Mathematics;
 
 namespace Adamantium.Fonts.Tables;
@@ -12,15 +14,24 @@ internal sealed class ColorPaintTable
     private const int MaxDepth = 64;
     private const int MaxVisits = 65536;
 
+    private const uint NoVariation = 0xFFFFFFFF;
+
     private readonly byte[] data;
     private readonly int baseGlyphList;
     private readonly int layerList;
+    private readonly int clipList;
+    private readonly DeltaSetIndexMap variationMap;
+    private readonly VariationStore variations;
 
-    private ColorPaintTable(byte[] data, int baseGlyphList, int layerList)
+    private ColorPaintTable(byte[] data, int baseGlyphList, int layerList, int clipList, DeltaSetIndexMap variationMap,
+        VariationStore variations)
     {
         this.data = data;
         this.baseGlyphList = baseGlyphList;
         this.layerList = layerList;
+        this.clipList = clipList;
+        this.variationMap = variationMap;
+        this.variations = variations;
     }
 
     public static ColorPaintTable Read(FontStreamReader reader, long offset, long length)
@@ -40,6 +51,19 @@ internal sealed class ColorPaintTable
             return null;
         }
 
+        uint clipList = 0;
+        DeltaSetIndexMap variationMap = null;
+        VariationStore variations = null;
+        if (length >= 34)
+        {
+            clipList = reader.ReadUInt32();
+            var mapOffset = reader.ReadUInt32();
+            var storeOffset = reader.ReadUInt32();
+            clipList = clipList < length ? clipList : 0;
+            variationMap = mapOffset != 0 && mapOffset < length ? reader.ReadDeltaSetIndexMap(offset + mapOffset) : null;
+            variations = storeOffset != 0 && storeOffset < length ? reader.ReadItemVariationStore(offset + storeOffset) : null;
+        }
+
         var data = new byte[length];
         reader.Position = offset;
         var read = 0;
@@ -54,10 +78,61 @@ internal sealed class ColorPaintTable
             read += chunk;
         }
 
-        return new ColorPaintTable(data, (int)baseGlyphList, (int)layerList);
+        return new ColorPaintTable(data, (int)baseGlyphList, (int)layerList, (int)clipList, variationMap, variations);
     }
 
-    public ColorPaintOperation[] GetOperations(uint glyphIndex, ColorPaletteTable palettes, int palette)
+    public bool Varies => variations != null;
+
+    public bool TryGetClipBox(uint glyphIndex, float[] coordinates, out RectangleF box)
+    {
+        box = default;
+        if (clipList == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            var count = (int)UInt32(clipList + 1);
+            var low = 0;
+            var high = count - 1;
+            while (low <= high)
+            {
+                var middle = (low + high) / 2;
+                var record = clipList + 5 + middle * 7;
+                if (glyphIndex < UInt16(record))
+                {
+                    high = middle - 1;
+                }
+                else if (glyphIndex > UInt16(record + 2))
+                {
+                    low = middle + 1;
+                }
+                else
+                {
+                    var at = clipList + (int)UInt24(record + 4);
+                    var variable = data[at] == 2;
+                    var context = new Context(this, null, 0, coordinates);
+                    var baseIndex = variable ? UInt32(at + 9) : NoVariation;
+                    var xMin = Int16(at + 1) + context.Delta(baseIndex, 0);
+                    var yMin = Int16(at + 3) + context.Delta(baseIndex, 1);
+                    var xMax = Int16(at + 5) + context.Delta(baseIndex, 2);
+                    var yMax = Int16(at + 7) + context.Delta(baseIndex, 3);
+                    box = new RectangleF(xMin, yMin, xMax - xMin, yMax - yMin);
+                    return true;
+                }
+            }
+        }
+        catch (IndexOutOfRangeException)
+        {
+            box = default;
+        }
+
+        return false;
+    }
+
+    public ColorPaintOperation[] GetOperations(uint glyphIndex, ColorPaletteTable palettes, int palette,
+        float[] coordinates = null)
     {
         try
         {
@@ -67,7 +142,7 @@ internal sealed class ColorPaintTable
                 return [];
             }
 
-            var context = new Context(palettes, palette);
+            var context = new Context(this, palettes, palette, coordinates);
             context.Visiting.Add(glyphIndex);
             Paint(paint, Matrix3x2.Identity, context, 0);
             return context.Operations.ToArray();
@@ -143,7 +218,7 @@ internal sealed class ColorPaintTable
 
                 break;
             case >= 12 and <= 31:
-                Paint(Child(at), Matrix3x2.Multiply(Transform(at), transform), context, depth + 1);
+                Paint(Child(at), Matrix3x2.Multiply(Transform(at, context), transform), context, depth + 1);
                 break;
             case 32:
                 Composite(at, transform, context, depth);
@@ -210,70 +285,112 @@ internal sealed class ColorPaintTable
         switch (format)
         {
             case 2 or 3:
-                return new ColorFill(ColorFillKind.Solid, [Stop(0, UInt16(at + 1), F2Dot14(at + 3), context)],
-                    ColorExtend.Pad, transform);
+                var alpha = F2Dot14(at + 3) + context.Delta(VarIndex(at + 5, format == 3), 0) / 16384;
+                return new ColorFill(ColorFillKind.Solid, [Stop(0, UInt16(at + 1), alpha, context)], ColorExtend.Pad,
+                    transform);
             case 4 or 5:
+            {
+                var index = VarIndex(at + 16, format == 5);
                 return new ColorFill(ColorFillKind.LinearGradient, Stops(Child(at), format == 5, context),
                     Extend(Child(at)), transform)
                 {
-                    Point0 = new Vector2(Int16(at + 4), Int16(at + 6)),
-                    Point1 = new Vector2(Int16(at + 8), Int16(at + 10)),
-                    Point2 = new Vector2(Int16(at + 12), Int16(at + 14)),
+                    Point0 = new Vector2(Int16(at + 4) + context.Delta(index, 0), Int16(at + 6) + context.Delta(index, 1)),
+                    Point1 = new Vector2(Int16(at + 8) + context.Delta(index, 2), Int16(at + 10) + context.Delta(index, 3)),
+                    Point2 = new Vector2(Int16(at + 12) + context.Delta(index, 4), Int16(at + 14) + context.Delta(index, 5)),
                 };
+            }
             case 8 or 9:
+            {
+                var index = VarIndex(at + 12, format == 9);
                 return new ColorFill(ColorFillKind.SweepGradient, Stops(Child(at), format == 9, context),
                     Extend(Child(at)), transform)
                 {
-                    Point0 = new Vector2(Int16(at + 4), Int16(at + 6)),
-                    StartAngle = (F2Dot14(at + 8) + 1) * 180,
-                    EndAngle = (F2Dot14(at + 10) + 1) * 180,
+                    Point0 = new Vector2(Int16(at + 4) + context.Delta(index, 0), Int16(at + 6) + context.Delta(index, 1)),
+                    StartAngle = (F2Dot14(at + 8) + context.Delta(index, 2) / 16384 + 1) * 180,
+                    EndAngle = (F2Dot14(at + 10) + context.Delta(index, 3) / 16384 + 1) * 180,
                 };
+            }
             default:
+            {
+                var index = VarIndex(at + 16, format == 7);
                 return new ColorFill(ColorFillKind.RadialGradient, Stops(Child(at), format == 7, context),
                     Extend(Child(at)), transform)
                 {
-                    Point0 = new Vector2(Int16(at + 4), Int16(at + 6)),
-                    Radius0 = UInt16(at + 8),
-                    Point1 = new Vector2(Int16(at + 10), Int16(at + 12)),
-                    Radius1 = UInt16(at + 14),
+                    Point0 = new Vector2(Int16(at + 4) + context.Delta(index, 0), Int16(at + 6) + context.Delta(index, 1)),
+                    Radius0 = UInt16(at + 8) + context.Delta(index, 2),
+                    Point1 = new Vector2(Int16(at + 10) + context.Delta(index, 3), Int16(at + 12) + context.Delta(index, 4)),
+                    Radius1 = UInt16(at + 14) + context.Delta(index, 5),
                 };
+            }
         }
     }
 
-    private Matrix3x2 Transform(int at)
+    private Matrix3x2 Transform(int at, Context context)
     {
         var format = data[at];
+        var variable = format % 2 == 1;
         switch (format)
         {
             case 12 or 13:
                 var affine = at + (int)UInt24(at + 4);
-                return new Matrix3x2(Fixed(affine), Fixed(affine + 4), Fixed(affine + 8), Fixed(affine + 12),
-                    Fixed(affine + 16), Fixed(affine + 20));
+                var index = VarIndex(affine + 24, variable);
+                return new Matrix3x2(Fixed(affine) + context.Delta(index, 0) / 65536,
+                    Fixed(affine + 4) + context.Delta(index, 1) / 65536, Fixed(affine + 8) + context.Delta(index, 2) / 65536,
+                    Fixed(affine + 12) + context.Delta(index, 3) / 65536, Fixed(affine + 16) + context.Delta(index, 4) / 65536,
+                    Fixed(affine + 20) + context.Delta(index, 5) / 65536);
             case 14 or 15:
-                return Matrix3x2.Translation(Int16(at + 4), Int16(at + 6));
+            {
+                var at8 = VarIndex(at + 8, variable);
+                return Matrix3x2.Translation(Int16(at + 4) + context.Delta(at8, 0), Int16(at + 6) + context.Delta(at8, 1));
+            }
             case 16 or 17:
-                return Matrix3x2.Scaling(F2Dot14(at + 4), F2Dot14(at + 6));
+            {
+                var at8 = VarIndex(at + 8, variable);
+                return Matrix3x2.Scaling(Unit(at + 4, at8, 0, context), Unit(at + 6, at8, 1, context));
+            }
             case 18 or 19:
-                return AroundCenter(Matrix3x2.Scaling(F2Dot14(at + 4), F2Dot14(at + 6)), at + 8);
+            {
+                var at12 = VarIndex(at + 12, variable);
+                return AroundCenter(Matrix3x2.Scaling(Unit(at + 4, at12, 0, context), Unit(at + 6, at12, 1, context)),
+                    at + 8, at12, 2, context);
+            }
             case 20 or 21:
-                return Matrix3x2.Scaling(F2Dot14(at + 4));
+                return Matrix3x2.Scaling(Unit(at + 4, VarIndex(at + 6, variable), 0, context));
             case 22 or 23:
-                return AroundCenter(Matrix3x2.Scaling(F2Dot14(at + 4)), at + 6);
+            {
+                var at10 = VarIndex(at + 10, variable);
+                return AroundCenter(Matrix3x2.Scaling(Unit(at + 4, at10, 0, context)), at + 6, at10, 1, context);
+            }
             case 24 or 25:
-                return Rotation(F2Dot14(at + 4));
+                return Rotation(Unit(at + 4, VarIndex(at + 6, variable), 0, context));
             case 26 or 27:
-                return AroundCenter(Rotation(F2Dot14(at + 4)), at + 6);
+            {
+                var at10 = VarIndex(at + 10, variable);
+                return AroundCenter(Rotation(Unit(at + 4, at10, 0, context)), at + 6, at10, 1, context);
+            }
             case 28 or 29:
-                return Skew(F2Dot14(at + 4), F2Dot14(at + 6));
+            {
+                var at8 = VarIndex(at + 8, variable);
+                return Skew(Unit(at + 4, at8, 0, context), Unit(at + 6, at8, 1, context));
+            }
             default:
-                return AroundCenter(Skew(F2Dot14(at + 4), F2Dot14(at + 6)), at + 8);
+            {
+                var at12 = VarIndex(at + 12, variable);
+                return AroundCenter(Skew(Unit(at + 4, at12, 0, context), Unit(at + 6, at12, 1, context)), at + 8, at12, 2,
+                    context);
+            }
         }
     }
 
-    private Matrix3x2 AroundCenter(Matrix3x2 transform, int center)
+    private uint VarIndex(int at, bool variable) => variable ? UInt32(at) : NoVariation;
+
+    private double Unit(int at, uint index, int item, Context context) =>
+        F2Dot14(at) + context.Delta(index, item) / 16384;
+
+    private Matrix3x2 AroundCenter(Matrix3x2 transform, int center, uint index, int item, Context context)
     {
-        var x = Int16(center);
-        var y = Int16(center + 2);
+        var x = Int16(center) + context.Delta(index, item);
+        var y = Int16(center + 2) + context.Delta(index, item + 1);
         return Matrix3x2.Multiply(Matrix3x2.Multiply(Matrix3x2.Translation(-x, -y), transform),
             Matrix3x2.Translation(x, y));
     }
@@ -308,7 +425,9 @@ internal sealed class ColorPaintTable
         for (var i = 0; i < count; i++)
         {
             var stop = colorLine + 3 + i * size;
-            stops[i] = Stop(F2Dot14(stop), UInt16(stop + 2), F2Dot14(stop + 4), context);
+            var index = VarIndex(stop + 6, variable);
+            stops[i] = Stop((float)Unit(stop, index, 0, context), UInt16(stop + 2), (float)Unit(stop + 4, index, 1, context),
+                context);
         }
 
         return stops.OrderBy(s => s.Offset).ToArray();
@@ -347,10 +466,27 @@ internal sealed class ColorPaintTable
 
     private sealed class Context
     {
-        public Context(ColorPaletteTable palettes, int palette)
+        private readonly ColorPaintTable table;
+        private readonly float[] coordinates;
+
+        public Context(ColorPaintTable table, ColorPaletteTable palettes, int palette, float[] coordinates)
         {
+            this.table = table;
+            this.coordinates = coordinates;
             Palettes = palettes;
             Palette = palette;
+        }
+
+        public float Delta(uint varIndexBase, int item)
+        {
+            if (varIndexBase == NoVariation || coordinates == null || table.variations == null)
+            {
+                return 0;
+            }
+
+            var index = varIndexBase + (uint)item;
+            var (outer, inner) = table.variationMap?.Map(index) ?? ((int)(index >> 16), (int)(index & 0xFFFF));
+            return table.variations.GetDelta(outer, inner, coordinates);
         }
 
         public ColorPaletteTable Palettes { get; }

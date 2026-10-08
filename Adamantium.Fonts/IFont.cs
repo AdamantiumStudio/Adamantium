@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Adamantium.Fonts.Common;
+using Adamantium.Mathematics;
 
 namespace Adamantium.Fonts
 {
@@ -73,9 +74,33 @@ namespace Adamantium.Fonts
         /// first palette ('COLR' and 'CPAL'); empty for a glyph drawn as its own outline.</summary>
         public IReadOnlyList<ColorLayer> GetColorLayers(uint glyphIndex);
 
+        /// <summary>The layers of a color glyph as <see cref="GetColorLayers(uint)"/> gives them, in the font's palette
+        /// <paramref name="palette"/>; a palette the font lacks gives its first.</summary>
+        public IReadOnlyList<ColorLayer> GetColorLayers(uint glyphIndex, int palette);
+
+        /// <summary>The palettes the font's color glyphs can be drawn in ('CPAL'); empty for a font without.</summary>
+        public IReadOnlyList<ColorPalette> ColorPalettes { get; }
+
         /// <summary>A color glyph's paint graph ('COLR' version 1) as the steps that draw it, in the font's first palette;
         /// empty for a glyph without one. A font may have layers as well: this is the glyph's richer form.</summary>
         public IReadOnlyList<ColorPaintOperation> GetColorPaint(uint glyphIndex);
+
+        /// <summary>A color glyph's paint graph as <see cref="GetColorPaint(uint)"/> gives it, in the font's palette
+        /// <paramref name="palette"/>; a palette the font lacks gives its first.</summary>
+        public IReadOnlyList<ColorPaintOperation> GetColorPaint(uint glyphIndex, int palette);
+
+        /// <summary>The box a 'COLR' version 1 glyph is drawn within (its clip list), in font units, at the font's axis
+        /// values; false when the font gives none for the glyph.</summary>
+        public bool TryGetColorClipBox(uint glyphIndex, out RectangleF box);
+
+        /// <summary>The sizes, in pixels per em, the font has color images at ('CBDT' or 'sbix'); empty for a font
+        /// without.</summary>
+        public IReadOnlyList<int> ColorBitmapSizes { get; }
+
+        /// <summary>A glyph's color image at the size nearest <paramref name="pixelsPerEm"/> from above, or the largest
+        /// when none is as large (0 asks for the largest), as HarfBuzz chooses it; null when that size has no image of
+        /// the glyph, or it is not a PNG.</summary>
+        public ColorBitmap GetColorBitmap(uint glyphIndex, int pixelsPerEm);
 
         /// <summary>The OpenType features this font offers, per script and language system.</summary>
         public FeatureCatalog FeatureCatalog { get; }

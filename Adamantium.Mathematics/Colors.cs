@@ -176,6 +176,12 @@ namespace Adamantium.Mathematics
             return ColorsMap[name];
         }
 
+        /// <summary>The color a name stands for, in any case ("Tomato", "tomato"); false for a name it does not know.</summary>
+        public static bool TryGetNamed(string name, out Color color)
+        {
+            return ColorsMap.TryGetValue(name ?? string.Empty, out color);
+        }
+
         /// <summary>
         /// Zero color.
         /// </summary>
