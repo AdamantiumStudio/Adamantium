@@ -65,6 +65,7 @@ public class FontRenderer : GraphicsResource
     private EffectParameter effectTransforms;       // BDA address of the transform table the glyph VS indexes by slot
     private EffectParameter effectPaintPrograms;
     private EffectParameter effectPaintStops;
+    private EffectParameter effectColorTexture;
 
     private Vector2F currentScreenSize;
     private static readonly Vector2F[] UVCornerCoords = [Vector2F.Zero, Vector2F.UnitX, Vector2F.UnitY, Vector2F.One];
@@ -101,6 +102,7 @@ public class FontRenderer : GraphicsResource
         effectTransforms = fontEffect.TransformsAddress;
         effectPaintPrograms = fontEffect.PaintProgramsAddress;
         effectPaintStops = fontEffect.PaintStopsAddress;
+        effectColorTexture = fontEffect.ColorTexture;
     }
 
     public void DrawLayout(Buffer<FontItem> glyphs, uint count, FontAtlas atlas, float fontSize, Color foreground)
@@ -289,6 +291,7 @@ public class FontRenderer : GraphicsResource
         var (programs, stops) = atlas.UploadPaints();
         effectPaintPrograms.SetValue(programs);
         effectPaintStops.SetValue(stops);
+        effectColorTexture.SetResource(atlas.ColorAtlas);
     }
 
     public void RestoreState(bool outerPassActive = true)

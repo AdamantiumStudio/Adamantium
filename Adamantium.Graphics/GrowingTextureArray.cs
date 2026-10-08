@@ -108,33 +108,50 @@ public sealed class GrowingTextureArray : DisposableObject
 
     private void CopyLayers(Texture source, Texture destination, uint layers)
     {
+        var levels = Math.Max(1u, _description.MipLevels);
+        if (levels == 1)
+        {
+            CopyLevelZero(source, destination, layers);
+            return;
+        }
+
+        var sourceLayout = source.ImageLayout;
+        var commandBuffer = _device.BeginSingleTimeCommand();
+        _device.InsertImageMemoryBarrier(commandBuffer, source, AccessFlagBits2.ShaderReadBit,
+            AccessFlagBits2.TransferReadBit, sourceLayout, ImageLayout.TransferSrcOptimal,
+            PipelineStageFlagBits2.FragmentShaderBit, PipelineStageFlagBits2.AllTransferBit);
+        _device.InsertImageMemoryBarrier(commandBuffer, destination, 0, AccessFlagBits2.TransferWriteBit,
+            ImageLayout.Undefined, ImageLayout.TransferDstOptimal, PipelineStageFlagBits2.TopOfPipeBit,
+            PipelineStageFlagBits2.AllTransferBit);
+        for (var level = 0u; level < levels; level++)
+        {
+            commandBuffer.CopyImage(source.GetImage(), ImageLayout.TransferSrcOptimal, destination.GetImage(),
+                ImageLayout.TransferDstOptimal, 1, LayerCopy(layers, level,
+                    Math.Max(1u, source.Width >> (int)level), Math.Max(1u, source.Height >> (int)level)));
+        }
+
+        if (sourceLayout is not (ImageLayout.Undefined or ImageLayout.Preinitialized))
+        {
+            _device.InsertImageMemoryBarrier(commandBuffer, source, AccessFlagBits2.TransferReadBit,
+                AccessFlagBits2.ShaderReadBit, ImageLayout.TransferSrcOptimal, sourceLayout,
+                PipelineStageFlagBits2.AllTransferBit, PipelineStageFlagBits2.FragmentShaderBit);
+        }
+
+        _device.InsertImageMemoryBarrier(commandBuffer, destination, AccessFlagBits2.TransferWriteBit,
+            AccessFlagBits2.ShaderReadBit, ImageLayout.TransferDstOptimal, _description.DesiredImageLayout,
+            PipelineStageFlagBits2.AllTransferBit, PipelineStageFlagBits2.FragmentShaderBit);
+        _device.EndSingleTimeCommand(commandBuffer);
+    }
+
+    private void CopyLevelZero(Texture source, Texture destination, uint layers)
+    {
         var sourceLayout = source.ImageLayout;
         source.TransitionImageLayout(ImageLayout.TransferSrcOptimal);
         destination.TransitionImageLayout(ImageLayout.TransferDstOptimal);
 
         var commandBuffer = _device.BeginSingleTimeCommand();
-        var copy = new ImageCopy
-        {
-            SrcSubresource = new ImageSubresourceLayers
-            {
-                AspectMask = ImageAspectFlagBits.ColorBit,
-                MipLevel = 0,
-                BaseArrayLayer = 0,
-                LayerCount = layers,
-            },
-            DstSubresource = new ImageSubresourceLayers
-            {
-                AspectMask = ImageAspectFlagBits.ColorBit,
-                MipLevel = 0,
-                BaseArrayLayer = 0,
-                LayerCount = layers,
-            },
-            SrcOffset = new Offset3D(),
-            DstOffset = new Offset3D(),
-            Extent = new Extent3D { Width = source.Width, Height = source.Height, Depth = 1 },
-        };
         commandBuffer.CopyImage(source.GetImage(), ImageLayout.TransferSrcOptimal, destination.GetImage(),
-            ImageLayout.TransferDstOptimal, 1, copy);
+            ImageLayout.TransferDstOptimal, 1, LayerCopy(layers, 0, source.Width, source.Height));
         _device.EndSingleTimeCommand(commandBuffer);
 
         if (sourceLayout is not (ImageLayout.Undefined or ImageLayout.Preinitialized))
@@ -143,5 +160,29 @@ public sealed class GrowingTextureArray : DisposableObject
         }
 
         destination.TransitionImageLayout(_description.DesiredImageLayout);
+    }
+
+    private static ImageCopy LayerCopy(uint layers, uint level, uint width, uint height)
+    {
+        return new ImageCopy
+        {
+            SrcSubresource = new ImageSubresourceLayers
+            {
+                AspectMask = ImageAspectFlagBits.ColorBit,
+                MipLevel = level,
+                BaseArrayLayer = 0,
+                LayerCount = layers,
+            },
+            DstSubresource = new ImageSubresourceLayers
+            {
+                AspectMask = ImageAspectFlagBits.ColorBit,
+                MipLevel = level,
+                BaseArrayLayer = 0,
+                LayerCount = layers,
+            },
+            SrcOffset = new Offset3D(),
+            DstOffset = new Offset3D(),
+            Extent = new Extent3D { Width = width, Height = height, Depth = 1 },
+        };
     }
 }

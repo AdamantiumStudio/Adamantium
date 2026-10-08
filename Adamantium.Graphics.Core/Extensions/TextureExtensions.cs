@@ -20,7 +20,7 @@ public static class TextureExtensions
         };
 
         imageMemoryBarrier.SubresourceRange.BaseMipLevel = 0;
-        imageMemoryBarrier.SubresourceRange.LevelCount = 1;
+        imageMemoryBarrier.SubresourceRange.LevelCount = Constants.VK_REMAINING_MIP_LEVELS;
         imageMemoryBarrier.SubresourceRange.BaseArrayLayer = 0;
         // All layers: with a count of 1 only layer 0 of an array texture changed layout.
         imageMemoryBarrier.SubresourceRange.LayerCount = Constants.VK_REMAINING_ARRAY_LAYERS;

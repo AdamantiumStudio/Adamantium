@@ -5,10 +5,11 @@ using HarfBuzzSharp;
 namespace Adamantium.ShapingOracle;
 
 /// <summary>
-/// Writes, for every font of a cases file, each glyph with a 'COLR' version 1 paint graph as HarfBuzz paints it, as the
-/// steps the engine draws it with: "clip" (glyph and transform), "popclip", "group", "popgroup" (mode) and "fill" (kind,
-/// extend, transform, geometry and stops). Transforms are folded into the steps; the clip boxes of 'COLR''s clip list
-/// are left out; a group composited with source-over that holds no other composite is dissolved into what is around it,
+/// Writes, for every case of a cases file (a font, a palette - the first unless named - and axis values), each glyph
+/// with a 'COLR' version 1 paint graph as HarfBuzz paints it: the glyph's clip box from the clip list ("-" for none),
+/// then the steps the engine draws it with: "clip" (glyph and transform), "popclip", "group", "popgroup" (mode) and
+/// "fill" (kind, extend, transform, geometry and stops). Transforms are folded into the steps; clip rectangles are left
+/// out of them; a group composited with source-over that holds no other composite is dissolved into what is around it,
 /// as HarfBuzz wraps every layer in one.
 /// </summary>
 public static class ColorPaintOracle
@@ -19,6 +20,7 @@ public static class ColorPaintOracle
     private static readonly List<double[]> transforms = [];
     private static readonly List<bool> clips = [];
     private static readonly List<Group> groups = [];
+    private static string clipBox = "-";
 
     public static int Write(string casesPath, string fontsRoot, string expectedPath)
     {
@@ -31,19 +33,30 @@ public static class ColorPaintOracle
                 continue;
             }
 
-            Paint(Path.Combine(fontsRoot, line), line, output);
+            var fields = line.Split('\t');
+            var palette = fields.Length > 1 && fields[1].Length > 0 ? uint.Parse(fields[1]) : 0;
+            var variations = fields.Length > 2 ? fields[2] : string.Empty;
+            Paint(Path.Combine(fontsRoot, fields[0]), fields[0], palette, variations, output);
         }
 
         File.WriteAllText(expectedPath, output.ToString());
         return 0;
     }
 
-    private static void Paint(string fontPath, string name, StringBuilder output)
+    private static void Paint(string fontPath, string name, uint palette, string variations, StringBuilder output)
     {
         using var blob = Blob.FromFile(fontPath);
         using var face = new Face(blob, 0);
         using var font = new HarfBuzzSharp.Font(face);
         font.SetScale(face.UnitsPerEm, face.UnitsPerEm);
+        var settings = variations.Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(v => v.Split('='))
+            .Select(v => new HarfBuzzVariation(Tag(v[0].Trim()), float.Parse(v[1], CultureInfo.InvariantCulture)))
+            .ToArray();
+        if (settings.Length > 0)
+        {
+            HarfBuzzInterop.SetVariations(font.Handle, settings, (uint)settings.Length);
+        }
 
         HarfBuzzPaint.PushTransform pushTransform = OnPushTransform;
         HarfBuzzPaint.Pop popTransform = OnPopTransform;
@@ -84,10 +97,11 @@ public static class ColorPaintOracle
             clips.Clear();
             groups.Clear();
             groups.Add(new Group());
-            HarfBuzzPaint.PaintGlyph(font.Handle, glyph, funcs, IntPtr.Zero, 0, Foreground);
+            clipBox = "-";
+            HarfBuzzPaint.PaintGlyph(font.Handle, glyph, funcs, IntPtr.Zero, palette, Foreground);
 
-            output.Append(name).Append('\t').Append(glyph).Append('\t')
-                .AppendLine(string.Join(" | ", groups[0].Steps));
+            output.Append(name).Append('\t').Append(palette).Append('\t').Append(variations).Append('\t').Append(glyph)
+                .Append('\t').Append(clipBox).Append('\t').AppendLine(string.Join(" | ", groups[0].Steps));
         }
 
         HarfBuzzPaint.DestroyFuncs(funcs);
@@ -141,8 +155,16 @@ public static class ColorPaintOracle
     private static void OnPushClipRectangle(IntPtr funcs, IntPtr data, float xMin, float yMin, float xMax, float yMax,
         IntPtr user)
     {
+        if (clipBox == "-" && clips.Count == 0 && transforms.Count == 1 && groups[0].Steps.Count == 0)
+        {
+            clipBox = string.Join(",", new[] { xMin, yMin, xMax, yMax }.Select(v => v.ToString("0.####", CultureInfo.InvariantCulture)));
+        }
+
         clips.Add(false);
     }
+
+    private static uint Tag(string tag) =>
+        (uint)tag[0] << 24 | (uint)tag[1] << 16 | (uint)tag[2] << 8 | tag[3];
 
     private static void OnPopClip(IntPtr funcs, IntPtr data, IntPtr user)
     {

@@ -28,6 +28,10 @@ public sealed class TextAttributes
     /// (<see cref="FontSynthesisRules"/>). A thickened glyph advances further.</summary>
     public FontSynthesis? Synthesis { get; init; }
 
+    /// <summary>The font's palette color glyphs are drawn in ('CPAL', <see cref="IFont.ColorPalettes"/>); unset, or one
+    /// the font lacks, draws them in its first.</summary>
+    public int? ColorPalette { get; init; }
+
     public Color? Foreground { get; init; }
 
     /// <summary>Fill behind the text, as high as the line.</summary>
@@ -53,6 +57,7 @@ public sealed class TextAttributes
             Font = over.Font ?? Font,
             FontSize = over.FontSize ?? FontSize,
             Synthesis = over.Synthesis ?? Synthesis,
+            ColorPalette = over.ColorPalette ?? ColorPalette,
             Foreground = over.Foreground ?? Foreground,
             Background = over.Background ?? Background,
             Decorations = over.Decorations ?? Decorations,
@@ -61,10 +66,11 @@ public sealed class TextAttributes
     }
 
     /// <summary>Whether text with these attributes and with <paramref name="other"/> shapes alike: colors, lines and
-    /// sizes differ freely.</summary>
+    /// sizes differ freely; a palette does not, as its color glyphs are drawn anew.</summary>
     public bool ShapesLike(TextAttributes other)
     {
         return Language == other.Language && ReferenceEquals(Font, other.Font) && Synthesis == other.Synthesis
+                                          && ColorPalette == other.ColorPalette
                                           && FeaturesEqual(Features, other.Features);
     }
 

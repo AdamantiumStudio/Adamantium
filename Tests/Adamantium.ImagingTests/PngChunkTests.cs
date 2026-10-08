@@ -44,6 +44,17 @@ public class PngChunkTests
     }
 
     [Test]
+    public void APaletteImage_DecodesToItsColorsAndAlphas()
+    {
+        var png = Build(2, 1, 8, 3, Zlib([0, 0, 1], CompressionLevel.Optimal),
+            ("PLTE", [10, 20, 30, 40, 50, 60]), ("tRNS", [128]));
+
+        var pixels = BitmapLoader.Load(new MemoryStream(png)).GetRawPixels(0);
+
+        Assert.That(pixels, Is.EqualTo(new byte[] { 10, 20, 30, 128, 40, 50, 60, 255 }));
+    }
+
+    [Test]
     public void UnknownAncillaryChunk_IsSkipped()
     {
         var png = Rgb2x2(("sBIT", [8, 8, 8]));

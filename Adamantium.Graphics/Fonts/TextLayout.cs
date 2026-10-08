@@ -881,16 +881,28 @@ public class TextLayout : DisposableObject
             var word = _wordData[i];
             if (IsBlank(word.Symbol) || word.Symbol == '\n') continue;
 
-            var paint = word.Font.GetColorPaint(word.Glyph.Index);
+            var palette = word.Attributes?.ColorPalette ?? 0;
+            if (palette < 0 || palette >= word.Font.ColorPalettes.Count)
+            {
+                palette = 0;
+            }
+            var paint = word.Font.GetColorPaint(word.Glyph.Index, palette);
             if (paint.Count > 0)
             {
-                AddColorGlyph(word, paint);
+                AddProgramItem(word, FontAtlas.GetPaintProgram(word.Font, word.Glyph.Index, palette, paint));
                 continue;
             }
 
-            var layers = word.Font.GetColorLayers(word.Glyph.Index);
+            var layers = word.Font.GetColorLayers(word.Glyph.Index, palette);
             if (layers.Count == 0)
             {
+                if (word.Font.ColorBitmapSizes.Count > 0 &&
+                    FontAtlas.TryGetImageProgram(word.Font, word.Glyph.Index, out var image))
+                {
+                    AddProgramItem(word, image);
+                    continue;
+                }
+
                 AddGlyphItem(word, word.Glyph, word.Rect, GlyphColor(word));
                 continue;
             }
@@ -910,9 +922,8 @@ public class TextLayout : DisposableObject
         _textUpdated = true;
     }
 
-    private void AddColorGlyph(GlyphWordData word, IReadOnlyList<ColorPaintOperation> operations)
+    private void AddProgramItem(GlyphWordData word, int program)
     {
-        var program = FontAtlas.GetPaintProgram(word.Font, word.Glyph.Index, operations);
         if (program < 0)
         {
             return;
@@ -1619,7 +1630,8 @@ public class TextLayout : DisposableObject
             return false;
         }
 
-        return font.GetColorPaint(glyph).Count > 0 || font.GetColorLayers(glyph).Count > 0;
+        return font.GetColorPaint(glyph).Count > 0 || font.GetColorLayers(glyph).Count > 0 ||
+               (font.ColorBitmapSizes.Count > 0 && font.GetColorBitmap(glyph, 0) != null);
     }
 
     private static bool JoinsPrevious(int codepoint)

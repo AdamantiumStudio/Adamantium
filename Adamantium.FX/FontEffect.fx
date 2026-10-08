@@ -51,6 +51,8 @@ float SlantShift(float4 synthesis, float cornerY, float height)
 
 Texture2DArray Texture : register(t1);
 SamplerState TextureSampler : register(s1);
+// Color glyph images ('CBDT', 'sbix'): premultiplied, each in a cell with its own mip chain.
+Texture2DArray ColorTexture : register(t2);
 
 float4x4 MatrixTransform;
 float2 TextureCornerCoords[4];
@@ -90,6 +92,8 @@ uint64_t TransformsAddress;
 //   4 pop group (4, 1, mode, -), the modes of Adamantium.Fonts.ColorCompositeMode
 //   5 fill      (5, 5, kind, extend), from the glyph's space to the gradient's (m11 m12 m21 m22),
 //               (m31 m32, first stop, stop count), the shape, the radii (r0 r1, -, -)
+//   6 image     (6, 4, color atlas layer, color atlas size), from the glyph's space to the color atlas
+//               (m11 m12 m21 m22), (m31 m32, deepest level, -), the image's cell (u0 v0 u1 v1)
 // Kinds: 0 solid, 1 linear (start, end), 2 radial (the two centers), 3 sweep (center, start and end angle in radians).
 // Extends: 0 pad, 1 repeat, 2 reflect.
 uint64_t PaintProgramsAddress;
@@ -472,9 +476,16 @@ float SampleGlyphCoverage(float4 samp, float2 uv)
     return lerp(msdf, samp.a, t);
 }
 
+float MaskField(float2 uv, float layer, float blend)
+{
+    float4 samp = Texture.SampleLevel(TextureSampler, float3(uv, layer), 0.0);
+    return lerp(Median(samp.r, samp.g, samp.b), samp.a, blend);
+}
+
 // A clip step's outline coverage at a point of the glyph's space, dx and dy the point's steps per pixel: the same field
 // reconstruction as a glyph's, its derivatives carried through the step's mapping, as the loop that calls it is not
-// uniform. A point outside the outline's cell is outside the outline.
+// uniform. A point outside the outline's cell is outside the outline. The field's distance becomes pixels along the
+// outline's normal, so a mapping that squeezes one axis (a bar drawn from another bar scaled 1/8 by 8) keeps its edges.
 float MaskCoverage(float4* steps, uint at, float2 p, float2 dx, float2 dy)
 {
     float4 head = steps[at];
@@ -483,15 +494,37 @@ float MaskCoverage(float4* steps, uint at, float2 p, float2 dx, float2 dy)
     float4 cell = steps[at + 4];
     float2 uv = p.x * linear.xy + p.y * linear.zw + offset;
     if (uv.x < cell.x || uv.y < cell.y || uv.x > cell.z || uv.y > cell.w) return 0.0;
+    float2 texelDx = (dx.x * linear.xy + dx.y * linear.zw) * MSDFAtlasSize;
+    float2 texelDy = (dy.x * linear.xy + dy.y * linear.zw) * MSDFAtlasSize;
+    float texelsPerPx = max(length(texelDx), length(texelDy));
+    float blend = smoothstep(SdfBlendLo, SdfBlendHi, texelsPerPx);
+    float sd = MaskField(uv, head.z, blend);
+    float2 texel = float2(1.0, 1.0) / MSDFAtlasSize;
+    float2 gradient = float2(MaskField(uv + float2(texel.x, 0.0), head.z, blend) - sd,
+                             MaskField(uv + float2(0.0, texel.y), head.z, blend) - sd);
+    float gradientLength = length(gradient);
+    float2 normal = gradientLength > 1e-6 ? gradient / gradientLength : float2(0.70710678, 0.70710678);
+    float texelsAlongNormal = length(float2(dot(texelDx, normal), dot(texelDy, normal)));
+    float range = max(PxRange / max(texelsAlongNormal, 1e-9), 1.0);
+    return saturate(range * (sd - 0.5 + FontWeight) + 0.5);
+}
+
+// An image step's color at a point of the glyph's space, premultiplied: the level the point's steps per pixel ask for,
+// trilinear, kept half a texel of that level inside the image's cell so no neighbor bleeds in.
+float4 ImageColor(float4* steps, uint at, float2 p, float2 dx, float2 dy)
+{
+    float4 head = steps[at];
+    float4 linear = steps[at + 1];
+    float4 offset = steps[at + 2];
+    float4 cell = steps[at + 3];
+    float2 uv = p.x * linear.xy + p.y * linear.zw + offset.xy;
     float2 uvDx = dx.x * linear.xy + dx.y * linear.zw;
     float2 uvDy = dy.x * linear.xy + dy.y * linear.zw;
-    float4 samp = Texture.SampleLevel(TextureSampler, float3(uv, head.z), 0.0);
-    float texelsPerPx = max(length(uvDx * MSDFAtlasSize), length(uvDy * MSDFAtlasSize));
-    float sd = lerp(Median(samp.r, samp.g, samp.b), samp.a, smoothstep(SdfBlendLo, SdfBlendHi, texelsPerPx));
-    float2 unitRange = float2(PxRange, PxRange) / MSDFAtlasSize;
-    float2 screenTexSize = float2(1.0, 1.0) / max(abs(uvDx) + abs(uvDy), float2(1e-9, 1e-9));
-    float range = max(0.5 * dot(unitRange, screenTexSize), 1.0);
-    return saturate(range * (sd - 0.5 + FontWeight) + 0.5);
+    float footprint = max(length(uvDx), length(uvDy)) * head.w;
+    float level = clamp(log2(max(footprint, 1e-6)), 0.0, offset.z);
+    float inset = 0.5 * exp2(ceil(level)) / head.w;
+    uv = clamp(uv, cell.xy + inset, cell.zw - inset);
+    return ColorTexture.SampleLevel(TextureSampler, float3(uv, head.z), level);
 }
 
 // A 'COLR' version 1 glyph's paint program run at a point of its space: a stack of groups, each composited onto the
@@ -549,6 +582,11 @@ float4 RunPaint(float paint, float2 p, float2 dx, float2 dy, float4 foreground, 
             float4 under = groups[depth];
             coverage = groupCoverage[depth];
             top = lerp(under, PaintComposite(top, under, (uint)head.z), coverage);
+        }
+        else if (code == 6)
+        {
+            float4 image = ImageColor(steps, at, p, dx, dy) * fade * coverage;
+            top = image + top * (1.0 - image.a);
         }
         else
         {

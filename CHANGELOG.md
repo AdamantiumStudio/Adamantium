@@ -99,6 +99,33 @@ All packages share one version.
   the atlas's distance field, transformed. The atlas keeps one program per glyph in font units, so one serves every size
   (`FontItem.Paint`; FontEffect's `PaintProgramsAddress` and `PaintStopsAddress`). Segoe UI Emoji's emoji come out
   with their gradients, shading and translucent groups, as Edge draws them; the 28 modes of Google's test font too.
+- Color glyphs from PNG images, 'CBDT'/'CBLC' (Noto Color Emoji) and 'sbix': `IFont.ColorBitmapSizes`,
+  `IFont.GetColorBitmap` (`ColorBitmap`: the PNG and where it lies, in pixels of its size), the size chosen as HarfBuzz
+  chooses it and checked against HarfBuzz's PNGs and extents; a font with images and no outlines loads. Such a glyph is
+  one quad of its paint program, whose one step samples a color atlas of its own: premultiplied cells sized to the
+  image by powers of two (Noto's 136×128 takes 256×128), each with its own mips, read trilinear at the level the size
+  asks for and kept inside the cell. Images are decoded on a worker and land as outline glyphs do. Vector color
+  ('COLR') wins over images where a font has both.
+- 'COLR' version 1 at a variable font's axis values: every variable paint takes its deltas (the variation store, through
+  the delta-set index map) - solid colors' alpha, gradients' points, radii and angles, color stops' offsets and alpha,
+  and every transform. The clip list is read (`IFont.TryGetColorClipBox`, its boxes varying too) and a color glyph is
+  drawn within its box. Checked against HarfBuzz on Google's variable test font, an axis of each kind set.
+- Color glyphs from SVG documents ('SVG ', plain or gzipped): a glyph's drawing becomes the steps a 'COLR' version 1
+  glyph is drawn with, so it draws in real time at any size - each shape (path with its arcs, rect, circle, ellipse,
+  polygon) an outline clipping its fill, a solid color or a linear or radial gradient (bounding-box or user units, its
+  transform, pad, reflect or repeat, stops' opacity, one gradient taking what it lacks from another), groups with their
+  transforms and their opacity fading the group as a whole, `use`, `clip-path`, `fill-rule="evenodd"`, `currentColor`
+  as the text's color and `var(--colorN)` from the text's palette. Strokes, masks, patterns, filters and style sheets
+  are not drawn. Google's samples drawn from their SVG documents match the same drawings
+  drawn from their 'COLR' version 1 graph.
+- `SvgPathData` in `Adamantium.Mathematics.Svg`: `Walk` reads SVG path data into an `ISvgPathSink` as absolute steps
+  (relative points, `H`/`V`, smooth curves' reflected controls and repeated commands worked out; arc flags written
+  without separators included), `ArcToCubics` turns an arc into cubic curves, and `ReadNumbers` reads SVG's numbers;
+  `Colors.TryGetNamed`.
+- Color palettes: `TextAttributes.ColorPalette` draws a range's color glyphs in another of its font's 'CPAL' palettes
+  (`IFont.ColorPalettes`, `ColorPalette` with the backgrounds version 1 says it suits, `ColorPaletteUsage`;
+  `IFont.GetColorPaint` and `GetColorLayers` with a palette); a palette the font lacks draws in its first. Checked
+  against HarfBuzz's paint in the second and third palettes of Google's test font.
 - Emoji sequences: a variation sequence the font maps ('cmap' format 14) shapes to its own glyph, its selector dropped,
   as HarfBuzz does (`IFont.TryGetGlyphIndex(codepoint, variationSelector, out glyph)`), and a default-ignorable
   character the font's substitutions have replaced is no longer hidden or zeroed: a keycap, a joined flag, a skin tone
@@ -117,6 +144,21 @@ All packages share one version.
 
 ### Fixed
 
+- A render device's per-frame constants are rewound when that device begins its own frame, not when the main device's
+  frame finishes. A device recording beside the window's loop - an off-screen render - had its pool rewound mid-frame,
+  and its later draws overwrote the constants of its earlier ones.
+- `TransitionImageLayout` moves every mip level, not only the first: a texture made with mip levels left the rest
+  undefined while it said they were in its layout, and the validation layer reported the first barrier that relied on
+  it.
+- `IFont.GetInstance` gave the font itself for axis values when its outlines do not vary ('glyf' without 'gvar'), so
+  what else varies - advances ('HVAR'), color glyphs ('COLR') - stayed at the defaults. Such a font now has its
+  instances, their outlines read as they are.
+- A 'COLR' version 1 outline drawn through a transform that squeezes one axis (Google's samples draw a vertical bar
+  from a horizontal one scaled by 1/8 and 8) lost its antialiasing along that axis and came out half a pixel narrow: the
+  field's distance became pixels by both axes' average. It becomes pixels along the outline's normal.
+- A palette PNG (color type 3) did not decode: the palette was read by its byte count as if by its entries and ran
+  past the chunk. It reads entry by entry, and an index past the palette is an error rather than a stray read.
+- `GrowingTextureArray` copied only level 0 when it grew; an array with mips keeps every level.
 - A glyph's distance field drew a faint line past an acute corner, along the extension of one of its edges, out to the
   edge of its cell, and dots in narrow gaps (the swirls of Segoe UI Emoji's ice cream; 37 glyphs of Segoe UI, 12 of
   Source Sans 3, 30 of Cascadia Code): neighboring texels' channels, interpolated, put the contour where it is not.

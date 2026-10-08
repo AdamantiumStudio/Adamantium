@@ -37,7 +37,7 @@ namespace Adamantium.Graphics.Fonts
             {
                 lock (_asyncGate)
                 {
-                    return _inFlight.Count > 0 || _ready.Count > 0;
+                    return _inFlight.Count > 0 || _ready.Count > 0 || _imagesInFlight.Count > 0 || _imagesDecoding > 0;
                 }
             }
         }
@@ -48,9 +48,21 @@ namespace Adamantium.Graphics.Fonts
 
         private readonly ColorPaintStore _paints;
 
+        private readonly ColorBitmapAtlas _bitmaps;
+
+        private readonly Dictionary<ulong, (ColorBitmapCell Cell, double Left, double Bottom, double Width, double Height)> _imagesInFlight = new();
+
+        private readonly HashSet<ulong> _imagesRequested = new();
+
+        private int _imagesDecoding;
+
+        private bool _imagesFailed;
+
         protected FontAtlasData AtlasData { get; }
 
         internal Texture Atlas => _layers.Texture;
+
+        internal Texture ColorAtlas => _bitmaps.Texture ?? Atlas;
 
         /// <summary>The layers of the atlas texture in use, and allocated: it starts with <see cref="InitialLayerCount"/>
         /// and doubles as glyphs fill it.</summary>
@@ -109,6 +121,7 @@ namespace Adamantium.Graphics.Fonts
 
             _layers = ToDispose(new GrowingTextureArray(GraphicsDevice, description, name: "Dynamic Font Atlas"));
             _paints = ToDispose(new ColorPaintStore());
+            _bitmaps = ToDispose(new ColorBitmapAtlas(device));
             AtlasData = new FontAtlasData(MSDFTextureSize, new Size(atlasSize, atlasSize), _layers.MaxCapacity);
             atlasGenerator = new TextureAtlasGenerator(null, null, AtlasData, parameters);
         }
@@ -199,13 +212,19 @@ namespace Adamantium.Graphics.Fonts
         /// when something landed, which is the caller's cue that text built earlier is now out of date.</summary>
         public bool PumpReady()
         {
+            var images = PumpImages();
             List<GlyphTextureData> ready;
             ulong[] generated;
             lock (_asyncGate)
             {
                 if (_generated.Count == 0)
                 {
-                    return false;
+                    if (images)
+                    {
+                        Version++;
+                    }
+
+                    return images;
                 }
 
                 ready = _ready;
@@ -361,9 +380,9 @@ namespace Adamantium.Graphics.Fonts
             return AtlasData.GetGlyphData(GlyphTextureData.KeyOf(font.Typeface, glyph.Index));
         }
 
-        internal int GetPaintProgram(IFont font, uint colorGlyph, IReadOnlyList<ColorPaintOperation> operations)
+        internal int GetPaintProgram(IFont font, uint colorGlyph, int palette, IReadOnlyList<ColorPaintOperation> operations)
         {
-            var key = GlyphTextureData.KeyOf(font.Typeface, colorGlyph);
+            var key = GlyphTextureData.KeyOf(font.Typeface, colorGlyph) | (ulong)(ushort)palette << 16;
             if (_paints.TryGetProgram(key, out var known))
             {
                 return known;
@@ -387,7 +406,106 @@ namespace Adamantium.Graphics.Fonts
                 masks[operation.GlyphIndex] = new ColorPaintMask(mask, font.GetLeftSideBearing(mask.Index), cell);
             }
 
-            return _paints.GetProgram(key, operations, masks, font.UnitsPerEm, MSDFTextureSize);
+            RectangleF? clipBox = font.TryGetColorClipBox(colorGlyph, out var box) ? box : null;
+            return _paints.GetProgram(key, operations, masks, font.UnitsPerEm, MSDFTextureSize, clipBox);
+        }
+
+        internal bool TryGetImageProgram(IFont font, uint glyph, out int program)
+        {
+            var key = GlyphTextureData.KeyOf(font.Typeface, glyph);
+            if (_paints.TryGetProgram(key, out program))
+            {
+                return program >= 0;
+            }
+
+            program = -1;
+            lock (_asyncGate)
+            {
+                if (!_imagesRequested.Add(key))
+                {
+                    return true;
+                }
+            }
+
+            var bitmap = font.GetColorBitmap(glyph, ColorBitmapAtlas.MaxCellSize);
+            if (bitmap == null || bitmap.PixelsPerEm <= 0)
+            {
+                _paints.AddNone(key);
+                return false;
+            }
+
+            lock (_asyncGate)
+            {
+                _imagesDecoding++;
+            }
+
+            if (!FontAtlasStore.SynchronousFill)
+            {
+                System.Threading.Tasks.Task.Run(() => Land(key, bitmap, font.UnitsPerEm));
+                return true;
+            }
+
+            Land(key, bitmap, font.UnitsPerEm);
+            if (PumpImages())
+            {
+                Version++;
+            }
+
+            _paints.TryGetProgram(key, out program);
+            return program >= 0;
+        }
+
+        private void Land(ulong key, ColorBitmap bitmap, double unitsPerEm)
+        {
+            var image = ColorBitmapAtlas.Prepare(bitmap.Png);
+            var unitsPerPixel = unitsPerEm / bitmap.PixelsPerEm;
+            lock (_asyncGate)
+            {
+                _imagesDecoding--;
+                var cell = image == null ? null : _bitmaps.Add(image);
+                if (cell == null)
+                {
+                    _paints.AddNone(key);
+                    _imagesFailed = true;
+                    return;
+                }
+
+                _imagesInFlight[key] = (cell, bitmap.Left * unitsPerPixel, (bitmap.Top - bitmap.Height) * unitsPerPixel,
+                    bitmap.Width * unitsPerPixel, bitmap.Height * unitsPerPixel);
+            }
+        }
+
+        private bool PumpImages()
+        {
+            bool failed;
+            lock (_asyncGate)
+            {
+                failed = _imagesFailed;
+                _imagesFailed = false;
+            }
+
+            if (!_bitmaps.HasPending)
+            {
+                return failed;
+            }
+
+            var cells = new HashSet<ColorBitmapCell>(_bitmaps.Upload());
+            lock (_asyncGate)
+            {
+                foreach (var pair in _imagesInFlight.ToArray())
+                {
+                    var image = pair.Value;
+                    if (!cells.Contains(image.Cell))
+                    {
+                        continue;
+                    }
+
+                    _paints.AddImage(pair.Key, image.Left, image.Bottom, image.Width, image.Height, image.Cell);
+                    _imagesInFlight.Remove(pair.Key);
+                }
+            }
+
+            return failed || cells.Count > 0;
         }
 
         private bool IsSettled(IFont font, Glyph glyph)

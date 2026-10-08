@@ -35,6 +35,12 @@ namespace Adamantium.Fonts.Parsers
 
         private CFFFont cffFont;
 
+        private byte[] bitmapLocations;
+
+        private byte[] bitmapImages;
+
+        private Font bitmapFont;
+
         static OpenTypeParser()
         {
             commonMandatoryTables = new ReadOnlyCollection<string>(new List<string>
@@ -149,7 +155,23 @@ namespace Adamantium.Fonts.Parsers
                     CurrentFont.ColorPaints = ColorPaintTable.Read(FontReader, entry.Offset, entry.Length);
                     break;
                 case TableNames.CPAL:
-                    CurrentFont.ColorPalettes = ColorPaletteTable.Read(FontReader, entry.Offset);
+                    CurrentFont.ColorPaletteTable = ColorPaletteTable.Read(FontReader, entry.Offset);
+                    break;
+                case TableNames.CBLC:
+                    ForgetOtherFontsBitmaps();
+                    bitmapLocations = ReadTableBytes(entry);
+                    CurrentFont.ColorBitmaps ??= EmbeddedColorBitmapTable.Create(bitmapLocations, bitmapImages);
+                    break;
+                case TableNames.CBDT:
+                    ForgetOtherFontsBitmaps();
+                    bitmapImages = ReadTableBytes(entry);
+                    CurrentFont.ColorBitmaps ??= EmbeddedColorBitmapTable.Create(bitmapLocations, bitmapImages);
+                    break;
+                case TableNames.SVG:
+                    CurrentFont.SvgDocuments = SvgDocumentTable.Create(ReadTableBytes(entry));
+                    break;
+                case TableNames.sbix:
+                    CurrentFont.ColorBitmaps ??= StandardBitmapTable.Create(ReadTableBytes(entry), (int)Typeface.GlyphCount);
                     break;
                 case TableNames.CFF:
                 case TableNames.CFF2:
@@ -157,6 +179,37 @@ namespace Adamantium.Fonts.Parsers
                     ParseCFF(entry);
                     break;
             }
+        }
+
+        private void ForgetOtherFontsBitmaps()
+        {
+            if (ReferenceEquals(bitmapFont, CurrentFont))
+            {
+                return;
+            }
+
+            bitmapFont = CurrentFont;
+            bitmapLocations = null;
+            bitmapImages = null;
+        }
+
+        private byte[] ReadTableBytes(TableEntry entry)
+        {
+            var data = new byte[entry.Length];
+            FontReader.Position = entry.Offset;
+            var read = 0;
+            while (read < data.Length)
+            {
+                var chunk = FontReader.Read(data, read, data.Length - read);
+                if (chunk == 0)
+                {
+                    return null;
+                }
+
+                read += chunk;
+            }
+
+            return data;
         }
 
         private void IsOTFCollection()
@@ -241,7 +294,7 @@ namespace Adamantium.Fonts.Parsers
 
             switch (tableDirectory.OutlineType)
             {
-                case OutlineType.TrueType:
+                case OutlineType.TrueType when !HasColorBitmaps(tableDirectory):
                     foreach (var table in trueTypeMandatoryTables)
                     {
                         if (!tableDirectory.TablesOffsets.ContainsKey(table))
@@ -261,6 +314,12 @@ namespace Adamantium.Fonts.Parsers
 
                     break;
             }
+        }
+
+        private static bool HasColorBitmaps(TableDirectory tableDirectory)
+        {
+            return tableDirectory.TablesOffsets.ContainsKey(TableNames.CBDT) ||
+                   tableDirectory.TablesOffsets.ContainsKey(TableNames.sbix);
         }
 
         private void DetermineCFFVersion(TableDirectory tableDirectory)
