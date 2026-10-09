@@ -1,0 +1,11 @@
+{
+  "name": "adamantium-hyphenation-oracle",
+  "private": true,
+  "description": "Writes Tests/Adamantium.FontTests/Hyphenation/expected.txt with the hyphen package, an independent implementation of Liang's algorithm over the hyph-utf8 patterns.",
+  "scripts": {
+    "oracle": "node oracle.js ../Adamantium.FontTests/Hyphenation/words.txt ../Adamantium.FontTests/Hyphenation/expected.txt"
+  },
+  "dependencies": {
+    "hyphen": "1.14.1"
+  }
+}

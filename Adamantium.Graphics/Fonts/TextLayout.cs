@@ -46,6 +46,18 @@ public class TextLayout : DisposableObject
     public TextDirection Direction { get; set; } = TextDirection.Auto;
 
     /// <summary>
+    /// Where words wrapped by <see cref="TextWrapping.WrapByWords"/> may break across lines:
+    /// <see cref="Fonts.Hyphens.Manual"/> (the default) at soft hyphens only.
+    /// </summary>
+    public Hyphens Hyphens { get; set; } = Hyphens.Manual;
+
+    /// <summary>
+    /// The text's language, a BCP 47 tag such as "ru" or "en-GB", for ranges whose attributes name none: picks the
+    /// hyphenation patterns, the font's localized glyph forms and the fallback fonts. Null when unknown.
+    /// </summary>
+    public string Language { get; set; }
+
+    /// <summary>
     /// Where a character the text's font lacks is drawn from: the operating system's fallback fonts unless set; null
     /// draws the font's own missing-glyph box instead.
     /// </summary>
@@ -71,9 +83,13 @@ public class TextLayout : DisposableObject
     /// (<see cref="LoadFontsInBackground"/>).</summary>
     public bool HasPendingFonts { get; private set; }
 
+    private const char SoftHyphen = '­';
+
     private TextRenderingParameters _previousRenderingParameters;
     private int _laidOutTabSize;
     private TextDirection _laidOutDirection;
+    private Hyphens _laidOutHyphens;
+    private string _laidOutLanguage;
     private List<(int Start, int End, BidiParagraph Paragraph)> _paragraphs;
     private byte[] _characterLevels;
     private FontFallback _fallback;
@@ -158,7 +174,7 @@ public class TextLayout : DisposableObject
     {
         return Text == text && MathHelper.IsZero(FontSize - fontSize) &&
                _previousRenderingParameters == renderingParameters && _laidOutTabSize == TabSize &&
-               _laidOutDirection == Direction;
+               _laidOutDirection == Direction && _laidOutHyphens == Hyphens && _laidOutLanguage == Language;
     }
 
     public Size ProcessText(string text,
@@ -278,6 +294,8 @@ public class TextLayout : DisposableObject
 
         var scale = fontSize / Font.UnitsPerEm;
         _laidOutDirection = Direction;
+        _laidOutHyphens = Hyphens;
+        _laidOutLanguage = Language;
         _paragraphs = ResolveParagraphs(text);
         _characterLevels = null;
         var items = Shape(text, fontSize);
@@ -303,12 +321,22 @@ public class TextLayout : DisposableObject
         var lineBreaks = renderingParameters.TextWrapping == TextWrapping.WrapByWords
             ? TextBoundaries.LineBreaks(text)
             : null;
+        for (var i = 1; lineBreaks != null && i < text.Length; i++)
+        {
+            // A soft hyphen keeps its word whole: the break after it is a hyphenation point, taken in HyphenateWord.
+            if (text[i - 1] == SoftHyphen && lineBreaks[i] == LineBreakKind.Allowed)
+            {
+                lineBreaks[i] = LineBreakKind.None;
+            }
+        }
+
         var wordStart = 0;
         while (wordStart <= items.Count)
         {
             var wordEnd = wordStart;
+            // A word ends where a line may or must: after a newline the next one wraps, hyphenates and trims alone.
             while (wordEnd < items.Count && !IsBlank(items[wordEnd].Symbol)
-                   && (wordEnd == wordStart || lineBreaks?[items[wordEnd].Cluster] != LineBreakKind.Allowed))
+                   && (wordEnd == wordStart || lineBreaks == null || lineBreaks[items[wordEnd].Cluster] == LineBreakKind.None))
             {
                 wordEnd++;
             }
@@ -410,19 +438,21 @@ public class TextLayout : DisposableObject
 
         bool ProcessWord(int start, int end)
         {
-            double wordWidth = 0;
-            for (var k = start; k < end; k++)
+            var wrapsByWords = renderingParameters.TextWrapping == TextWrapping.WrapByWords;
+            var wordWidth = wrapsByWords ? WordWidth(start, end) : 0;
+            if (wrapsByWords && Hyphens != Hyphens.None && cursorPosition + wordWidth > textArea.Width)
             {
-                if (items[k].Symbol != '\n')
+                var rest = HyphenateWord(start, end);
+                if (rest != start)
                 {
-                    wordWidth += items[k].Glyph.BoundingRectangle.Width
-                                 * (items[k].FontSize / items[k].Font.UnitsPerEm);
+                    start = rest;
+                    wordWidth = WordWidth(start, end);
                 }
             }
 
             // Wrapped at the word boundary, before any glyph is laid: a word that does not fit starts a new line, and
             // a word wider than the line only overflows as the first on its line.
-            if (renderingParameters.TextWrapping == TextWrapping.WrapByWords
+            if (wrapsByWords
                 && wordIndex > 0
                 && cursorPosition > 0
                 && cursorPosition + wordWidth > textArea.Width
@@ -434,12 +464,252 @@ public class TextLayout : DisposableObject
             }
 
             wordStartPosition = cursorPosition;
+            if (wrapsByWords
+                && renderingParameters.TextTrimming != TextTrimming.None
+                && cursorPosition + wordWidth > textArea.Width)
+            {
+                // Too wide for its line, which it starts or which is the last one: its overflow becomes an ellipsis.
+                // A word alone on its line is cut by characters, and the text goes on below it.
+                var newline = end > start && items[end - 1].Symbol == '\n' ? end - 1 : end;
+                var lastLine = height + lineHeight >= textArea.Height;
+                var floor = LineFirstGlyph();
+                var trimming = cursorPosition > 0 ? renderingParameters.TextTrimming : TextTrimming.CharEllipses;
+                if (trimming == TextTrimming.WordEllipses && !HasBlank(floor))
+                {
+                    trimming = TextTrimming.CharEllipses;
+                }
+
+                LayItems(start, newline);
+                PrepareDataAndTrim(glyphsData.Count, floor, newline - 1, height + baseLine, trimming);
+                return !lastLine && LayItems(newline, end);
+            }
+
+            return LayItems(start, end);
+        }
+
+        // The index of the first glyph of the line being laid, under which trimming never reaches.
+        int LineFirstGlyph()
+        {
+            var first = glyphsData.Count;
+            while (first > 0 && glyphsData[first - 1].LineIndex == lineIndex)
+            {
+                first--;
+            }
+
+            return first;
+        }
+
+        bool HasBlank(int from)
+        {
+            for (var k = from; k < glyphsData.Count; k++)
+            {
+                if (IsBlank(glyphsData[k].Symbol))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // From the pen where the word starts to the right edge of its ink.
+        double WordWidth(int start, int end)
+        {
+            double pen = 0;
+            double right = 0;
+            for (var k = start; k < end; k++)
+            {
+                var item = items[k];
+                if (item.Symbol == '\n')
+                {
+                    continue;
+                }
+
+                if (item.Glyph.BoundingRectangle.Width > 0)
+                {
+                    var inkRight = (item.Font.GetLeftSideBearing(item.Glyph.Index) + item.Glyph.BoundingRectangle.Width)
+                                   * (item.FontSize / item.Font.UnitsPerEm);
+                    right = Math.Max(right, pen + item.OffsetX + inkRight);
+                }
+
+                pen += item.Advance;
+            }
+
+            return right;
+        }
+
+        // Lays the lines a word too wide for the room left breaks into, each up to its last hyphenation point that
+        // fits with the hyphen; returns where the rest of the word starts.
+        int HyphenateWord(int start, int end)
+        {
+            var newline = start;
+            while (newline < end && items[newline].Symbol != '\n')
+            {
+                newline++;
+            }
+
+            List<int> points = null;
+            while (cursorPosition + WordWidth(start, newline) > textArea.Width && height + lineHeight < textArea.Height)
+            {
+                points ??= HyphenationPoints(start, newline);
+                var cut = -1;
+                var pen = cursorPosition;
+                var k = start;
+                foreach (var point in points)
+                {
+                    for (; k < point; k++)
+                    {
+                        pen += items[k].Advance;
+                    }
+
+                    if (point > start && pen + HyphenInk(items[point - 1]) <= textArea.Width)
+                    {
+                        cut = point;
+                    }
+                }
+
+                if (cut < 0)
+                {
+                    if (cursorPosition > 0 && wordIndex > 0)
+                    {
+                        // On a line of its own the word may fit whole, or break where nothing fitted after the others.
+                        lineIndex++;
+                        height += lineHeight;
+                        cursorPosition = 0;
+                        continue;
+                    }
+
+                    break;
+                }
+
+                LayItems(start, cut);
+                AddHyphen(items[cut - 1]);
+                lineIndex++;
+                height += lineHeight;
+                cursorPosition = 0;
+                start = cut;
+            }
+
+            return start;
+        }
+
+        // The items a word may break before, a hyphen ending the line: after its soft hyphens, or where the patterns
+        // of its language allow when it has none and hyphenation is automatic. Only where a cluster starts.
+        List<int> HyphenationPoints(int start, int end)
+        {
+            var points = new List<int>();
+            if (start >= end)
+            {
+                return points;
+            }
+
+            var first = items[start].Cluster;
+            var last = end < items.Count ? items[end].Cluster : text.Length;
+            var breaks = new HashSet<int>();
+            for (var c = first; c < last - 1; c++)
+            {
+                if (text[c] == SoftHyphen)
+                {
+                    breaks.Add(c + 1);
+                }
+            }
+
+            if (breaks.Count == 0 && Hyphens == Hyphens.Auto)
+            {
+                var c = first;
+                var languageItem = start;
+                while (c < last)
+                {
+                    if (!IsWordLetter(text, c, first, last))
+                    {
+                        c++;
+                        continue;
+                    }
+
+                    var runStart = c;
+                    while (c < last && IsWordLetter(text, c, first, last))
+                    {
+                        c++;
+                    }
+
+                    while (languageItem < end - 1 && items[languageItem].Cluster < runStart)
+                    {
+                        languageItem++;
+                    }
+
+                    var hyphenator = Hyphenator.ForLanguage(items[languageItem].Attributes?.Language ?? Language);
+                    foreach (var offset in hyphenator?.Hyphenate(text.Substring(runStart, c - runStart)) ?? [])
+                    {
+                        breaks.Add(runStart + offset);
+                    }
+                }
+            }
+
+            for (var k = start + 1; k < end; k++)
+            {
+                if (items[k].Cluster != items[k - 1].Cluster && breaks.Contains(items[k].Cluster))
+                {
+                    points.Add(k);
+                }
+            }
+
+            return points;
+        }
+
+        double HyphenInk(ShapedItem last)
+        {
+            var hyphen = HyphenGlyph(last.Font);
+            return (last.Font.GetLeftSideBearing(hyphen.Index) + hyphen.BoundingRectangle.Width)
+                   * (last.FontSize / last.Font.UnitsPerEm);
+        }
+
+        void AddHyphen(ShapedItem last)
+        {
+            var hyphen = HyphenGlyph(last.Font);
+            var hyphenScale = last.FontSize / last.Font.UnitsPerEm;
+            var advance = last.Font.GetAdvanceWidth(hyphen.Index) * hyphenScale;
+            var rect = CalculateGlyphPosition(last.Font, hyphen, cursorPosition, height + baseLine, hyphenScale);
+            glyphsData.Add(new GlyphWordData(hyphen, '-', rect, -1, lineIndex)
+            {
+                PenX = cursorPosition,
+                Advance = advance,
+                Attributes = last.Attributes,
+                Font = last.Font,
+                FontSize = last.FontSize,
+            });
+            cursorPosition += advance;
+        }
+
+        bool LayItems(int start, int end)
+        {
             for (var i = start; i < end; i++)
             {
                 var item = items[i];
                 switch (item.Symbol)
                 {
                     case '\n':
+                        if (renderingParameters.TextWrapping == TextWrapping.WrapByWords
+                            && renderingParameters.TextTrimming != TextTrimming.None
+                            && height + lineHeight >= textArea.Height
+                            && i < items.Count - 1)
+                        {
+                            // Text left past the last line the height allows: the line ends in an ellipsis.
+                            var floor = LineFirstGlyph();
+                            if (cursorPosition + dotGlyphsWidth <= textArea.Width)
+                            {
+                                TrimText(i, height + baseLine);
+                            }
+                            else
+                            {
+                                var trimming = renderingParameters.TextTrimming == TextTrimming.WordEllipses && HasBlank(floor)
+                                    ? TextTrimming.WordEllipses
+                                    : TextTrimming.CharEllipses;
+                                PrepareDataAndTrim(glyphsData.Count, floor, i, height + baseLine, trimming);
+                            }
+
+                            return false;
+                        }
+
                         if (EmitNewlineCarets)
                         {
                             var caretRect = new RectangleF((float)cursorPosition, (float)(height + baseLine), 0f, 0f);
@@ -483,7 +753,7 @@ public class TextLayout : DisposableObject
                                     if (i < items.Count - 1)
                                     {
                                         var glyphsDataCopy = glyphsData.ToArray();
-                                        PrepareDataAndTrim(glyphsDataCopy, i, glyphBase);
+                                        PrepareDataAndTrim(glyphsDataCopy.Length, 0, i, glyphBase, renderingParameters.TextTrimming);
                                         return false;
                                     }
                                 }
@@ -502,7 +772,7 @@ public class TextLayout : DisposableObject
                                         }
                                         else if (i < items.Count - 1)
                                         {
-                                            PrepareDataAndTrim(glyphsDataCopy, i, glyphBase);
+                                            PrepareDataAndTrim(glyphsDataCopy.Length, 0, i, glyphBase, renderingParameters.TextTrimming);
                                             return false;
                                         }
                                     }
@@ -800,24 +1070,24 @@ public class TextLayout : DisposableObject
             }
         }
 
-        void PrepareDataAndTrim(GlyphWordData[] glyphsDataCopy, int position, double glyphBase)
+        void PrepareDataAndTrim(int count, int floor, int position, double glyphBase, TextTrimming trimming)
         {
-            for (int k = glyphsDataCopy.Length - 1; k >= 0; k--)
+            for (int k = count - 1; k >= floor; k--)
             {
                 var data = glyphsData[k];
                 cursorPosition -= data.Advance;
                 glyphsData.RemoveAt(k);
-                if (renderingParameters.TextTrimming == TextTrimming.None &&
+                if (trimming == TextTrimming.None &&
                     cursorPosition <= textArea.Width)
                 {
                     break;
                 }
-                else if (renderingParameters.TextTrimming == TextTrimming.CharEllipses &&
+                else if (trimming == TextTrimming.CharEllipses &&
                     cursorPosition + dotGlyphsWidth <= textArea.Width)
                 {
                     break;
                 }
-                else if (renderingParameters.TextTrimming ==
+                else if (trimming ==
                          TextTrimming.WordEllipses &&
                          cursorPosition + dotGlyphsWidth <= textArea.Width)
                 {
@@ -832,7 +1102,7 @@ public class TextLayout : DisposableObject
                 }
             }
 
-            if (renderingParameters.TextTrimming != TextTrimming.None)
+            if (trimming != TextTrimming.None)
             {
                 TrimText(position, glyphBase);
             }
@@ -1279,7 +1549,14 @@ public class TextLayout : DisposableObject
                 j++;
             }
 
-            var next = j < data.Count && data[j].PositionInString > cluster ? data[j].PositionInString : text.Length;
+            // Past the hyphen a line broken inside a word ends with, which stands for no character.
+            var after = j;
+            while (after < data.Count && data[after].PositionInString < 0)
+            {
+                after++;
+            }
+
+            var next = after < data.Count && data[after].PositionInString > cluster ? data[after].PositionInString : text.Length;
             var rightToLeft = IsRightToLeftAt(cluster);
             DistributeCluster(text, cluster, next, x, width, line, rightToLeft, stops, filled);
             endX = rightToLeft ? x : x + width;
@@ -2025,6 +2302,27 @@ public class TextLayout : DisposableObject
         return symbol == ' ' || symbol == '\t';
     }
 
+    // A letter of a word to hyphenate, its marks, or an apostrophe between two of its letters, as in "aujourd'hui".
+    private static bool IsWordLetter(string text, int index, int start, int end)
+    {
+        var symbol = text[index];
+        if (symbol is '\'' or '’')
+        {
+            return index > start && index + 1 < end && char.IsLetter(text[index - 1]) && char.IsLetter(text[index + 1]);
+        }
+
+        return char.IsLetter(symbol) || CharUnicodeInfo.GetUnicodeCategory(symbol) is UnicodeCategory.NonSpacingMark
+            or UnicodeCategory.SpacingCombiningMark;
+    }
+
+    // The hyphen a line broken inside a word ends with: U+2010 HYPHEN, or the hyphen-minus when the font lacks it.
+    private static Glyph HyphenGlyph(IFont font)
+    {
+        return font.TryGetGlyphIndex(0x2010, out var hyphen)
+            ? font.GetGlyphByIndex(hyphen)
+            : font.GetGlyphByCharacter('-');
+    }
+
     private static bool IsTrailingSurrogate(string text, int index)
     {
         return index > 0 && char.IsLowSurrogate(text[index]) && char.IsHighSurrogate(text[index - 1]);
@@ -2251,16 +2549,17 @@ public class TextLayout : DisposableObject
             : TextBoundaries.Graphemes(text);
         foreach (var (start, end, attributes) in ShapingSegments(text, fontSize))
         {
-            var options = attributes == null
+            var language = attributes?.Language ?? Language;
+            var options = attributes == null && language == null
                 ? ShapingOptions.Default
-                : new ShapingOptions(null, attributes.Language, attributes.Features);
+                : new ShapingOptions(null, language, attributes?.Features);
             var font = RunFont(attributes, fontSize);
             var position = start;
             while (position < end)
             {
                 var newline = text.IndexOf('\n', position, end - position);
                 var stop = newline < 0 ? end : newline;
-                foreach (var (runStart, runEnd, runFont, pending) in FontRuns(text, graphemes, position, stop, font, attributes?.Language))
+                foreach (var (runStart, runEnd, runFont, pending) in FontRuns(text, graphemes, position, stop, font, language))
                 {
                     var blank = pending ? runFont.GetGlyphByCharacter(' ') : null;
                     foreach (var (levelStart, levelEnd, direction) in LevelRuns(runStart, runEnd))
