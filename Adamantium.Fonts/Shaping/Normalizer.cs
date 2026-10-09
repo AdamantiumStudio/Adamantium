@@ -11,16 +11,18 @@ internal sealed class Normalizer
     private readonly IFont _font;
     private readonly GlyphBuffer _buffer;
     private readonly List<GlyphInfo> _output = [];
+    private readonly bool _arabicMarks;
 
-    private Normalizer(IFont font, GlyphBuffer buffer)
+    private Normalizer(IFont font, GlyphBuffer buffer, bool arabicMarks)
     {
         _font = font;
         _buffer = buffer;
+        _arabicMarks = arabicMarks;
     }
 
-    public static void Normalize(IFont font, GlyphBuffer buffer)
+    public static void Normalize(IFont font, GlyphBuffer buffer, bool arabicMarks = false)
     {
-        new Normalizer(font, buffer).Run();
+        new Normalizer(font, buffer, arabicMarks).Run();
     }
 
     private void Run()
@@ -265,6 +267,10 @@ internal sealed class Normalizer
             if (end - i <= MaxCombiningMarks)
             {
                 SortByCombiningClass(i, end);
+                if (_arabicMarks)
+                {
+                    ArabicShaper.ReorderMarks(_output, i, end);
+                }
             }
 
             i = end;

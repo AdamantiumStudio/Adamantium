@@ -17,29 +17,49 @@ public static class TextShaper
     /// <summary>Shapes <paramref name="text"/>; the result is in font design units, each run's glyphs in visual order,
     /// a right-to-left run's first character last. Without a script in <paramref name="options"/> the text is split
     /// where its script changes and each part is shaped with its own.</summary>
-    public static ShapedGlyph[] Shape(IFont font, string text, ShapingOptions options = null)
+    public static ShapedGlyph[] Shape(IFont font, string text, ShapingOptions options = null) =>
+        Shape(font, text, 0, text?.Length ?? 0, options);
+
+    /// <summary>Shapes the UTF-16 range from <paramref name="start"/> to <paramref name="end"/> of
+    /// <paramref name="text"/> as <see cref="Shape(IFont, string, ShapingOptions)"/> shapes the range alone: its
+    /// clusters and the ranges of its features count from <paramref name="start"/>. The text around the range is the
+    /// context letters join across, as an Arabic word split between two runs.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The range is not inside the text.</exception>
+    public static ShapedGlyph[] Shape(IFont font, string text, int start, int end, ShapingOptions options = null)
     {
         options ??= ShapingOptions.Default;
-        if (string.IsNullOrEmpty(text))
+        var length = text?.Length ?? 0;
+        if (start < 0 || start > length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(start));
+        }
+
+        if (end < start || end > length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(end));
+        }
+
+        if (start == end)
         {
             return [];
         }
 
         if (options.Script != null)
         {
-            return ShapeRun(font, text, 0, text.Length, options.Script, options);
+            return ShapeRun(font, text, start, end, start, options.Script, options);
         }
 
-        var runs = ScriptItemizer.Itemize(text);
+        var runs = ScriptItemizer.Itemize(start == 0 && end == text.Length ? text : text.Substring(start, end - start));
         if (runs.Count == 1)
         {
-            return ShapeRun(font, text, 0, text.Length, runs[0].Script, options);
+            return ShapeRun(font, text, start, end, start, runs[0].Script, options);
         }
 
-        return runs.SelectMany(run => ShapeRun(font, text, run.Start, run.End, run.Script, options)).ToArray();
+        return runs.SelectMany(run =>
+            ShapeRun(font, text, start + run.Start, start + run.End, start, run.Script, options)).ToArray();
     }
 
-    private static ShapedGlyph[] ShapeRun(IFont font, string text, int start, int end, string script,
+    private static ShapedGlyph[] ShapeRun(IFont font, string text, int start, int end, int origin, string script,
         ShapingOptions options)
     {
         var buffer = new GlyphBuffer(end - start);
@@ -57,8 +77,8 @@ public static class TextShaper
             Mirror(font, buffer, plan);
         }
 
-        Normalizer.Normalize(font, buffer);
-        SetupMasks(buffer, plan, options);
+        Normalizer.Normalize(font, buffer, plan.JoinsLetters);
+        SetupMasks(buffer, plan, options, text, start, end, origin);
         SetGlyphProps(buffer, layout);
 
         var applier = new LookupApplier(layout, buffer, font.NormalizedCoordinates) { RightToLeft = rightToLeft };
@@ -71,8 +91,8 @@ public static class TextShaper
         {
             var info = buffer.Info[i];
             var placement = buffer.Placements[i];
-            result[rightToLeft ? buffer.Length - 1 - i : i] = new ShapedGlyph(info.Glyph, info.Cluster, placement.XAdvance,
-                placement.YAdvance, placement.XOffset, placement.YOffset);
+            result[rightToLeft ? buffer.Length - 1 - i : i] = new ShapedGlyph(info.Glyph, info.Cluster - origin,
+                placement.XAdvance, placement.YAdvance, placement.XOffset, placement.YOffset);
         }
 
         return result;
@@ -149,18 +169,25 @@ public static class TextShaper
         var features = string.Join(",", options.Features.Select(f => $"{f.Tag}={f.Value}{(f.IsGlobal ? "g" : "r")}"));
         var gsubVariation = layout.Gsub?.FeatureVariations?.Find(coordinates) ?? -1;
         var gposVariation = layout.Gpos?.FeatureVariations?.Find(coordinates) ?? -1;
-        var key = $"{scriptTag}|{languageTag}|{features}|{gsubVariation}|{gposVariation}|{(rightToLeft ? "rtl" : "ltr")}";
+        var key = $"{script}|{scriptTag}|{languageTag}|{features}|{gsubVariation}|{gposVariation}|" +
+                  (rightToLeft ? "rtl" : "ltr");
         return layout.Plans.GetOrAdd(key,
             _ => ShapePlan.Create(layout, scriptTag, languageTag, options.Features, gsubVariation, gposVariation,
-                rightToLeft));
+                rightToLeft, script));
     }
 
-    private static void SetupMasks(GlyphBuffer buffer, ShapePlan plan, ShapingOptions options)
+    private static void SetupMasks(GlyphBuffer buffer, ShapePlan plan, ShapingOptions options, string text, int start,
+        int end, int origin)
     {
         var info = buffer.Info;
         for (var i = 0; i < buffer.Length; i++)
         {
             info[i].Mask = plan.GlobalMask | (info[i].Mask & plan.RtlmMask);
+        }
+
+        if (plan.JoinsLetters)
+        {
+            ArabicShaper.SetupMasks(buffer, plan, text, start, end);
         }
 
         foreach (var feature in options.Features)
@@ -179,7 +206,8 @@ public static class TextShaper
             var value = (feature.Value << map.Shift) & map.Mask;
             for (var i = 0; i < buffer.Length; i++)
             {
-                if (info[i].Cluster >= feature.Start && info[i].Cluster < feature.End)
+                var cluster = info[i].Cluster - origin;
+                if (cluster >= feature.Start && cluster < feature.End)
                 {
                     info[i].Mask = (info[i].Mask & ~map.Mask) | value;
                 }

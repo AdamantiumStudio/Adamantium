@@ -16,6 +16,7 @@ namespace Adamantium.Fonts
     public class Glyph
     {
         private const double SideProbe = 1e-3;
+        private const double VertexTolerance = 1e-3;
 
         private readonly object lockObject = new object();
 
@@ -623,7 +624,7 @@ namespace Adamantium.Fonts
             Vector2 point)
         {
             var at = At(segments[index], point);
-            if (at <= 0 || at >= 1)
+            if (at <= 0 || at >= 1 || IsNear(point, segments[index].Start) || IsNear(point, segments[index].End))
             {
                 return false;
             }
@@ -631,6 +632,9 @@ namespace Adamantium.Fonts
             (cuts[index] ??= []).Add((at, point));
             return true;
         }
+
+        private static bool IsNear(Vector2 point, Vector2 vertex) =>
+            Math.Abs(point.X - vertex.X) < VertexTolerance && Math.Abs(point.Y - vertex.Y) < VertexTolerance;
 
         private static double At(LineSegment2D segment, Vector2 point)
         {

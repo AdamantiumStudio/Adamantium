@@ -14,6 +14,7 @@ namespace Adamantium.Fonts.TextureGeneration
         private const double MisleadingTexels = 0.75;
         private const double ColorsUnusedBeyondTexels = FarBandTexels + 1.5;
         private const int MinBandRows = 8;
+        private const double VertexTolerance = 1e-3;
 
         public static void GenerateGlyphData(this Glyph glyph, GlyphTextureData textureData, double pxRange, ushort unitsPerEm)
         {
@@ -258,6 +259,40 @@ namespace Adamantium.Fonts.TextureGeneration
         /// <param name="unitsPerEm">Size of glyph width and height in em</param>
         /// <param name="margin"></param>
         /// <returns>MSDF color data in for of single-dimension array</returns>
+        internal static List<MsdfGlyphSegment> MsdfSegments(List<LineSegment2D> glyphSegments)
+        {
+            var segments = new List<MsdfGlyphSegment>(glyphSegments.Count);
+            var contourStart = 0;
+            foreach (var segment in glyphSegments)
+            {
+                var start = segment.Start;
+                if (segments.Count > contourStart && IsNear(start, segments[segments.Count - 1].Segment.End))
+                {
+                    start = segments[segments.Count - 1].Segment.End;
+                }
+                else if (segments.Count > contourStart)
+                {
+                    contourStart = segments.Count;
+                }
+
+                var end = segment.End;
+                if (segments.Count > contourStart && IsNear(end, segments[contourStart].Segment.Start))
+                {
+                    end = segments[contourStart].Segment.Start;
+                }
+
+                if (!IsNear(start, end))
+                {
+                    segments.Add(new MsdfGlyphSegment(start, end));
+                }
+            }
+
+            return segments;
+        }
+
+        private static bool IsNear(Vector2 point, Vector2 other) =>
+            Math.Abs(point.X - other.X) < VertexTolerance && Math.Abs(point.Y - other.Y) < VertexTolerance;
+
         public static GlyphTextureData GenerateDirectMSDF(
             this Glyph glyph,
             uint originalSize,
@@ -271,11 +306,10 @@ namespace Adamantium.Fonts.TextureGeneration
                 return null;
             }
 
-            var segments = new List<MsdfGlyphSegment>();
-
-            foreach (var segment in glyphSegments)
+            var segments = MsdfSegments(glyphSegments);
+            if (segments.Count == 0)
             {
-                segments.Add(new MsdfGlyphSegment(segment.Start, segment.End));
+                return null;
             }
 
             var glyphBoundingRectangle = glyph.BoundingRectangle;
@@ -382,11 +416,10 @@ namespace Adamantium.Fonts.TextureGeneration
                 return;
             }
 
-            var segments = new List<MsdfGlyphSegment>();
-
-            foreach (var segment in glyphSegments)
+            var segments = MsdfSegments(glyphSegments);
+            if (segments.Count == 0)
             {
-                segments.Add(new MsdfGlyphSegment(segment.Start, segment.End));
+                return;
             }
 
             // 1. Color all segments

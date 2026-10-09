@@ -33,6 +33,8 @@ internal static class UnicodeData
 
     public static byte GetCombiningClass(int codepoint) => CombiningClasses.Value[codepoint];
 
+    // Ported from HarfBuzz (src/hb-unicode.hh), Copyright © 2010-2022 Google, Inc. and the HarfBuzz authors. Under the
+    // "Old MIT" licence, details: THIRD-PARTY-NOTICES.md.
     public static byte GetModifiedCombiningClass(int codepoint) => codepoint switch
     {
         0x1A60 or 0x0FC6 => 254,
