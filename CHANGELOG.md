@@ -17,6 +17,9 @@ All packages share one version.
   without Arabic GSUB. `TextShaper.Shape(font, text, start, end, options)` shapes a range of a string as if alone (its
   clusters and feature ranges count from `start`) with the text around it as context, so letters join across the runs
   `TextLayout` cuts a word into.
+- Church Slavonic and Old Cyrillic checked against HarfBuzz on Ponomar Unicode and Monomakh Unicode: breathings,
+  accents and titla stacked over letters, letter-titla, numbers under the titlo, the old letters (yuses, yat, fita,
+  izhitsa, ksi, psi, koppa). They shape as HarfBuzz does with no change to the shaper.
 
 - Text in both directions, by the Unicode Bidirectional Algorithm (UAX #9, Unicode 16.0; every case of `BidiTest.txt`
   and `BidiCharacterTest.txt` passes). `TextLayout.Direction` (`TextDirection`: `Auto` takes each paragraph's

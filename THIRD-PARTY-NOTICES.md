@@ -237,6 +237,15 @@ Open Font License 1.1, whose text is `LICENSE-NotoNastaliqUrdu.txt` beside it.
 
 ---
 
+## Ponomar Unicode, Monomakh Unicode
+
+**Where:** `Tests/Adamantium.FontTests/ScriptFonts/PonomarUnicode.otf` and `MonomakhUnicode.otf`, unchanged, from the
+fonts-churchslavonic release 2.2.1 of the Slavonic Computing Initiative (https://github.com/typiconman/fonts-cu), used
+only by the tests. Copyright 2013-2020 (Ponomar) and 2006-2020 (Monomakh) Aleksandr Andreev and Nikita Simmons, under
+the SIL Open Font License 1.1, whose text is `LICENSE-ChurchSlavonic.txt` beside them.
+
+---
+
 ## SharpDX
 
 **Where:** ten files still carry its notice, and only those ten are derived from it —

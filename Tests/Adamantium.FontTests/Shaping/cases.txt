@@ -78,3 +78,7 @@ ScriptFonts/NotoNastaliqUrdu-Regular.ttf	Arab	ur		اردو زبان ٹھیک ہ�
 ScriptFonts/NotoNastaliqUrdu-Regular.ttf	Arab	ur		پاکستان نستعلیق خوش آمدید
 ScriptFonts/NotoNastaliqUrdu-Regular.ttf	Arab	ur		بچپن سے ہی مجھے کتابیں پڑھنے کا شوق تھا۔
 ScriptFonts/NotoNastaliqUrdu-Regular.ttf	Arab	ur		ٹیلیفون ۱۲۳ (لاہور)
+ScriptFonts/PonomarUnicode.otf	Cyrl	cu		Ѿ{U+0447}е на{U+0301}шъ, и{U+0486}{U+0301}же є{U+0486}сѝ на нб{U+0483}сѣ{U+0301}хъ, да ст{U+0483}и{U+0301}тсѧ и{U+0486}{U+0301}мѧ твоѐ
+ScriptFonts/PonomarUnicode.otf	Cyrl	cu		гд{U+2DED}{U+0487}ь бг{U+0483}ъ хр{U+2DED}{U+0487}то{U+0301}съ і{U+0486}и{U+0483}съ ѻ{U+0486}{U+0301}ч{U+0483}е ст{U+0483}ꙋ{U+0301}ю
+ScriptFonts/PonomarUnicode.otf	Cyrl	cu		ѻ ѿ ѽ ѧ ꙋ ѣ ѳ ѵ ѯ ѱ ҂а{U+0483} ҂вк{U+0483}і і{U+0308} ѷ
+ScriptFonts/MonomakhUnicode.otf	Cyrl	cu		Аꙁъ ѥсмь ꙗко ꙑ ѫ ѭ ꙙ ꙃ ꙉ ѣ ѳ ѵ ѯ ѱ ҁ ꙇ
