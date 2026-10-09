@@ -39,6 +39,13 @@ public class TextLayout : DisposableObject
     public int TabSize { get; set; } = 4;
 
     /// <summary>
+    /// Where tabs stop, in the layout's units from the start of the line, each with how the text after it lines up
+    /// and what fills the gap; past the last of them, and when there are none, a tab stops every
+    /// <see cref="TabSize"/> spaces.
+    /// </summary>
+    public IReadOnlyList<TabStop> TabStops { get; set; }
+
+    /// <summary>
     /// Which way the text's paragraphs run: left to right, right to left, or <see cref="TextDirection.Auto"/> (the
     /// default), each paragraph by its first strong character. Right-to-left text inside runs right to left either way,
     /// by the Unicode Bidirectional Algorithm.
@@ -56,6 +63,14 @@ public class TextLayout : DisposableObject
     /// (<see cref="Fonts.LineBreaking.Greedy"/>, the default) or a paragraph at a time.
     /// </summary>
     public LineBreaking LineBreaking { get; set; } = LineBreaking.Greedy;
+
+    /// <summary>
+    /// Hangs punctuation and hyphens at the edges of lines partly past the margin, as InDesign's Optical Margin
+    /// Alignment does, so the text's edge looks straight: the start of lines aligned left or justified, the end of
+    /// lines aligned right or justified. Lines of right-to-left paragraphs and centered lines are left as they are.
+    /// False by default.
+    /// </summary>
+    public bool OpticalMarginAlignment { get; set; }
 
     /// <summary>
     /// The text's language, a BCP 47 tag such as "ru" or "en-GB", for ranges whose attributes name none: picks the
@@ -91,11 +106,24 @@ public class TextLayout : DisposableObject
 
     private const char SoftHyphen = '­';
 
+    private static readonly Dictionary<char, (double Left, double Right)> MarginHangs = new()
+    {
+        ['.'] = (0, 0.7), [','] = (0, 0.7), [':'] = (0, 0.5), [';'] = (0, 0.5), ['!'] = (0, 0.2), ['?'] = (0, 0.2),
+        ['…'] = (0, 0.3), ['-'] = (0.7, 0.7), ['‐'] = (0.7, 0.7), ['‑'] = (0.7, 0.7),
+        ['–'] = (0.5, 0.5), ['—'] = (0.3, 0.3), ['"'] = (0.5, 0.5), ['\''] = (0.5, 0.5),
+        ['“'] = (0.7, 0.3), ['”'] = (0.3, 0.7), ['‘'] = (0.7, 0.3), ['’'] = (0.3, 0.7),
+        ['„'] = (0.5, 0.5), ['‚'] = (0.5, 0.5), ['«'] = (0.5, 0.5), ['»'] = (0.5, 0.5),
+        ['‹'] = (0.5, 0.5), ['›'] = (0.5, 0.5), ['('] = (0.1, 0), [')'] = (0, 0.1), ['['] = (0.1, 0),
+        [']'] = (0, 0.1),
+    };
+
     private TextRenderingParameters _previousRenderingParameters;
     private int _laidOutTabSize;
     private TextDirection _laidOutDirection;
     private Hyphens _laidOutHyphens;
     private LineBreaking _laidOutLineBreaking;
+    private bool _laidOutOpticalMargins;
+    private TabStop[] _laidOutTabStops = [];
     private string _laidOutLanguage;
     private List<(int Start, int End, BidiParagraph Paragraph)> _paragraphs;
     private byte[] _characterLevels;
@@ -182,7 +210,8 @@ public class TextLayout : DisposableObject
         return Text == text && MathHelper.IsZero(FontSize - fontSize) &&
                _previousRenderingParameters == renderingParameters && _laidOutTabSize == TabSize &&
                _laidOutDirection == Direction && _laidOutHyphens == Hyphens && _laidOutLanguage == Language &&
-               _laidOutLineBreaking == LineBreaking;
+               _laidOutLineBreaking == LineBreaking && _laidOutTabStops.SequenceEqual(TabStops ?? []) &&
+               _laidOutOpticalMargins == OpticalMarginAlignment;
     }
 
     public Size ProcessText(string text,
@@ -305,6 +334,9 @@ public class TextLayout : DisposableObject
         _laidOutHyphens = Hyphens;
         _laidOutLanguage = Language;
         _laidOutLineBreaking = LineBreaking;
+        _laidOutOpticalMargins = OpticalMarginAlignment;
+        _laidOutTabStops = TabStops?.ToArray() ?? [];
+        var tabStops = _laidOutTabStops.OrderBy(stop => stop.Position).ToArray();
         _paragraphs = ResolveParagraphs(text);
         _characterLevels = null;
         var items = Shape(text, fontSize);
@@ -324,6 +356,7 @@ public class TextLayout : DisposableObject
         double cursorPosition = 0;
         double wordStartPosition = 0;
         var glyphsData = new List<GlyphWordData>();
+        var leaders = new Dictionary<GlyphWordData, string>();
         int wordIndex = 0;
         int lineIndex = 0;
         double verticalShift = 0;
@@ -367,20 +400,26 @@ public class TextLayout : DisposableObject
                 // reaches the next tab stop.
                 var space = items[wordEnd];
                 var isTab = space.Symbol == '\t';
-                var advance = isTab ? (Math.Floor(cursorPosition / tabStop) + 1) * tabStop - cursorPosition : space.Advance;
+                var stop = isTab ? NextTabStop(cursorPosition) : default;
+                var advance = isTab ? TabAdvance(stop, wordEnd) : space.Advance;
                 var rect = new RectangleF((float)cursorPosition,
                     (float)(height + baseLine),
                     (float)advance,
                     0f);
-                glyphsData.Add(new GlyphWordData(isTab ? spaceGlyph : space.Glyph, space.Symbol, rect, space.Cluster,
-                    lineIndex)
+                var blank = new GlyphWordData(isTab ? spaceGlyph : space.Glyph, space.Symbol, rect, space.Cluster, lineIndex)
                 {
                     PenX = cursorPosition,
                     Advance = advance,
                     Attributes = space.Attributes,
                     Font = space.Font,
                     FontSize = space.FontSize,
-                });
+                };
+                glyphsData.Add(blank);
+                if (isTab && stop.Leader != null)
+                {
+                    leaders[blank] = stop.Leader;
+                }
+
                 cursorPosition += advance;
             }
 
@@ -425,6 +464,11 @@ public class TextLayout : DisposableObject
             lineTops[i] += verticalShift;
         }
 
+        if (leaders.Count > 0)
+        {
+            glyphsData = WithLeaders(glyphsData, leaders, textArea.Width < Int32.MaxValue ? textArea.Width : double.MaxValue);
+        }
+
         _lineTops = lineTops;
         _lineHeights = lineHeights;
         _lineBaselines = lineBaselines;
@@ -443,6 +487,93 @@ public class TextLayout : DisposableObject
         CalculatedLayoutSize = finalRect;
 
         return CalculatedLayoutSize;
+
+        TabStop NextTabStop(double x)
+        {
+            foreach (var stop in tabStops)
+            {
+                if (stop.Position > x + 1e-6)
+                {
+                    return stop;
+                }
+            }
+
+            return new TabStop((Math.Floor(x / tabStop) + 1) * tabStop);
+        }
+
+        double TabAdvance(TabStop stop, int tab)
+        {
+            var advance = stop.Position - cursorPosition;
+            if (stop.Alignment == TabAlignment.Left)
+            {
+                return advance;
+            }
+
+            double width = 0;
+            double beforeSeparator = -1;
+            for (var k = tab + 1; k < items.Count && items[k].Symbol is not ('\t' or '\n'); k++)
+            {
+                if (stop.Alignment == TabAlignment.Decimal && beforeSeparator < 0 && items[k].Symbol == stop.AlignOn)
+                {
+                    beforeSeparator = width;
+                }
+
+                width += items[k].Advance;
+            }
+
+            var shift = stop.Alignment switch
+            {
+                TabAlignment.Center => width / 2,
+                TabAlignment.Decimal when beforeSeparator >= 0 => beforeSeparator,
+                _ => width,
+            };
+            return Math.Max(advance - shift, 0);
+        }
+
+        List<GlyphWordData> WithLeaders(List<GlyphWordData> glyphs, Dictionary<GlyphWordData, string> tabLeaders, double limit)
+        {
+            var result = new List<GlyphWordData>(glyphs.Count + tabLeaders.Count * 16);
+            foreach (var glyph in glyphs)
+            {
+                result.Add(glyph);
+                if (!tabLeaders.TryGetValue(glyph, out var leader))
+                {
+                    continue;
+                }
+
+                var glyphScale = glyph.FontSize / glyph.Font.UnitsPerEm;
+                var leaderGlyphs = leader.Select(symbol => glyph.Font.GetGlyphByCharacter(symbol)).ToArray();
+                var advances = leaderGlyphs.Select(g => glyph.Font.GetAdvanceWidth(g.Index) * glyphScale).ToArray();
+                var unit = advances.Sum();
+                var to = Math.Min(glyph.PenX + glyph.Advance, limit);
+                if (unit <= 0)
+                {
+                    continue;
+                }
+
+                for (var x = Math.Ceiling(glyph.PenX / unit) * unit; x + unit <= to + 1e-6; x += unit)
+                {
+                    var pen = x;
+                    for (var g = 0; g < leaderGlyphs.Length; g++)
+                    {
+                        var rect = CalculateGlyphPosition(glyph.Font, leaderGlyphs[g], pen, glyph.Rect.Y - verticalShift,
+                            glyphScale);
+                        rect.Y += (float)verticalShift;
+                        result.Add(new GlyphWordData(leaderGlyphs[g], leader[g], rect, -1, glyph.LineIndex)
+                        {
+                            PenX = pen,
+                            Advance = advances[g],
+                            Attributes = glyph.Attributes,
+                            Font = glyph.Font,
+                            FontSize = glyph.FontSize,
+                        });
+                        pen += advances[g];
+                    }
+                }
+            }
+
+            return result;
+        }
 
         int WordEnd(int start)
         {
@@ -502,6 +633,12 @@ public class TextLayout : DisposableObject
                     EndInEllipsis(renderingParameters.TextTrimming);
                     return false;
                 }
+            }
+
+            if (cursorPosition > 0 && HasRoomBelow()
+                && cursorPosition + WordWidth(start, newline) > textArea.Width + LineShrink())
+            {
+                NewLine();
             }
 
             for (var k = start + 1; k < newline; k++)
@@ -742,6 +879,29 @@ public class TextLayout : DisposableObject
             }
 
             return LayItems(start, end);
+        }
+
+        double LineShrink()
+        {
+            if (renderingParameters.HorizontalTextAlignment != HorizontalTextAlignment.Justify)
+            {
+                return 0;
+            }
+
+            double shrink = 0;
+            for (var k = LineFirstGlyph(); k < glyphsData.Count; k++)
+            {
+                if (glyphsData[k].Symbol == ' ')
+                {
+                    shrink += glyphsData[k].Advance / 3;
+                }
+                else if (glyphsData[k].Symbol == '\t')
+                {
+                    shrink = 0;
+                }
+            }
+
+            return shrink;
         }
 
         int LineFirstGlyph()
@@ -1023,6 +1183,7 @@ public class TextLayout : DisposableObject
 
         void ArrangeText()
         {
+            var hung = new HashSet<int>();
             var minX = glyphsData.Min(x => x.Rect.Left);
             var maxX = glyphsData.Max(x => x.Rect.Right);
             var minY = glyphsData.Min(x => x.Rect.Top);
@@ -1106,20 +1267,28 @@ public class TextLayout : DisposableObject
                         }
                         if (firstInk < 0) continue;
 
+                        var lastTab = Array.FindLastIndex(lineGlyphs, lastInk, lastInk + 1, glyph => glyph.Symbol == '\t');
+                        var from = Math.Max(firstInk, lastTab);
                         var spaceCount = 0;
-                        for (int k = firstInk + 1; k < lastInk; k++)
-                            if (lineGlyphs[k].Symbol == ' ') spaceCount++;
-                        if (spaceCount == 0) continue;
-
-                        var extra = finalRect.Width - lineGlyphs[lastInk].Rect.Right;
                         double shrinkable = 0;
-                        for (var k = firstInk + 1; k < lastInk; k++)
+                        for (var k = from + 1; k < lastInk; k++)
                         {
                             if (lineGlyphs[k].Symbol == ' ')
                             {
+                                spaceCount++;
                                 shrinkable += lineGlyphs[k].Advance / 3;
                             }
                         }
+
+                        if (spaceCount == 0)
+                        {
+                            continue;
+                        }
+
+                        var hangs = OpticalMarginAlignment && !IsRightToLeftLine(lineGlyphs);
+                        var leftHang = hangs && firstInk == 0 && lastTab < 0 ? Hang(lineGlyphs[firstInk], true) : 0;
+                        var rightHang = hangs ? Hang(lineGlyphs[lastInk], false) : 0;
+                        var extra = finalRect.Width + leftHang + rightHang - lineGlyphs[lastInk].Rect.Right;
 
                         if (extra == 0 || shrinkable == 0 || (extra > 0 && !stretches))
                         {
@@ -1128,14 +1297,15 @@ public class TextLayout : DisposableObject
 
                         var shrinkRatio = extra < 0 ? Math.Max(extra, -shrinkable) / shrinkable : 0;
                         var perSpace = extra / spaceCount;
-                        double shift = 0;
+                        double shift = -leftHang;
+                        hung.Add(i);
                         for (int k = 0; k < lineGlyphs.Length; k++)
                         {
                             var rect = lineGlyphs[k].Rect;
                             rect.X += (float)shift;
                             lineGlyphs[k].Rect = rect;
                             lineGlyphs[k].PenX += shift;
-                            if (k > firstInk && k < lastInk && lineGlyphs[k].Symbol == ' ')
+                            if (k > from && k < lastInk && lineGlyphs[k].Symbol == ' ')
                             {
                                 shift += extra > 0 ? perSpace : shrinkRatio * lineGlyphs[k].Advance / 3;
                             }
@@ -1143,6 +1313,11 @@ public class TextLayout : DisposableObject
                     }
                 }
                 break;
+            }
+
+            if (OpticalMarginAlignment && renderingParameters.HorizontalTextAlignment != HorizontalTextAlignment.Center)
+            {
+                HangMargins(hung);
             }
 
             switch (renderingParameters.VerticalTextAlignment)
@@ -1180,6 +1355,71 @@ public class TextLayout : DisposableObject
                 }
                 break;
             }
+        }
+
+        void HangMargins(HashSet<int> hung)
+        {
+            var toRight = renderingParameters.HorizontalTextAlignment == HorizontalTextAlignment.Right;
+            foreach (var line in glyphsData.GroupBy(glyph => glyph.LineIndex))
+            {
+                if (hung.Contains(line.Key))
+                {
+                    continue;
+                }
+
+                var glyphs = line.OrderBy(glyph => glyph.PenX).ToArray();
+                if (IsRightToLeftLine(glyphs))
+                {
+                    continue;
+                }
+
+                int from;
+                int to;
+                double shift;
+                if (toRight)
+                {
+                    var last = Array.FindLastIndex(glyphs, glyph => !IsBlank(glyph.Symbol) && glyph.Symbol != '\n');
+                    if (last < 0)
+                    {
+                        continue;
+                    }
+
+                    from = Array.FindLastIndex(glyphs, last, last + 1, glyph => glyph.Symbol == '\t') + 1;
+                    to = glyphs.Length;
+                    shift = Hang(glyphs[last], false);
+                }
+                else
+                {
+                    if (IsBlank(glyphs[0].Symbol) || glyphs[0].Symbol == '\n')
+                    {
+                        continue;
+                    }
+
+                    var firstTab = Array.FindIndex(glyphs, glyph => glyph.Symbol == '\t');
+                    from = 0;
+                    to = firstTab < 0 ? glyphs.Length : firstTab;
+                    shift = -Hang(glyphs[0], true);
+                }
+
+                for (var k = from; k < to; k++)
+                {
+                    glyphs[k].Rect.X += (float)shift;
+                    glyphs[k].PenX += shift;
+                }
+            }
+        }
+
+        bool IsRightToLeftLine(GlyphWordData[] line)
+        {
+            foreach (var glyph in line)
+            {
+                if (glyph.PositionInString >= 0)
+                {
+                    return IsRightToLeftParagraph(glyph.PositionInString);
+                }
+            }
+
+            return false;
         }
 
         bool EndsParagraph(GlyphWordData[] line, int nextLineStart)
@@ -2577,6 +2817,16 @@ public class TextLayout : DisposableObject
 
             filled[c] = true;
         }
+    }
+
+    private static double Hang(GlyphWordData glyph, bool left)
+    {
+        if ((glyph.PositionInString < 0 && glyph.Symbol != '-') || !MarginHangs.TryGetValue(glyph.Symbol, out var hang))
+        {
+            return 0;
+        }
+
+        return (left ? hang.Left : hang.Right) * glyph.Advance;
     }
 
     private static bool IsBlank(char symbol)
