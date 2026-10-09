@@ -7,6 +7,12 @@ All packages share one version.
 
 ### Added
 
+- Drop caps. `TextLayout.DropCap` (`DropCap`: how many lines, how many characters, an optional decorative font) sets
+  the first characters of text wrapped by words large across its first lines, from the cap height of the first to
+  the baseline of the last, the lines beside it indented by its width - a line at a time and a paragraph at a time.
+  `ParagraphComposer.Break` and `BreakAnyway` take a width for each line in turn, as TeX does, keeping nodes of
+  different lines apart while the widths differ; checked against every breaking of random paragraphs with narrower
+  first lines.
 - Tab stops. `TextLayout.TabStops` (`TabStop`: a position, a `TabAlignment` - `Left`, `Center`, `Right` or
   `Decimal` on its `AlignOn` character - and a leader) moves the text after a tab to the next stop; leaders repeat
   across the gap on one grid, so they line up from line to line. Past the last stop, tabs stop every `TabSize`
