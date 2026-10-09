@@ -52,6 +52,12 @@ public class TextLayout : DisposableObject
     public Hyphens Hyphens { get; set; } = Hyphens.Manual;
 
     /// <summary>
+    /// How words wrapped by <see cref="TextWrapping.WrapByWords"/> are broken into lines: a line at a time
+    /// (<see cref="Fonts.LineBreaking.Greedy"/>, the default) or a paragraph at a time.
+    /// </summary>
+    public LineBreaking LineBreaking { get; set; } = LineBreaking.Greedy;
+
+    /// <summary>
     /// The text's language, a BCP 47 tag such as "ru" or "en-GB", for ranges whose attributes name none: picks the
     /// hyphenation patterns, the font's localized glyph forms and the fallback fonts. Null when unknown.
     /// </summary>
@@ -89,6 +95,7 @@ public class TextLayout : DisposableObject
     private int _laidOutTabSize;
     private TextDirection _laidOutDirection;
     private Hyphens _laidOutHyphens;
+    private LineBreaking _laidOutLineBreaking;
     private string _laidOutLanguage;
     private List<(int Start, int End, BidiParagraph Paragraph)> _paragraphs;
     private byte[] _characterLevels;
@@ -174,7 +181,8 @@ public class TextLayout : DisposableObject
     {
         return Text == text && MathHelper.IsZero(FontSize - fontSize) &&
                _previousRenderingParameters == renderingParameters && _laidOutTabSize == TabSize &&
-               _laidOutDirection == Direction && _laidOutHyphens == Hyphens && _laidOutLanguage == Language;
+               _laidOutDirection == Direction && _laidOutHyphens == Hyphens && _laidOutLanguage == Language &&
+               _laidOutLineBreaking == LineBreaking;
     }
 
     public Size ProcessText(string text,
@@ -296,6 +304,7 @@ public class TextLayout : DisposableObject
         _laidOutDirection = Direction;
         _laidOutHyphens = Hyphens;
         _laidOutLanguage = Language;
+        _laidOutLineBreaking = LineBreaking;
         _paragraphs = ResolveParagraphs(text);
         _characterLevels = null;
         var items = Shape(text, fontSize);
@@ -323,24 +332,23 @@ public class TextLayout : DisposableObject
             : null;
         for (var i = 1; lineBreaks != null && i < text.Length; i++)
         {
-            // A soft hyphen keeps its word whole: the break after it is a hyphenation point, taken in HyphenateWord.
             if (text[i - 1] == SoftHyphen && lineBreaks[i] == LineBreakKind.Allowed)
             {
                 lineBreaks[i] = LineBreakKind.None;
             }
         }
 
+        HashSet<int> composedStarts = null;
+        HashSet<int> composedCuts = null;
+        if (lineBreaks != null && LineBreaking == LineBreaking.Paragraph && textArea.Width < Int32.MaxValue)
+        {
+            Compose();
+        }
+
         var wordStart = 0;
         while (wordStart <= items.Count)
         {
-            var wordEnd = wordStart;
-            // A word ends where a line may or must: after a newline the next one wraps, hyphenates and trims alone.
-            while (wordEnd < items.Count && !IsBlank(items[wordEnd].Symbol)
-                   && (wordEnd == wordStart || lineBreaks == null || lineBreaks[items[wordEnd].Cluster] == LineBreakKind.None))
-            {
-                wordEnd++;
-            }
-
+            var wordEnd = WordEnd(wordStart);
             if (!ProcessWord(wordStart, wordEnd))
             {
                 break;
@@ -436,8 +444,265 @@ public class TextLayout : DisposableObject
 
         return CalculatedLayoutSize;
 
+        int WordEnd(int start)
+        {
+            var end = start;
+            while (end < items.Count && !IsBlank(items[end].Symbol)
+                   && (end == start || lineBreaks == null || lineBreaks[items[end].Cluster] == LineBreakKind.None))
+            {
+                end++;
+            }
+
+            return end;
+        }
+
+        void NewLine()
+        {
+            lineIndex++;
+            height += lineHeight;
+            cursorPosition = 0;
+        }
+
+        bool HasRoomBelow() => height + lineHeight < textArea.Height;
+
+        void EndInEllipsis(TextTrimming trimming)
+        {
+            var floor = LineFirstGlyph();
+            if (cursorPosition + dotGlyphsWidth <= textArea.Width)
+            {
+                TrimText(0, height + baseLine);
+                return;
+            }
+
+            if (trimming == TextTrimming.WordEllipses && !HasBlank(floor))
+            {
+                trimming = TextTrimming.CharEllipses;
+            }
+
+            PrepareDataAndTrim(glyphsData.Count, floor, 0, height + baseLine, trimming);
+        }
+
+        bool ProcessComposedWord(int start, int end)
+        {
+            var newline = end > start && items[end - 1].Symbol == '\n' ? end - 1 : end;
+            var trims = renderingParameters.TextTrimming != TextTrimming.None;
+            if (composedStarts.Contains(start) && cursorPosition > 0)
+            {
+                if (HasRoomBelow())
+                {
+                    NewLine();
+                }
+                else if (trims)
+                {
+                    if (renderingParameters.TextTrimming == TextTrimming.CharEllipses)
+                    {
+                        LayItems(start, newline);
+                    }
+
+                    EndInEllipsis(renderingParameters.TextTrimming);
+                    return false;
+                }
+            }
+
+            for (var k = start + 1; k < newline; k++)
+            {
+                if (!composedCuts.Contains(k))
+                {
+                    continue;
+                }
+
+                if (!HasRoomBelow())
+                {
+                    if (trims)
+                    {
+                        LayItems(start, newline);
+                        EndInEllipsis(TextTrimming.CharEllipses);
+                        return false;
+                    }
+
+                    break;
+                }
+
+                LayItems(start, k);
+                AddHyphen(items[k - 1]);
+                NewLine();
+                start = k;
+            }
+
+            wordStartPosition = cursorPosition;
+            if (trims && cursorPosition == 0 && WordWidth(start, newline) > textArea.Width)
+            {
+                var lastLine = !HasRoomBelow();
+                LayItems(start, newline);
+                EndInEllipsis(TextTrimming.CharEllipses);
+                return !lastLine && LayItems(newline, end);
+            }
+
+            return LayItems(start, end);
+        }
+
+        void Compose()
+        {
+            composedStarts = [];
+            composedCuts = [];
+            var justified = renderingParameters.HorizontalTextAlignment == HorizontalTextAlignment.Justify;
+            var raggedStretch = 2 * fontSize;
+            List<(ComposerItem Item, int Next, bool Cut, bool Automatic)> paragraph = [];
+            var start = 0;
+            while (start < items.Count)
+            {
+                var end = WordEnd(start);
+                var newline = end > start && items[end - 1].Symbol == '\n' ? end - 1 : end;
+                List<int> points = Hyphens == Hyphens.None ? [] : HyphenationPoints(start, newline);
+                var automatic = Hyphens == Hyphens.Auto && !HasSoftHyphen(start, newline);
+                var piece = start;
+                foreach (var point in points)
+                {
+                    paragraph.Add((ComposerItem.Box(Advance(piece, point)), point, false, false));
+                    paragraph.Add((ComposerItem.Penalty(HyphenAdvance(items[point - 1]), 50, true), point, true, automatic));
+                    piece = point;
+                }
+
+                if (newline > piece)
+                {
+                    paragraph.Add((ComposerItem.Box(Advance(piece, newline)), newline, false, false));
+                }
+
+                if (newline < end || end >= items.Count)
+                {
+                    ComposeParagraph(paragraph, justified);
+                    paragraph.Clear();
+                    start = end;
+                    continue;
+                }
+
+                var next = end;
+                while (next < items.Count && IsBlank(items[next].Symbol))
+                {
+                    next++;
+                }
+
+                if (next == end)
+                {
+                    var hyphen = items[end - 1].Symbol is '-' or '‐';
+                    AddBreak(paragraph, next, 0, hyphen ? 50 : 0, hyphen, justified, raggedStretch);
+                }
+                else
+                {
+                    AddBreak(paragraph, next, SpaceAdvance(end), 0, false, justified, raggedStretch);
+                    for (var k = end + 1; k < next; k++)
+                    {
+                        var space = SpaceAdvance(k);
+                        paragraph.Add((ComposerItem.Glue(space, justified ? space / 2 : 0, justified ? space / 3 : 0), next,
+                            false, false));
+                    }
+                }
+
+                start = next;
+            }
+
+            if (paragraph.Count > 0)
+            {
+                ComposeParagraph(paragraph, justified);
+            }
+        }
+
+        void ComposeParagraph(List<(ComposerItem Item, int Next, bool Cut, bool Automatic)> paragraph, bool justified)
+        {
+            while (paragraph.Count > 0 && paragraph[paragraph.Count - 1].Item.Kind != ComposerItemKind.Box)
+            {
+                paragraph.RemoveAt(paragraph.Count - 1);
+            }
+
+            if (paragraph.Count == 0)
+            {
+                return;
+            }
+
+            if (!justified || !renderingParameters.JustifyLastLine)
+            {
+                paragraph.Add((ComposerItem.Penalty(0, ParagraphComposer.Never, false), -1, false, false));
+                paragraph.Add((ComposerItem.Glue(0, double.PositiveInfinity, 0), -1, false, false));
+            }
+
+            paragraph.Add((ComposerItem.Penalty(0, ParagraphComposer.Forced, false), -1, false, false));
+            var exact = paragraph.Where(entry => !entry.Automatic).ToList();
+            var chosen = exact;
+            var breaks = ParagraphComposer.Break(exact.Select(entry => entry.Item).ToList(), textArea.Width, 100);
+            if (breaks == null)
+            {
+                chosen = paragraph;
+                var all = paragraph.Select(entry => entry.Item).ToList();
+                breaks = ParagraphComposer.Break(all, textArea.Width, 200)
+                         ?? ParagraphComposer.BreakAnyway(all, textArea.Width, 2 * fontSize);
+            }
+
+            for (var k = 0; k < breaks.Length - 1; k++)
+            {
+                var entry = chosen[breaks[k]];
+                composedStarts.Add(entry.Next);
+                if (entry.Cut)
+                {
+                    composedCuts.Add(entry.Next);
+                }
+            }
+        }
+
+        static void AddBreak(List<(ComposerItem Item, int Next, bool Cut, bool Automatic)> paragraph, int next,
+            double space, double cost, bool flagged, bool justified, double raggedStretch)
+        {
+            if (justified)
+            {
+                paragraph.Add(space > 0
+                    ? (ComposerItem.Glue(space, space / 2, space / 3), next, false, false)
+                    : (ComposerItem.Penalty(0, cost, flagged), next, false, false));
+                return;
+            }
+
+            paragraph.Add((ComposerItem.Glue(0, raggedStretch, 0), next, false, false));
+            paragraph.Add((ComposerItem.Penalty(0, cost, flagged), next, false, false));
+            paragraph.Add((ComposerItem.Glue(space, -raggedStretch, 0), next, false, false));
+        }
+
+        double SpaceAdvance(int index) => items[index].Symbol == '\t' ? tabStop : items[index].Advance;
+
+        double Advance(int start, int end)
+        {
+            double advance = 0;
+            for (var k = start; k < end; k++)
+            {
+                advance += items[k].Advance;
+            }
+
+            return advance;
+        }
+
+        bool HasSoftHyphen(int start, int end)
+        {
+            for (var k = start; k < end; k++)
+            {
+                if (items[k].Symbol == SoftHyphen)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        double HyphenAdvance(ShapedItem last)
+        {
+            var hyphen = HyphenGlyph(last.Font);
+            return last.Font.GetAdvanceWidth(hyphen.Index) * (last.FontSize / last.Font.UnitsPerEm);
+        }
+
         bool ProcessWord(int start, int end)
         {
+            if (composedStarts != null)
+            {
+                return ProcessComposedWord(start, end);
+            }
+
             var wrapsByWords = renderingParameters.TextWrapping == TextWrapping.WrapByWords;
             var wordWidth = wrapsByWords ? WordWidth(start, end) : 0;
             if (wrapsByWords && Hyphens != Hyphens.None && cursorPosition + wordWidth > textArea.Width)
@@ -468,26 +733,17 @@ public class TextLayout : DisposableObject
                 && renderingParameters.TextTrimming != TextTrimming.None
                 && cursorPosition + wordWidth > textArea.Width)
             {
-                // Too wide for its line, which it starts or which is the last one: its overflow becomes an ellipsis.
-                // A word alone on its line is cut by characters, and the text goes on below it.
                 var newline = end > start && items[end - 1].Symbol == '\n' ? end - 1 : end;
-                var lastLine = height + lineHeight >= textArea.Height;
-                var floor = LineFirstGlyph();
+                var lastLine = !HasRoomBelow();
                 var trimming = cursorPosition > 0 ? renderingParameters.TextTrimming : TextTrimming.CharEllipses;
-                if (trimming == TextTrimming.WordEllipses && !HasBlank(floor))
-                {
-                    trimming = TextTrimming.CharEllipses;
-                }
-
                 LayItems(start, newline);
-                PrepareDataAndTrim(glyphsData.Count, floor, newline - 1, height + baseLine, trimming);
+                EndInEllipsis(trimming);
                 return !lastLine && LayItems(newline, end);
             }
 
             return LayItems(start, end);
         }
 
-        // The index of the first glyph of the line being laid, under which trimming never reaches.
         int LineFirstGlyph()
         {
             var first = glyphsData.Count;
@@ -512,7 +768,6 @@ public class TextLayout : DisposableObject
             return false;
         }
 
-        // From the pen where the word starts to the right edge of its ink.
         double WordWidth(int start, int end)
         {
             double pen = 0;
@@ -538,8 +793,6 @@ public class TextLayout : DisposableObject
             return right;
         }
 
-        // Lays the lines a word too wide for the room left breaks into, each up to its last hyphenation point that
-        // fits with the hyphen; returns where the rest of the word starts.
         int HyphenateWord(int start, int end)
         {
             var newline = start;
@@ -572,10 +825,7 @@ public class TextLayout : DisposableObject
                 {
                     if (cursorPosition > 0 && wordIndex > 0)
                     {
-                        // On a line of its own the word may fit whole, or break where nothing fitted after the others.
-                        lineIndex++;
-                        height += lineHeight;
-                        cursorPosition = 0;
+                        NewLine();
                         continue;
                     }
 
@@ -593,8 +843,6 @@ public class TextLayout : DisposableObject
             return start;
         }
 
-        // The items a word may break before, a hyphen ending the line: after its soft hyphens, or where the patterns
-        // of its language allow when it has none and hyphenation is automatic. Only where a cluster starts.
         List<int> HyphenationPoints(int start, int end)
         {
             var points = new List<int>();
@@ -690,23 +938,10 @@ public class TextLayout : DisposableObject
                     case '\n':
                         if (renderingParameters.TextWrapping == TextWrapping.WrapByWords
                             && renderingParameters.TextTrimming != TextTrimming.None
-                            && height + lineHeight >= textArea.Height
+                            && !HasRoomBelow()
                             && i < items.Count - 1)
                         {
-                            // Text left past the last line the height allows: the line ends in an ellipsis.
-                            var floor = LineFirstGlyph();
-                            if (cursorPosition + dotGlyphsWidth <= textArea.Width)
-                            {
-                                TrimText(i, height + baseLine);
-                            }
-                            else
-                            {
-                                var trimming = renderingParameters.TextTrimming == TextTrimming.WordEllipses && HasBlank(floor)
-                                    ? TextTrimming.WordEllipses
-                                    : TextTrimming.CharEllipses;
-                                PrepareDataAndTrim(glyphsData.Count, floor, i, height + baseLine, trimming);
-                            }
-
+                            EndInEllipsis(renderingParameters.TextTrimming);
                             return false;
                         }
 
@@ -844,14 +1079,23 @@ public class TextLayout : DisposableObject
                 case HorizontalTextAlignment.Justify:
                 {
                     var maxLines = glyphsData.Max(x => x.LineIndex);
+                    var firstClusters = new int[maxLines + 2];
+                    Array.Fill(firstClusters, text.Length);
+                    foreach (var glyph in glyphsData)
+                    {
+                        if (glyph.PositionInString >= 0)
+                        {
+                            firstClusters[glyph.LineIndex] = Math.Min(firstClusters[glyph.LineIndex], glyph.PositionInString);
+                        }
+                    }
+
                     for (int i = 0; i <= maxLines; ++i)
                     {
-                        // The last line stays ragged unless JustifyLastLine asks otherwise.
-                        if (i == maxLines && !renderingParameters.JustifyLastLine) break;
-
-                        // Only the gaps between words widen; glyphs are shifted, never re-laid, so kerning and bearings stay.
+                        // Only the gaps between words change; glyphs are shifted, never re-laid, so kerning and bearings stay.
                         var lineGlyphs = glyphsData.Where(x => x.LineIndex == i).OrderBy(x => x.Rect.X).ToArray();
                         if (lineGlyphs.Length == 0) continue;
+                        var stretches = renderingParameters.JustifyLastLine
+                                        || (i < maxLines && !EndsParagraph(lineGlyphs, firstClusters[i + 1]));
 
                         int firstInk = -1, lastInk = -1;
                         for (int k = 0; k < lineGlyphs.Length; k++)
@@ -868,8 +1112,21 @@ public class TextLayout : DisposableObject
                         if (spaceCount == 0) continue;
 
                         var extra = finalRect.Width - lineGlyphs[lastInk].Rect.Right;
-                        if (extra <= 0) continue;
+                        double shrinkable = 0;
+                        for (var k = firstInk + 1; k < lastInk; k++)
+                        {
+                            if (lineGlyphs[k].Symbol == ' ')
+                            {
+                                shrinkable += lineGlyphs[k].Advance / 3;
+                            }
+                        }
 
+                        if (extra == 0 || shrinkable == 0 || (extra > 0 && !stretches))
+                        {
+                            continue;
+                        }
+
+                        var shrinkRatio = extra < 0 ? Math.Max(extra, -shrinkable) / shrinkable : 0;
                         var perSpace = extra / spaceCount;
                         double shift = 0;
                         for (int k = 0; k < lineGlyphs.Length; k++)
@@ -879,7 +1136,9 @@ public class TextLayout : DisposableObject
                             lineGlyphs[k].Rect = rect;
                             lineGlyphs[k].PenX += shift;
                             if (k > firstInk && k < lastInk && lineGlyphs[k].Symbol == ' ')
-                                shift += perSpace;
+                            {
+                                shift += extra > 0 ? perSpace : shrinkRatio * lineGlyphs[k].Advance / 3;
+                            }
                         }
                     }
                 }
@@ -921,6 +1180,30 @@ public class TextLayout : DisposableObject
                 }
                 break;
             }
+        }
+
+        bool EndsParagraph(GlyphWordData[] line, int nextLineStart)
+        {
+            var last = -1;
+            foreach (var glyph in line)
+            {
+                if (glyph.Symbol == '\n')
+                {
+                    return true;
+                }
+
+                last = Math.Max(last, glyph.PositionInString);
+            }
+
+            for (var c = last + 1; last >= 0 && c < nextLineStart; c++)
+            {
+                if (text[c] == '\n')
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         void AlignToEachLinesStart()
@@ -1549,7 +1832,6 @@ public class TextLayout : DisposableObject
                 j++;
             }
 
-            // Past the hyphen a line broken inside a word ends with, which stands for no character.
             var after = j;
             while (after < data.Count && data[after].PositionInString < 0)
             {
@@ -2302,7 +2584,6 @@ public class TextLayout : DisposableObject
         return symbol == ' ' || symbol == '\t';
     }
 
-    // A letter of a word to hyphenate, its marks, or an apostrophe between two of its letters, as in "aujourd'hui".
     private static bool IsWordLetter(string text, int index, int start, int end)
     {
         var symbol = text[index];
@@ -2315,7 +2596,6 @@ public class TextLayout : DisposableObject
             or UnicodeCategory.SpacingCombiningMark;
     }
 
-    // The hyphen a line broken inside a word ends with: U+2010 HYPHEN, or the hyphen-minus when the font lacks it.
     private static Glyph HyphenGlyph(IFont font)
     {
         return font.TryGetGlyphIndex(0x2010, out var hyphen)

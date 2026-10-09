@@ -101,7 +101,6 @@ public sealed class Hyphenator
         return _cache.TryGetValue(word, out var known) ? known : Remember(word, Compute(word));
     }
 
-    // A region subtag - two letters, after the primary language - of a country that writes British English.
     private static bool IsBritish(string[] subtags)
     {
         for (var i = 1; i < subtags.Length; i++)
