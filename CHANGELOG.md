@@ -286,6 +286,8 @@ All packages share one version.
   the bounds the texel before it left; a texel far enough from the outline that its colors are replaced by the true
   distance anyway is not searched for them; and the rows of a glyph are computed in bands on several threads. One
   glyph went from 6-10 ms to 1.3-1.6 ms, a parallel atlas of Segoe UI from 2.1 s to 0.9 s.
+- `Adamantium.EffectsCompiler`, `Adamantium.Engine.Generators` and `Adamantium.FX` are on `Adamantium.Vulkan.Slang`
+  1.0.12: the same Slang compiler, in the package that also ships `slangd`, its language server.
 - Glyphs reach the atlas one by one as they are rasterized, the heaviest started first and spread over the workers, so
   a few complex glyphs no longer hold back the rest of a batch: the sandbox's text page went from 8.6 s of glyph
   generation to 1.1 s. The distance field of a glyph looks only at the outline segments near each texel (a grid of
