@@ -19,6 +19,8 @@ namespace Adamantium.Fonts.Tables
         
         public MarkGlyphSetsTable MarkGlyphSetsTable { get; set; }
 
+        public CFF.VariationStore VariationStore { get; set; }
+
         public void FillData(Typeface typeface)
         {
             FillClassDefinitions(typeface);

@@ -23,10 +23,13 @@ internal sealed partial class LookupApplier
     private int _lastBase = -1;
     private int _lastBaseUntil;
 
-    public LookupApplier(OpenTypeLayout layout, GlyphBuffer buffer)
+    private readonly float[] _coordinates;
+
+    public LookupApplier(OpenTypeLayout layout, GlyphBuffer buffer, float[] coordinates = null)
     {
         _layout = layout;
         _buffer = buffer;
+        _coordinates = coordinates;
     }
 
     private enum SkipResult

@@ -47,11 +47,11 @@ internal sealed class ShapePlan
     public FeatureMap GetFeature(string tag) => _features.TryGetValue(tag, out var map) ? map : null;
 
     public static ShapePlan Create(OpenTypeLayout layout, string scriptTag, string languageTag,
-        IReadOnlyList<FontFeature> userFeatures)
+        IReadOnlyList<FontFeature> userFeatures, int gsubVariation = -1, int gposVariation = -1)
     {
         var plan = new ShapePlan();
-        var gsub = Select(layout.Gsub, scriptTag, languageTag);
-        var gpos = Select(layout.Gpos, scriptTag, languageTag);
+        var gsub = Select(layout.Gsub, scriptTag, languageTag, gsubVariation);
+        var gpos = Select(layout.Gpos, scriptTag, languageTag, gposVariation);
         var requests = Merge(CollectRequests(userFeatures));
 
         var requiredGsubStage = 0;
@@ -112,8 +112,8 @@ internal sealed class ShapePlan
             plan._features[map.Tag] = map;
         }
 
-        plan.GsubStages = CollectLookups(layout.Gsub, gsub, requiredGsubStage, maps, true, 2);
-        plan.GposLookups = CollectLookups(layout.Gpos, gpos, requiredGposStage, maps, false, 1)[0];
+        plan.GsubStages = CollectLookups(layout.Gsub, gsub, requiredGsubStage, maps, true, 2, gsubVariation);
+        plan.GposLookups = CollectLookups(layout.Gpos, gpos, requiredGposStage, maps, false, 1, gposVariation)[0];
 
         var kern = plan.GetFeature("kern");
         plan.ApplyGpos = layout.Gpos?.LookupList?.Length > 0;
@@ -209,7 +209,7 @@ internal sealed class ShapePlan
     }
 
     private static PlannedLookup[][] CollectLookups(IFontLayout table, (LangSysTable LangSys, FeatureTable Required) selection,
-        int requiredStage, List<FeatureMap> maps, bool gsub, int stageCount)
+        int requiredStage, List<FeatureMap> maps, bool gsub, int stageCount, int variation)
     {
         var stages = new PlannedLookup[stageCount][];
         for (var stage = 0; stage < stageCount; stage++)
@@ -228,7 +228,7 @@ internal sealed class ShapePlan
                     var mapStage = gsub ? map.GsubStage : map.GposStage;
                     if (index >= 0 && mapStage == stage)
                     {
-                        AddLookups(table, table.FeatureList[index], map.Mask, map.AutoZwnj, map.AutoZwj, lookups);
+                        AddLookups(table, Feature(table, index, variation), map.Mask, map.AutoZwnj, map.AutoZwj, lookups);
                     }
                 }
             }
@@ -281,8 +281,12 @@ internal sealed class ShapePlan
         return merged.ToArray();
     }
 
+    // A feature as the axis values have it: 'FeatureVariations' may swap the lookups it applies.
+    private static FeatureTable Feature(IFontLayout table, int index, int variation) =>
+        table.FeatureVariations?.Substitute(variation, index, table.FeatureList[index]) ?? table.FeatureList[index];
+
     private static (LangSysTable LangSys, FeatureTable Required) Select(IFontLayout table, string scriptTag,
-        string languageTag)
+        string languageTag, int variation)
     {
         if (table?.ScriptList == null)
         {
@@ -304,7 +308,7 @@ internal sealed class ShapePlan
 
         langSys ??= script.DefaultLang;
         var required = langSys is { HasRequireFeature: true } && langSys.RequiredFeatureIndex < table.FeatureList.Length
-            ? table.FeatureList[langSys.RequiredFeatureIndex]
+            ? Feature(table, langSys.RequiredFeatureIndex, variation)
             : null;
         return (langSys, required);
     }

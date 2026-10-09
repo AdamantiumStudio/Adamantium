@@ -13,5 +13,7 @@ namespace Adamantium.Fonts.Tables.Layout
         public FeatureTable[] FeatureList { get; set; }
         
         public ILookupTable[] LookupList { get; set; }
+
+        public FeatureVariationsTable FeatureVariations { get; set; }
     }
 }

@@ -46,13 +46,13 @@ public static class TextShaper
         FormClusters(buffer);
 
         var layout = font.Layout;
-        var plan = GetPlan(layout, script, options);
+        var plan = GetPlan(layout, script, options, font.NormalizedCoordinates);
 
         Normalizer.Normalize(font, buffer);
         SetupMasks(buffer, plan, options);
         SetGlyphProps(buffer, layout);
 
-        var applier = new LookupApplier(layout, buffer);
+        var applier = new LookupApplier(layout, buffer, font.NormalizedCoordinates);
         applier.ApplyGsub(plan);
         Positioner.Position(font, buffer, plan, applier);
         HideDefaultIgnorables(font, buffer);
@@ -111,13 +111,16 @@ public static class TextShaper
     }
 
 
-    private static ShapePlan GetPlan(OpenTypeLayout layout, string script, ShapingOptions options)
+    private static ShapePlan GetPlan(OpenTypeLayout layout, string script, ShapingOptions options, float[] coordinates)
     {
         var scriptTag = OpenTypeTags.ScriptTag(script);
         var languageTag = OpenTypeTags.LanguageTag(options.Language);
         var features = string.Join(",", options.Features.Select(f => $"{f.Tag}={f.Value}{(f.IsGlobal ? "g" : "r")}"));
-        var key = $"{scriptTag}|{languageTag}|{features}";
-        return layout.Plans.GetOrAdd(key, _ => ShapePlan.Create(layout, scriptTag, languageTag, options.Features));
+        var gsubVariation = layout.Gsub?.FeatureVariations?.Find(coordinates) ?? -1;
+        var gposVariation = layout.Gpos?.FeatureVariations?.Find(coordinates) ?? -1;
+        var key = $"{scriptTag}|{languageTag}|{features}|{gsubVariation}|{gposVariation}";
+        return layout.Plans.GetOrAdd(key,
+            _ => ShapePlan.Create(layout, scriptTag, languageTag, options.Features, gsubVariation, gposVariation));
     }
 
     private static void SetupMasks(GlyphBuffer buffer, ShapePlan plan, ShapingOptions options)

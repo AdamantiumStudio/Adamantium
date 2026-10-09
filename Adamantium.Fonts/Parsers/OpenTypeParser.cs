@@ -141,6 +141,12 @@ namespace Adamantium.Fonts.Parsers
                 case TableNames.fvar:
                     ReadFvarTable(entry);
                     break;
+                case TableNames.STAT:
+                    ReadStyleAttributesTable(entry);
+                    break;
+                case TableNames.MVAR:
+                    CurrentFont.FontMetricsVariations = MetricsVariationTable.Read(FontReader, entry.Offset);
+                    break;
                 case TableNames.avar:
                     CurrentFont.AxisVariations = AxisVariationTable.Read(FontReader, entry.Offset);
                     break;
@@ -388,42 +394,35 @@ namespace Adamantium.Fonts.Parsers
                 FontReader.Position = currentOffset;
             }
 
-            var instances = new List<InstanceRecord>();
-
+            var instances = new List<FontNamedInstance>();
             for (var j = 0; j < instanceCount; ++j)
             {
-                var instance = new InstanceRecord();
-
-                instance.SubfamilyNameID = FontReader.ReadUInt16();
-                instance.Flags = FontReader.ReadUInt16();
-                instance.Coordinates = new List<double>();
-
+                var nameId = FontReader.ReadUInt16();
+                FontReader.ReadUInt16();
+                var variations = new FontVariation[axisCount];
                 for (var k = 0; k < axisCount; ++k)
                 {
-                    instance.Coordinates.Add(FontReader.ReadInt32().FromF16Dot16());
+                    variations[k] = new FontVariation(axes[k].AxisTag, FontReader.ReadInt32().FromF16Dot16());
                 }
 
-                var nameTableOffset = CurrentTableDirectory.TablesOffsets[TableNames.name];
-                var nameRecord = Name.NameRecords.FirstOrDefault(x => x.NameId == instance.SubfamilyNameID);
-
-                if (nameRecord != null)
-                {
-                    FontReader.Position = nameTableOffset + Name.StorageOffset + nameRecord.StringOffset;
-                    var encoding = nameRecord.EncodingId is 3 or 1 ? Encoding.BigEndianUnicode : Encoding.UTF8;
-                    var str = FontReader.ReadString(nameRecord.Length, encoding);
-                    instance.InstanceSubfamilyName = str;
-                }
-
-                instances.Add(instance);
-
+                instances.Add(new FontNamedInstance(CurrentFont.GetName(nameId), variations));
                 currentOffset += instanceSize;
                 FontReader.Position = currentOffset;
             }
 
-            CurrentFont.InstanceData = instances;
+            CurrentFont.NamedInstances = instances;
             CurrentFont.Axes = axes
-                .Select(a => new FontAxis(a.AxisTag, (float)a.MinValue, (float)a.DefaultValue, (float)a.MaxValue))
+                .Select(a => new FontAxis(a.AxisTag, (float)a.MinValue, (float)a.DefaultValue, (float)a.MaxValue,
+                    CurrentFont.GetName(a.AxisNameID), (a.Flags & HiddenAxis) != 0))
                 .ToArray();
+        }
+
+        private const ushort HiddenAxis = 0x0001;
+
+        protected virtual void ReadStyleAttributesTable(TableEntry entry)
+        {
+            var (values, elidedFallbackName) = StyleAttributesTable.Read(FontReader, entry.Offset, CurrentFont.GetName);            CurrentFont.AxisValues = values;
+            CurrentFont.ElidedFallbackName = elidedFallbackName;
         }
 
         protected virtual void ReadGlyphPositioningTable(TableEntry entry)
@@ -440,12 +439,17 @@ namespace Adamantium.Fonts.Parsers
 
             if (gpos.MinorVersion == 1)
             {
-                gpos.FeatureVariationsOffset = FontReader.ReadUInt16();
+                gpos.FeatureVariationsOffset = FontReader.ReadUInt32();
             }
 
             gpos.ScriptList = FontReader.ReadScriptList(scriptListOffset);
 
             gpos.FeatureList = FontReader.ReadFeatureList(featureListOffset);
+            if (gpos.FeatureVariationsOffset != 0)
+            {
+                gpos.FeatureVariations = FeatureVariationsTable.Read(FontReader, entry.Offset + gpos.FeatureVariationsOffset,
+                    gpos.FeatureList);
+            }
 
             gpos.LookupList = FontReader.ReadGPOSLookupListTable(lookupListOffset);
             CurrentFont.Layout.Gpos = gpos;
@@ -474,6 +478,11 @@ namespace Adamantium.Fonts.Parsers
             gsub.ScriptList = FontReader.ReadScriptList(scriptListOffset);
 
             gsub.FeatureList = FontReader.ReadFeatureList(featureListOffset);
+            if (gsub.FeatureVariationsOffset != 0)
+            {
+                gsub.FeatureVariations = FeatureVariationsTable.Read(FontReader, entry.Offset + gsub.FeatureVariationsOffset,
+                    gsub.FeatureList);
+            }
 
             gsub.LookupList = FontReader.ReadGSUBLookupListTable(lookupListOffset);
             CurrentFont.Layout.Gsub = gsub;

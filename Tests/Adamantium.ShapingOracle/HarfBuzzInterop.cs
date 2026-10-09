@@ -45,6 +45,21 @@ public static class HarfBuzzInterop
     [DllImport("libHarfBuzzSharp", EntryPoint = "hb_ot_name_get_utf8")]
     public static extern uint GetName(IntPtr face, uint nameId, IntPtr language, ref uint size, byte[] text);
 
+    [DllImport("libHarfBuzzSharp", EntryPoint = "hb_ot_var_get_axis_infos")]
+    public static extern uint GetAxisInfos(IntPtr face, uint start, ref uint count, [Out] HarfBuzzAxisInfo[] axes);
+
+    [DllImport("libHarfBuzzSharp", EntryPoint = "hb_ot_var_get_named_instance_count")]
+    public static extern uint GetNamedInstanceCount(IntPtr face);
+
+    [DllImport("libHarfBuzzSharp", EntryPoint = "hb_ot_var_named_instance_get_subfamily_name_id")]
+    public static extern uint GetNamedInstanceNameId(IntPtr face, uint instance);
+
+    [DllImport("libHarfBuzzSharp", EntryPoint = "hb_ot_var_named_instance_get_design_coords")]
+    public static extern uint GetNamedInstanceCoords(IntPtr face, uint instance, ref uint count, [Out] float[] coords);
+
+    [DllImport("libHarfBuzzSharp", EntryPoint = "hb_ot_metrics_get_position")]
+    public static extern bool GetMetric(IntPtr font, uint tag, out int position);
+
     [DllImport("libHarfBuzzSharp", EntryPoint = "hb_language_from_string")]
     public static extern IntPtr LanguageFromString(string text, int length);
 }

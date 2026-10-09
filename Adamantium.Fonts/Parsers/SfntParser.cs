@@ -372,6 +372,8 @@ namespace Adamantium.Fonts.Parsers
                 { "fmtx",    470	},
                 { "gvar",    490	},
                 { "HVAR",    495	},
+                { "MVAR",    496	},
+                { "STAT",    497	},
                 { "hsty",    500	},
                 { "just",    510	},
                 { "lcar",    520	},
@@ -1105,6 +1107,7 @@ namespace Adamantium.Fonts.Parsers
                 CurrentFont.LineAscent = (Int16)os2.usWinAscent;
                 CurrentFont.LineDescent = (Int16)os2.usWinDescent;
                 CurrentFont.LineGap = 0;
+                CurrentFont.LineMetricsFromWindows = true;
             }
         }
 

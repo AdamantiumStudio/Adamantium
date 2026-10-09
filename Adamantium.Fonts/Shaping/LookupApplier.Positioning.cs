@@ -52,17 +52,32 @@ internal sealed partial class LookupApplier
         }
     }
 
-    private static void ApplyValue(ValueRecord value, ref GlyphPlacement placement)
+    private void ApplyValue(ValueRecord value, ref GlyphPlacement placement)
     {
         if (value == null)
         {
             return;
         }
 
-        placement.XOffset += value.XPlacement;
-        placement.YOffset += value.YPlacement;
-        placement.XAdvance += value.XAdvance;
+        placement.XOffset += value.XPlacement + Delta(value.XPlacementVariation);
+        placement.YOffset += value.YPlacement + Delta(value.YPlacementVariation);
+        placement.XAdvance += value.XAdvance + Delta(value.XAdvanceVariation);
     }
+
+    private int Delta(int variation)
+    {
+        var store = _layout.Gdef?.VariationStore;
+        if (variation < 0 || store == null || _coordinates == null)
+        {
+            return 0;
+        }
+
+        return (int)Math.Floor(store.GetDelta(variation >> 16, variation & 0xFFFF, _coordinates) + 0.5f);
+    }
+
+    private int X(AnchorPointTable anchor) => anchor.XCoordinate + Delta(anchor.XDevice?.VariationIndex ?? -1);
+
+    private int Y(AnchorPointTable anchor) => anchor.YCoordinate + Delta(anchor.YDevice?.VariationIndex ?? -1);
 
     private bool ApplyPair(PairAdjustmentPositioningSubTableFormat1 pair, ushort glyph)
     {
@@ -142,14 +157,14 @@ internal sealed partial class LookupApplier
         var exit = cursive.ExitAnchors[previousIndex];
         var entry = cursive.EntryAnchors[thisIndex];
 
-        placements[i].XAdvance = exit.XCoordinate + placements[i].XOffset;
-        var d = entry.XCoordinate + placements[j].XOffset;
+        placements[i].XAdvance = X(exit) + placements[i].XOffset;
+        var d = X(entry) + placements[j].XOffset;
         placements[j].XAdvance -= d;
         placements[j].XOffset -= d;
 
         var child = i;
         var parent = j;
-        var yOffset = entry.YCoordinate - exit.YCoordinate;
+        var yOffset = Y(entry) - Y(exit);
         if ((_lookupProps & (uint)LookupFlags.RightToLeft) == 0)
         {
             child = j;
@@ -347,8 +362,8 @@ internal sealed partial class LookupApplier
         }
 
         ref var placement = ref _buffer.Placements[_index];
-        placement.XOffset = baseAnchor.XCoordinate - markAnchor.XCoordinate;
-        placement.YOffset = baseAnchor.YCoordinate - markAnchor.YCoordinate;
+        placement.XOffset = X(baseAnchor) - X(markAnchor);
+        placement.YOffset = Y(baseAnchor) - Y(markAnchor);
         placement.AttachType = GlyphPlacement.AttachMark;
         placement.AttachChain = baseIndex - _index;
         _index++;

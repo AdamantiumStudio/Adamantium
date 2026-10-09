@@ -24,7 +24,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <Content Include="Shaping\*.txt;Unicode\*.txt;Variations\*.txt;ColorPaint\*.txt;ColorBitmaps\*.txt;Features\*.txt;ColorFonts\*.ttf;TTFFonts\CascadiaCode-Regular.ttf;source-sans-3v028R\VAR\SourceSans3VF-Roman.ttf">
+      <Content Include="Shaping\*.txt;Unicode\*.txt;Variations\*.txt;ColorPaint\*.txt;ColorBitmaps\*.txt;Features\*.txt;ColorFonts\*.ttf;Variations\*.ttf;TTFFonts\CascadiaCode-Regular.ttf;source-sans-3v028R\VAR\SourceSans3VF-Roman.ttf;source-sans-3v028R\VAR\SourceSans3VF-Italic.otf">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </Content>
     </ItemGroup>

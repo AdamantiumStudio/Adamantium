@@ -51,5 +51,11 @@ namespace Adamantium.Fonts.Tables.Layout
         /// PairSet table within a PairPosFormat1 lookup subtable) — may be NULL.
         /// </summary>
         public ushort YAdvanceDevice { get; set; }
+
+        public int XPlacementVariation { get; set; } = -1;
+
+        public int YPlacementVariation { get; set; } = -1;
+
+        public int XAdvanceVariation { get; set; } = -1;
     }
 }

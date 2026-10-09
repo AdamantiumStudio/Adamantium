@@ -44,6 +44,36 @@ public class ShapingTests
         Assert.That(string.Join(" ", glyphs.Select(g => g.ToString())), Is.EqualTo(expected));
     }
 
+    public static IEnumerable<TestCaseData> VariedCases()
+    {
+        var path = Path.Combine(TestContext.CurrentContext.TestDirectory, "Shaping", "variations-expected.txt");
+        foreach (var line in File.ReadAllLines(path))
+        {
+            if (line.Length == 0 || line.StartsWith('#'))
+            {
+                continue;
+            }
+
+            var fields = line.Split('\t');
+            yield return new TestCaseData(fields[0], fields[4], fields[5], fields[6])
+                .SetName($"{Path.GetFileNameWithoutExtension(fields[0])} at {fields[4]}: {fields[5]}");
+        }
+    }
+
+    // Shaped at axis values: 'FeatureVariations' swaps the lookups a feature applies, and positioning takes its deltas.
+    [TestCaseSource(nameof(VariedCases))]
+    public void ShapesLikeHarfBuzz_AtAxisValues(string fontPath, string variations, string text, string expected)
+    {
+        var font = Fonts.GetOrAdd(fontPath, p => Typeface.LoadFont(p, 3).GetFont(0)).GetInstance(variations.Split(',')
+            .Select(v => v.Split('='))
+            .Select(v => new FontVariation(v[0], float.Parse(v[1], CultureInfo.InvariantCulture)))
+            .ToArray());
+
+        var glyphs = TextShaper.Shape(font, Unescape(text), new ShapingOptions("Latn"));
+
+        Assert.That(string.Join(" ", glyphs.Select(g => g.ToString())), Is.EqualTo(expected));
+    }
+
     [TestCase("liga", "liga", 1u, FontFeature.GlobalStart, FontFeature.GlobalEnd)]
     [TestCase("-kern", "kern", 0u, FontFeature.GlobalStart, FontFeature.GlobalEnd)]
     [TestCase("salt=2", "salt", 2u, FontFeature.GlobalStart, FontFeature.GlobalEnd)]

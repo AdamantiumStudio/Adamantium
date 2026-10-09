@@ -62,6 +62,16 @@ namespace Adamantium.Fonts
         /// <summary>The axes this font varies along ('fvar'); empty for a font that does not vary.</summary>
         public IReadOnlyList<FontAxis> Axes { get; }
 
+        /// <summary>The styles a variable font names by their axis values ('fvar'), as "Bold Condensed".</summary>
+        public IReadOnlyList<FontNamedInstance> NamedInstances { get; }
+
+        /// <summary>The names the style attributes table ('STAT') gives axis values, as "Light" or "Condensed".</summary>
+        public IReadOnlyList<FontAxisValue> AxisValues { get; }
+
+        /// <summary>The style name for when every axis value's name is left out, as "Regular"; null when 'STAT' gives
+        /// none.</summary>
+        public string ElidedFallbackName { get; }
+
         /// <summary>The axis values of an instance (<see cref="GetInstance"/>); empty for a font as its file has it.</summary>
         public IReadOnlyList<FontVariation> Variations { get; }
 
@@ -69,6 +79,11 @@ namespace Adamantium.Fonts
         /// takes its default, a value outside its axis is clamped. The same values give the same instance; a font that
         /// does not vary, or values that are all defaults, give this font.</summary>
         public IFont GetInstance(IReadOnlyList<FontVariation> variations);
+
+        /// <summary>This font at the optical size of text set at <paramref name="size"/>, its other axes kept, as CSS's
+        /// <c>font-optical-sizing: auto</c> sets 'opsz'; the font itself when it has no 'opsz' axis or its 'opsz' was
+        /// asked for by value.</summary>
+        public IFont AtOpticalSize(float size);
 
         /// <summary>The layers a color glyph is drawn as, bottom first, each an ordinary glyph in a color of the font's
         /// first palette ('COLR' and 'CPAL'); empty for a glyph drawn as its own outline.</summary>
@@ -172,6 +187,8 @@ namespace Adamantium.Fonts
         internal void SetGlyphUnicodes(Dictionary<uint, List<uint>> glyphMapping);
 
         internal OpenTypeLayout Layout { get; }
+
+        internal float[] NormalizedCoordinates { get; }
 
         /// <summary>The glyph the font maps <paramref name="codepoint"/> to; false when it has none.</summary>
         public bool TryGetGlyphIndex(int codepoint, out uint glyphIndex);

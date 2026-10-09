@@ -69,7 +69,7 @@ public static class FeatureOracle
         }
     }
 
-    private static string Name(Face face, uint nameId, IntPtr language)
+    internal static string Name(Face face, uint nameId, IntPtr language)
     {
         if (nameId == 0xFFFF || nameId == 0)
         {

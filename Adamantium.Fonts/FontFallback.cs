@@ -139,9 +139,9 @@ public sealed class FontFallback
         IFont font;
         if (wait)
         {
-            font = FontCollection.Load(face, like.Weight, like.Stretch);
+            font = FontCollection.Load(face, like.Weight, like.Stretch, like.Style);
         }
-        else if (!FontCollection.TryLoad(face, like.Weight, like.Stretch, out font))
+        else if (!FontCollection.TryLoad(face, like.Weight, like.Stretch, like.Style, out font))
         {
             pending = true;
             return null;

@@ -11,5 +11,8 @@ namespace Adamantium.Fonts.Tables.Layout
         public DeltaFormatValues DeltaFormat { get; set; }
         
         public UInt16[] DeltaValues { get; set; }
+
+        public int VariationIndex =>
+            DeltaFormat == DeltaFormatValues.VariationIndex ? (StartSize << 16) | EndSize : -1;
     }
 }
