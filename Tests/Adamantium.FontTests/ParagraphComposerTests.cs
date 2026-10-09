@@ -19,11 +19,14 @@ public class ParagraphComposerTests
     {
         var random = new Random(seed);
         var items = RandomParagraph(random);
-        var width = random.Next(120, 260);
+        double width = random.Next(120, 260);
+        List<double> widths = random.Next(2) == 0
+            ? [width]
+            : [width - random.Next(20, 80), width - random.Next(20, 80), width];
         var tolerance = random.Next(3) switch { 0 => 100, 1 => 200, _ => 1000 };
 
-        var breaks = ParagraphComposer.Break(items, width, tolerance);
-        var best = BestByEveryBreaking(items, width, tolerance);
+        var breaks = ParagraphComposer.Break(items, widths, tolerance);
+        var best = BestByEveryBreaking(items, widths, tolerance);
 
         if (best == null)
         {
@@ -32,7 +35,7 @@ public class ParagraphComposerTests
         }
 
         Assert.That(breaks, Is.Not.Null);
-        var demerits = Demerits(items, width, tolerance, breaks);
+        var demerits = Demerits(items, widths, tolerance, breaks);
         Assert.That(demerits, Is.Not.Null, "every line keeps to the tolerance");
         Assert.That(demerits.Value, Is.EqualTo(best.Value).Within(1e-6 * Math.Max(1, best.Value)));
     }
@@ -117,7 +120,7 @@ public class ParagraphComposerTests
         return items;
     }
 
-    private static double? BestByEveryBreaking(List<ComposerItem> items, double width, double tolerance)
+    private static double? BestByEveryBreaking(List<ComposerItem> items, IReadOnlyList<double> widths, double tolerance)
     {
         var legal = Enumerable.Range(0, items.Count - 1).Where(i => IsLegal(items, i)).ToArray();
         Assert.That(legal.Length, Is.LessThanOrEqualTo(20), "small enough to try every breaking");
@@ -134,7 +137,7 @@ public class ParagraphComposerTests
             }
 
             breaks.Add(items.Count - 1);
-            var demerits = Demerits(items, width, tolerance, breaks);
+            var demerits = Demerits(items, widths, tolerance, breaks);
             if (demerits != null && (best == null || demerits < best))
             {
                 best = demerits;
@@ -154,14 +157,17 @@ public class ParagraphComposerTests
         };
     }
 
-    private static double? Demerits(List<ComposerItem> items, double width, double tolerance, IReadOnlyList<int> breaks)
+    private static double? Demerits(List<ComposerItem> items, IReadOnlyList<double> widths, double tolerance,
+        IReadOnlyList<int> breaks)
     {
         double total = 0;
         var previous = -1;
         var previousFitness = 2;
         var previousFlagged = false;
+        var lineIndex = 0;
         foreach (var b in breaks)
         {
+            var width = widths[Math.Min(lineIndex++, widths.Count - 1)];
             var start = 0;
             if (previous >= 0)
             {

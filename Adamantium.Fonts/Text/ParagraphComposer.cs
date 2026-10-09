@@ -29,7 +29,14 @@ public static class ParagraphComposer
     /// items end with a forced penalty, which is the last break.</summary>
     public static int[] Break(IReadOnlyList<ComposerItem> items, double lineWidth, double tolerance)
     {
-        return Run(items, lineWidth, tolerance, 0, false);
+        return Run(items, [lineWidth], tolerance, 0, false);
+    }
+
+    /// <summary>The breaks of <see cref="Break(IReadOnlyList{ComposerItem}, double, double)"/> for lines of
+    /// <paramref name="lineWidths"/> in turn, the last for every line after - narrower first lines beside a drop cap.</summary>
+    public static int[] Break(IReadOnlyList<ComposerItem> items, IReadOnlyList<double> lineWidths, double tolerance)
+    {
+        return Run(items, lineWidths, tolerance, 0, false);
     }
 
     /// <summary>The breaks of <see cref="Break"/> as TeX's last pass finds them: every line may be as loose as it must,
@@ -37,10 +44,18 @@ public static class ParagraphComposer
     /// than it, the line overflows.</summary>
     public static int[] BreakAnyway(IReadOnlyList<ComposerItem> items, double lineWidth, double emergencyStretch)
     {
-        return Run(items, lineWidth, InfiniteBadness, emergencyStretch, true);
+        return Run(items, [lineWidth], InfiniteBadness, emergencyStretch, true);
     }
 
-    private static int[] Run(IReadOnlyList<ComposerItem> items, double lineWidth, double tolerance,
+    /// <summary>The breaks of <see cref="BreakAnyway(IReadOnlyList{ComposerItem}, double, double)"/> for lines of
+    /// <paramref name="lineWidths"/> in turn, the last for every line after.</summary>
+    public static int[] BreakAnyway(IReadOnlyList<ComposerItem> items, IReadOnlyList<double> lineWidths,
+        double emergencyStretch)
+    {
+        return Run(items, lineWidths, InfiniteBadness, emergencyStretch, true);
+    }
+
+    private static int[] Run(IReadOnlyList<ComposerItem> items, IReadOnlyList<double> lineWidths, double tolerance,
         double emergencyStretch, bool lastPass)
     {
         var count = items.Count;
@@ -48,6 +63,13 @@ public static class ParagraphComposer
         {
             throw new ArgumentException("A paragraph ends with a forced penalty.", nameof(items));
         }
+
+        if (lineWidths == null || lineWidths.Count == 0)
+        {
+            throw new ArgumentException("There is a width for the lines.", nameof(lineWidths));
+        }
+
+        var lastWidth = lineWidths.Count - 1;
 
         var widths = new double[count + 1];
         var stretches = new double[count + 1];
@@ -71,8 +93,8 @@ public static class ParagraphComposer
             firstBox[i] = items[i].Kind == ComposerItemKind.Box ? i : firstBox[i + 1];
         }
 
-        List<ComposerNode> active = [new ComposerNode(-1, Decent, 0, null, false)];
-        var candidates = new ComposerNode[4];
+        List<ComposerNode> active = [new ComposerNode(-1, 0, Decent, 0, null, false)];
+        var candidates = new Dictionary<(int Line, int Fitness), ComposerNode>();
         for (var b = 0; b < count; b++)
         {
             var item = items[b];
@@ -87,11 +109,13 @@ public static class ParagraphComposer
             var isPenalty = item.Kind == ComposerItemKind.Penalty;
             var forced = isPenalty && item.Cost <= Forced;
             var last = b == count - 1;
-            Array.Clear(candidates, 0, candidates.Length);
+            candidates.Clear();
             var found = false;
             for (var i = 0; i < active.Count;)
             {
                 var from = active[i];
+                var lineWidth = lineWidths[Math.Min(from.Line, lastWidth)];
+                var lineKey = Math.Min(from.Line + 1, lastWidth);
                 var start = from.Position < 0 ? 0 : firstBox[from.Position + 1];
                 if (start > b)
                 {
@@ -105,7 +129,7 @@ public static class ParagraphComposer
                     active.RemoveAt(i);
                     if (keep)
                     {
-                        candidates[Decent] = new ComposerNode(b, Decent, from.Total, from, false);
+                        candidates[(lineKey, Decent)] = new ComposerNode(b, from.Line + 1, Decent, from.Total, from, false);
                         found = true;
                     }
 
@@ -167,20 +191,15 @@ public static class ParagraphComposer
                     }
                 }
 
-                if (candidates[fitness] == null || demerits < candidates[fitness].Total)
+                if (!candidates.TryGetValue((lineKey, fitness), out var known) || demerits < known.Total)
                 {
-                    candidates[fitness] = new ComposerNode(b, fitness, demerits, from, isPenalty && item.Flagged);
+                    candidates[(lineKey, fitness)] =
+                        new ComposerNode(b, from.Line + 1, fitness, demerits, from, isPenalty && item.Flagged);
                     found = true;
                 }
             }
 
-            foreach (var candidate in candidates)
-            {
-                if (candidate != null)
-                {
-                    active.Add(candidate);
-                }
-            }
+            active.AddRange(candidates.Values);
 
             if (active.Count == 0)
             {

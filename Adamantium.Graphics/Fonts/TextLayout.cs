@@ -73,6 +73,12 @@ public class TextLayout : DisposableObject
     public bool OpticalMarginAlignment { get; set; }
 
     /// <summary>
+    /// The first characters of the text set large across its first lines, the lines running beside them; null (the
+    /// default) for none. Text wrapped by <see cref="TextWrapping.WrapByWords"/> only, starting left to right.
+    /// </summary>
+    public DropCap DropCap { get; set; }
+
+    /// <summary>
     /// The text's language, a BCP 47 tag such as "ru" or "en-GB", for ranges whose attributes name none: picks the
     /// hyphenation patterns, the font's localized glyph forms and the fallback fonts. Null when unknown.
     /// </summary>
@@ -123,6 +129,7 @@ public class TextLayout : DisposableObject
     private Hyphens _laidOutHyphens;
     private LineBreaking _laidOutLineBreaking;
     private bool _laidOutOpticalMargins;
+    private DropCap _laidOutDropCap;
     private TabStop[] _laidOutTabStops = [];
     private string _laidOutLanguage;
     private List<(int Start, int End, BidiParagraph Paragraph)> _paragraphs;
@@ -211,7 +218,7 @@ public class TextLayout : DisposableObject
                _previousRenderingParameters == renderingParameters && _laidOutTabSize == TabSize &&
                _laidOutDirection == Direction && _laidOutHyphens == Hyphens && _laidOutLanguage == Language &&
                _laidOutLineBreaking == LineBreaking && _laidOutTabStops.SequenceEqual(TabStops ?? []) &&
-               _laidOutOpticalMargins == OpticalMarginAlignment;
+               _laidOutOpticalMargins == OpticalMarginAlignment && Equals(_laidOutDropCap, DropCap);
     }
 
     public Size ProcessText(string text,
@@ -335,11 +342,16 @@ public class TextLayout : DisposableObject
         _laidOutLanguage = Language;
         _laidOutLineBreaking = LineBreaking;
         _laidOutOpticalMargins = OpticalMarginAlignment;
+        _laidOutDropCap = DropCap;
         _laidOutTabStops = TabStops?.ToArray() ?? [];
         var tabStops = _laidOutTabStops.OrderBy(stop => stop.Position).ToArray();
         _paragraphs = ResolveParagraphs(text);
         _characterLevels = null;
-        var items = Shape(text, fontSize);
+        var dropEnd = DropCap != null && renderingParameters.TextWrapping == TextWrapping.WrapByWords
+                                      && !IsRightToLeftParagraph(0)
+            ? DropCapEnd(text)
+            : 0;
+        var items = Shape(text, fontSize, dropEnd);
         _laidOutTabSize = TabSize;
         var tabStop = Font.GetAdvanceWidth(spaceGlyph.Index) * scale * Math.Max(TabSize, 1);
 
@@ -373,12 +385,25 @@ public class TextLayout : DisposableObject
 
         HashSet<int> composedStarts = null;
         HashSet<int> composedCuts = null;
+        var composedLines = 0;
+        double dropIndent = 0;
+        var dropLines = 0;
+        var dropItems = 0;
+        IFont dropFont = null;
+        double dropScale = 0;
+        ShapedGlyph[] dropGlyphs = null;
+        if (dropEnd > 0 && items.Count > 0)
+        {
+            SetUpDropCap();
+        }
+
+        cursorPosition = LineIndent(0);
         if (lineBreaks != null && LineBreaking == LineBreaking.Paragraph && textArea.Width < Int32.MaxValue)
         {
             Compose();
         }
 
-        var wordStart = 0;
+        var wordStart = dropItems;
         while (wordStart <= items.Count)
         {
             var wordEnd = WordEnd(wordStart);
@@ -440,13 +465,21 @@ public class TextLayout : DisposableObject
         PlaceLines();
         var lastBaseline = lineTops[lineCount - 1] + lineBaselines[lineCount - 1];
         height = lineTops[lineCount - 1] + lineHeights[lineCount - 1];
+        if (dropGlyphs != null)
+        {
+            lastBaseline = Math.Max(lastBaseline, DropBaseline());
+            height = Math.Max(height, DropBaseline() + lineHeight - baseLine);
+        }
 
         var _b3 = System.GC.GetAllocatedBytesForCurrentThread();
 
 
-        CalculateRealTextDimensions(glyphsData);
+        if (glyphsData.Count > 0)
+        {
+            CalculateRealTextDimensions(glyphsData);
+        }
 
-        var maxX = glyphsData.Max(InkRight);
+        var maxX = Math.Max(glyphsData.Count > 0 ? glyphsData.Max(InkRight) : 0, dropIndent);
         var finalRect = new Size(Math.Ceiling(maxX), Math.Ceiling(height));
         if (renderingParameters.TextArea.Width != Int32.MaxValue)
         {
@@ -458,10 +491,20 @@ public class TextLayout : DisposableObject
             finalRect.Height = renderingParameters.TextArea.Height;
         }
 
-        ArrangeText();
+        if (glyphsData.Count > 0)
+        {
+            ArrangeText();
+        }
+
         for (var i = 0; i < lineCount; i++)
         {
             lineTops[i] += verticalShift;
+        }
+
+        if (dropGlyphs != null)
+        {
+            glyphsData.InsertRange(0, DropCapGlyphs());
+            CalculateRealTextDimensions(glyphsData);
         }
 
         if (leaders.Count > 0)
@@ -587,12 +630,101 @@ public class TextLayout : DisposableObject
             return end;
         }
 
+        double DropBaseline() => dropLines - 1 < lineTops.Length
+            ? lineTops[dropLines - 1] + lineBaselines[dropLines - 1]
+            : lineTops[lineTops.Length - 1] + lineBaselines[lineTops.Length - 1] + (dropLines - lineTops.Length) * lineHeight;
+
+        List<GlyphWordData> DropCapGlyphs()
+        {
+            var baseline = DropBaseline();
+            var attributes = items[0].Attributes;
+            List<GlyphWordData> glyphs = [];
+            double pen = 0;
+            foreach (var shaped in dropGlyphs)
+            {
+                var glyph = dropFont.GetGlyphByIndex(shaped.GlyphIndex);
+                var advance = shaped.XAdvance * dropScale;
+                var rect = CalculateGlyphPosition(dropFont, glyph, pen + shaped.XOffset * dropScale,
+                    baseline - shaped.YOffset * dropScale, dropScale);
+                glyphs.Add(new GlyphWordData(glyph, text[shaped.Cluster], rect, shaped.Cluster, 0)
+                {
+                    PenX = pen,
+                    Advance = advance,
+                    OffsetX = shaped.XOffset * dropScale,
+                    OffsetY = shaped.YOffset * dropScale,
+                    Attributes = attributes,
+                    Font = dropFont,
+                    FontSize = dropScale * dropFont.UnitsPerEm,
+                });
+                pen += advance;
+            }
+
+            return glyphs;
+        }
+
+        void SetUpDropCap()
+        {
+            var first = items[0];
+            var options = new ShapingOptions(null, first.Attributes?.Language ?? Language, first.Attributes?.Features);
+            var font = DropCap.Font ?? first.Font;
+            var shaped = TextShaper.Shape(font, text, 0, dropEnd, options);
+            if (!ReferenceEquals(font, first.Font) && shaped.Any(glyph => glyph.GlyphIndex == 0))
+            {
+                font = first.Font;
+                shaped = TextShaper.Shape(font, text, 0, dropEnd, options);
+            }
+
+            double top = 0;
+            double pen = 0;
+            double inkRight = 0;
+            foreach (var glyph in shaped)
+            {
+                var bounds = font.GetGlyphByIndex(glyph.GlyphIndex).BoundingRectangle;
+                top = Math.Max(top, bounds.Y + bounds.Height);
+                if (bounds.Width > 0)
+                {
+                    inkRight = Math.Max(inkRight,
+                        pen + glyph.XOffset + font.GetLeftSideBearing(glyph.GlyphIndex) + bounds.Width);
+                }
+
+                pen += glyph.XAdvance;
+            }
+
+            var bodyScale = first.FontSize / first.Font.UnitsPerEm;
+            var cap = (first.Font.CapsHeight > 0 ? first.Font.CapsHeight : first.Font.Ascender * 0.7) * bodyScale;
+            if (top <= 0)
+            {
+                return;
+            }
+
+            var capScale = (cap + (DropCap.Lines - 1) * lineHeight) / top;
+            var indent = Math.Max(pen * capScale, inkRight * capScale + 0.1 * first.FontSize);
+            if (textArea.Width < Int32.MaxValue && indent > textArea.Width - 2 * first.FontSize)
+            {
+                return;
+            }
+
+            dropFont = font;
+            dropScale = capScale;
+            dropGlyphs = shaped;
+            dropIndent = indent;
+            dropLines = DropCap.Lines;
+            while (dropItems < items.Count && items[dropItems].Cluster < dropEnd)
+            {
+                dropItems++;
+            }
+        }
+
         void NewLine()
         {
             lineIndex++;
             height += lineHeight;
-            cursorPosition = 0;
+            cursorPosition = LineIndent(lineIndex);
         }
+
+        double LineIndent(int line) => line < dropLines ? dropIndent : 0;
+
+        bool LineHasContent() => cursorPosition > LineIndent(lineIndex) + 1e-9;
 
         bool HasRoomBelow() => height + lineHeight < textArea.Height;
 
@@ -617,7 +749,7 @@ public class TextLayout : DisposableObject
         {
             var newline = end > start && items[end - 1].Symbol == '\n' ? end - 1 : end;
             var trims = renderingParameters.TextTrimming != TextTrimming.None;
-            if (composedStarts.Contains(start) && cursorPosition > 0)
+            if (composedStarts.Contains(start) && LineHasContent())
             {
                 if (HasRoomBelow())
                 {
@@ -635,7 +767,7 @@ public class TextLayout : DisposableObject
                 }
             }
 
-            if (cursorPosition > 0 && HasRoomBelow()
+            if (LineHasContent() && HasRoomBelow()
                 && cursorPosition + WordWidth(start, newline) > textArea.Width + LineShrink())
             {
                 NewLine();
@@ -667,7 +799,7 @@ public class TextLayout : DisposableObject
             }
 
             wordStartPosition = cursorPosition;
-            if (trims && cursorPosition == 0 && WordWidth(start, newline) > textArea.Width)
+            if (trims && !LineHasContent() && cursorPosition + WordWidth(start, newline) > textArea.Width)
             {
                 var lastLine = !HasRoomBelow();
                 LayItems(start, newline);
@@ -685,7 +817,7 @@ public class TextLayout : DisposableObject
             var justified = renderingParameters.HorizontalTextAlignment == HorizontalTextAlignment.Justify;
             var raggedStretch = 2 * fontSize;
             List<(ComposerItem Item, int Next, bool Cut, bool Automatic)> paragraph = [];
-            var start = 0;
+            var start = dropItems;
             while (start < items.Count)
             {
                 var end = WordEnd(start);
@@ -753,9 +885,17 @@ public class TextLayout : DisposableObject
 
             if (paragraph.Count == 0)
             {
+                composedLines++;
                 return;
             }
 
+            List<double> widths = [];
+            for (var line = composedLines; line < dropLines; line++)
+            {
+                widths.Add(textArea.Width - dropIndent);
+            }
+
+            widths.Add(textArea.Width);
             if (!justified || !renderingParameters.JustifyLastLine)
             {
                 paragraph.Add((ComposerItem.Penalty(0, ParagraphComposer.Never, false), -1, false, false));
@@ -765,14 +905,16 @@ public class TextLayout : DisposableObject
             paragraph.Add((ComposerItem.Penalty(0, ParagraphComposer.Forced, false), -1, false, false));
             var exact = paragraph.Where(entry => !entry.Automatic).ToList();
             var chosen = exact;
-            var breaks = ParagraphComposer.Break(exact.Select(entry => entry.Item).ToList(), textArea.Width, 100);
+            var breaks = ParagraphComposer.Break(exact.Select(entry => entry.Item).ToList(), widths, 100);
             if (breaks == null)
             {
                 chosen = paragraph;
                 var all = paragraph.Select(entry => entry.Item).ToList();
-                breaks = ParagraphComposer.Break(all, textArea.Width, 200)
-                         ?? ParagraphComposer.BreakAnyway(all, textArea.Width, 2 * fontSize);
+                breaks = ParagraphComposer.Break(all, widths, 200)
+                         ?? ParagraphComposer.BreakAnyway(all, widths, 2 * fontSize);
             }
+
+            composedLines += breaks.Length;
 
             for (var k = 0; k < breaks.Length - 1; k++)
             {
@@ -856,13 +998,11 @@ public class TextLayout : DisposableObject
             // a word wider than the line only overflows as the first on its line.
             if (wrapsByWords
                 && wordIndex > 0
-                && cursorPosition > 0
+                && LineHasContent()
                 && cursorPosition + wordWidth > textArea.Width
                 && height + lineHeight < textArea.Height)
             {
-                lineIndex++;
-                height += lineHeight;
-                cursorPosition = 0;
+                NewLine();
             }
 
             wordStartPosition = cursorPosition;
@@ -872,7 +1012,7 @@ public class TextLayout : DisposableObject
             {
                 var newline = end > start && items[end - 1].Symbol == '\n' ? end - 1 : end;
                 var lastLine = !HasRoomBelow();
-                var trimming = cursorPosition > 0 ? renderingParameters.TextTrimming : TextTrimming.CharEllipses;
+                var trimming = LineHasContent() ? renderingParameters.TextTrimming : TextTrimming.CharEllipses;
                 LayItems(start, newline);
                 EndInEllipsis(trimming);
                 return !lastLine && LayItems(newline, end);
@@ -983,7 +1123,7 @@ public class TextLayout : DisposableObject
 
                 if (cut < 0)
                 {
-                    if (cursorPosition > 0 && wordIndex > 0)
+                    if (LineHasContent() && wordIndex > 0)
                     {
                         NewLine();
                         continue;
@@ -994,9 +1134,7 @@ public class TextLayout : DisposableObject
 
                 LayItems(start, cut);
                 AddHyphen(items[cut - 1]);
-                lineIndex++;
-                height += lineHeight;
-                cursorPosition = 0;
+                NewLine();
                 start = cut;
             }
 
@@ -1116,9 +1254,7 @@ public class TextLayout : DisposableObject
                                 FontSize = item.FontSize,
                             });
                         }
-                        height += lineHeight;
-                        cursorPosition = 0;
-                        lineIndex++;
+                        NewLine();
                         break;
                     default:
                     {
@@ -1206,7 +1342,7 @@ public class TextLayout : DisposableObject
                         minX = ink.Min(x => x.Rect.Left);
                         maxX = ink.Max(x => x.Rect.Right);
                         var lineWidth = maxX - minX;
-                        var diff = (finalRect.Width - lineWidth) / 2 - minX;
+                        var diff = LineIndent(i) + (finalRect.Width - LineIndent(i) - lineWidth) / 2 - minX;
                         foreach (var glyphWordData in glyphsForLine)
                         {
                             var rect = glyphWordData.Rect;
@@ -1329,7 +1465,13 @@ public class TextLayout : DisposableObject
                     var lastInk = glyphsData.Max(x => x.LineIndex);
                     var ascent = lineAscents[0];
                     var firstBaseline = lineTops[0] - textArea.Y + lineBaselines[0];
-                    var blockHeight = lineTops[lastInk] - textArea.Y + lineBaselines[lastInk] - firstBaseline + ascent;
+                    var lastInkBaseline = lineTops[lastInk] + lineBaselines[lastInk];
+                    if (dropGlyphs != null)
+                    {
+                        lastInkBaseline = Math.Max(lastInkBaseline, DropBaseline());
+                    }
+
+                    var blockHeight = lastInkBaseline - textArea.Y - firstBaseline + ascent;
                     var blockTop = firstBaseline - ascent;
                     var diff = (finalRect.Height - blockHeight) / 2 - blockTop;
                     verticalShift = diff;
@@ -3068,7 +3210,47 @@ public class TextLayout : DisposableObject
         return x;
     }
 
-    private List<ShapedItem> Shape(string text, double fontSize)
+    private int DropCapEnd(string text)
+    {
+        if (char.IsWhiteSpace(text[0]) || char.IsControl(text[0]))
+        {
+            return 0;
+        }
+
+        var graphemes = TextBoundaries.Graphemes(text);
+        var end = 0;
+        var letters = 0;
+        while (end < text.Length && letters < DropCap.Characters && text[end] != '\n')
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(text, end) is not (UnicodeCategory.OpenPunctuation
+                or UnicodeCategory.InitialQuotePunctuation))
+            {
+                letters++;
+            }
+
+            end = TextBoundaries.Next(graphemes, end);
+        }
+
+        return end;
+    }
+
+    private static IEnumerable<(int Start, int End, TextAttributes Attributes)> SplitAt(
+        IEnumerable<(int Start, int End, TextAttributes Attributes)> segments, int split)
+    {
+        foreach (var segment in segments)
+        {
+            if (split > segment.Start && split < segment.End)
+            {
+                yield return (segment.Start, split, segment.Attributes);
+                yield return (split, segment.End, segment.Attributes);
+                continue;
+            }
+
+            yield return segment;
+        }
+    }
+
+    private List<ShapedItem> Shape(string text, double fontSize, int split)
     {
         HasPendingFonts = false;
         var items = new List<ShapedItem>(text.Length);
@@ -3077,7 +3259,7 @@ public class TextLayout : DisposableObject
         var graphemes = Fallback == null ? null
             : ReferenceEquals(text, Text) ? Graphemes()
             : TextBoundaries.Graphemes(text);
-        foreach (var (start, end, attributes) in ShapingSegments(text, fontSize))
+        foreach (var (start, end, attributes) in SplitAt(ShapingSegments(text, fontSize), split))
         {
             var language = attributes?.Language ?? Language;
             var options = attributes == null && language == null
