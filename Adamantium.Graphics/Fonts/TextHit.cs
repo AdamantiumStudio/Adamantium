@@ -20,6 +20,7 @@ public readonly struct TextHit
     /// <summary>Whether the point is over the text rather than beside or below it.</summary>
     public bool IsInside { get; }
 
-    /// <summary>Where a click there puts the caret: before the grapheme, or after it when the point is trailing.</summary>
+    /// <summary>Where a click there puts the caret: before the grapheme, after it when the point is trailing, or at the
+    /// line's start or end beside the line.</summary>
     public int CaretIndex { get; }
 }

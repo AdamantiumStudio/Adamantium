@@ -56,3 +56,9 @@ OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani			葛{U+E0100}葛{U+E0101}
 OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani			葛{U+E0101}{U+E0100}葛{U+E01EF}
 OTFFonts/CFF2/SourceHanSerifVFProtoJP.otf	Hani			葛{U+E0100}辻{U+E0100}
 TTFFonts/SourceSans3-Regular.ttf	Latn			{U+2764}{U+FE0F} {U+2764}{U+FE0E} 1{U+FE0F}{U+20E3}
+ScriptFonts/NotoSansHebrew-Regular.ttf	Hebr			שלום עולם
+ScriptFonts/NotoSansHebrew-Regular.ttf	Hebr			בְּרֵאשִׁית בָּרָא אֱלֹהִים
+ScriptFonts/NotoSansHebrew-Regular.ttf	Hebr			(שלום) [א] {ב} <ג> 123
+ScriptFonts/NotoSansHebrew-Regular.ttf	Hebr			שִׁין שִׂין וּ בּ כּ פּ תּ
+ScriptFonts/NotoSansHebrew-Regular.ttf	Hebr			מילה Word מילה
+TTFFonts/SourceSans3-Regular.ttf	Hebr			(a) [b] <c> {d} «e» 1+2

@@ -61,15 +61,18 @@ JPEG 2000 — that is a different format built on wavelets, and there is no code
 ## Unicode Character Database
 
 **Where:** `Adamantium.Fonts/Data/` — `Scripts.ucd`, `CombiningClass.ucd`, `Decompositions.ucd`,
-`ExtendedPictographic.ucd`, `GraphemeBreak.ucd`, `WordBreak.ucd`, `IndicConjunctBreak.ucd`, `LineBreak.ucd` and
-`EastAsianWidth.ucd`, embedded in `Adamantium.Fonts`; and, for the tests only, `GraphemeBreakTest.txt`,
-`WordBreakTest.txt` and `LineBreakTest.txt` in `Tests/Adamantium.FontTests/Unicode/`.
+`ExtendedPictographic.ucd`, `GraphemeBreak.ucd`, `WordBreak.ucd`, `IndicConjunctBreak.ucd`, `LineBreak.ucd`,
+`EastAsianWidth.ucd`, `BidiClass.ucd`, `BidiBrackets.ucd` and `BidiMirroring.ucd`, embedded in `Adamantium.Fonts`;
+and, for the tests only, `GraphemeBreakTest.txt`, `WordBreakTest.txt`, `LineBreakTest.txt`, `BidiTest.txt` and
+`BidiCharacterTest.txt` in `Tests/Adamantium.FontTests/Unicode/`.
 
 Data, not code: the script, canonical combining class, canonical decomposition, Extended_Pictographic, grapheme, word
-and line break, Indic_Conjunct_Break and East_Asian_Width properties of Unicode 16.0, cut down from the UCD files
-(`Scripts.txt`, `DerivedCombiningClass.txt`, `UnicodeData.txt`, `DerivedNormalizationProps.txt`, `emoji-data.txt`,
-`GraphemeBreakProperty.txt`, `WordBreakProperty.txt`, `DerivedCoreProperties.txt`, `LineBreak.txt`,
-`EastAsianWidth.txt`) to the columns the text shaper and the text boundaries read, with adjacent ranges joined.
+and line break, Indic_Conjunct_Break, East_Asian_Width, Bidi_Class, Bidi_Paired_Bracket and Bidi_Mirroring_Glyph
+properties of Unicode 16.0, cut down from the UCD files (`Scripts.txt`, `DerivedCombiningClass.txt`, `UnicodeData.txt`,
+`DerivedNormalizationProps.txt`, `emoji-data.txt`, `GraphemeBreakProperty.txt`, `WordBreakProperty.txt`,
+`DerivedCoreProperties.txt`, `LineBreak.txt`, `EastAsianWidth.txt`, `DerivedBidiClass.txt`, `BidiBrackets.txt`,
+`BidiMirroring.txt`) to the columns the text shaper, the text boundaries and the bidirectional algorithm read, with
+adjacent ranges joined.
 
 ```
 UNICODE LICENSE V3
@@ -156,6 +159,14 @@ them.
 **Where:** `Tests/Adamantium.FontTests/Variations/RobotoFlex-Variable.ttf`, unchanged, the variable font from
 https://github.com/google/fonts/tree/main/ofl/robotoflex, used only by the tests. Copyright 2017 The Roboto Flex
 Project Authors, under the SIL Open Font License 1.1, whose text is `RobotoFlex-OFL.txt` beside it.
+
+---
+
+## Noto Sans Hebrew
+
+**Where:** `Tests/Adamantium.FontTests/ScriptFonts/NotoSansHebrew-Regular.ttf`, unchanged, from
+https://github.com/notofonts/hebrew, used only by the tests. Copyright 2022 The Noto Project Authors, under the SIL
+Open Font License 1.1, whose text is `LICENSE-NotoSansHebrew.txt` beside it.
 
 ---
 

@@ -73,7 +73,56 @@ public static class Program
 
         var eastAsian = ParseRanges(await Download(ucd + "EastAsianWidth.txt")).Where(r => r.Value is "F" or "W" or "H");
         Write(output, "EastAsianWidth.ucd", FormatRanges(eastAsian, true));
+
+        var bidiNames = DataLines(aliases).Where(f => f[0] == "bc").ToDictionary(f => f[2], f => f[1]);
+        var bidiClasses = BidiClasses(await Download(ucd + "extracted/DerivedBidiClass.txt"), bidiNames);
+        Write(output, "BidiClass.ucd", FormatRanges(bidiClasses, true));
+
+        var brackets = DataLines(await Download(ucd + "BidiBrackets.txt")).Select(f => string.Join(";", f) + "\n");
+        Write(output, "BidiBrackets.ucd", string.Concat(brackets));
+
+        var mirrors = DataLines(await Download(ucd + "BidiMirroring.txt")).Select(f => string.Join(";", f) + "\n");
+        Write(output, "BidiMirroring.ucd", string.Concat(mirrors));
         return 0;
+    }
+
+    private static IEnumerable<(int Start, int End, string Value)> BidiClasses(string derived,
+        Dictionary<string, string> shortNames)
+    {
+        const string Missing = "# @missing:";
+        var classes = new string[0x110000];
+        foreach (var raw in derived.Split('\n'))
+        {
+            if (!raw.StartsWith(Missing, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var fields = raw.Substring(Missing.Length).Split(';').Select(f => f.Trim()).ToArray();
+            var (start, end, value) = ParseRange(fields[0], fields[1]);
+            Array.Fill(classes, shortNames.GetValueOrDefault(value, value), start, end - start + 1);
+        }
+
+        foreach (var (start, end, value) in ParseRanges(derived))
+        {
+            Array.Fill(classes, value, start, end - start + 1);
+        }
+
+        var first = 0;
+        for (var codepoint = 1; codepoint <= classes.Length; codepoint++)
+        {
+            if (codepoint < classes.Length && classes[codepoint] == classes[first])
+            {
+                continue;
+            }
+
+            if (classes[first] != "L")
+            {
+                yield return (first, codepoint - 1, classes[first]);
+            }
+
+            first = codepoint;
+        }
     }
 
     private static async Task<string> Download(string url)

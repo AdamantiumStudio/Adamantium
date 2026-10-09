@@ -33,6 +33,42 @@ internal static class UnicodeData
 
     public static byte GetCombiningClass(int codepoint) => CombiningClasses.Value[codepoint];
 
+    public static byte GetModifiedCombiningClass(int codepoint) => codepoint switch
+    {
+        0x1A60 or 0x0FC6 => 254,
+        0x0F39 => 127,
+        _ => GetCombiningClass(codepoint) switch
+        {
+            10 => 22,
+            11 => 15,
+            12 => 16,
+            13 => 17,
+            14 => 23,
+            15 => 18,
+            16 => 19,
+            17 => 20,
+            18 => 21,
+            19 => 14,
+            20 => 24,
+            21 => 12,
+            22 => 25,
+            23 => 13,
+            24 => 10,
+            25 => 11,
+            27 => 28,
+            28 => 29,
+            29 => 30,
+            30 => 31,
+            31 => 32,
+            32 => 33,
+            33 => 27,
+            103 => 3,
+            130 => 132,
+            132 => 131,
+            var other => other
+        }
+    };
+
     public static bool IsExtendedPictographic(int codepoint) => Pictographic.Value[codepoint];
 
     public static bool IsEmojiPresentation(int codepoint) => EmojiByDefault.Value[codepoint];

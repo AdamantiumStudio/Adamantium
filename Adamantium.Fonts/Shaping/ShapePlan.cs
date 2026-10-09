@@ -46,13 +46,15 @@ internal sealed class ShapePlan
 
     public FeatureMap GetFeature(string tag) => _features.TryGetValue(tag, out var map) ? map : null;
 
+    public uint RtlmMask { get; private set; }
+
     public static ShapePlan Create(OpenTypeLayout layout, string scriptTag, string languageTag,
-        IReadOnlyList<FontFeature> userFeatures, int gsubVariation = -1, int gposVariation = -1)
+        IReadOnlyList<FontFeature> userFeatures, int gsubVariation = -1, int gposVariation = -1, bool rightToLeft = false)
     {
         var plan = new ShapePlan();
         var gsub = Select(layout.Gsub, scriptTag, languageTag, gsubVariation);
         var gpos = Select(layout.Gpos, scriptTag, languageTag, gposVariation);
-        var requests = Merge(CollectRequests(userFeatures));
+        var requests = Merge(CollectRequests(userFeatures, rightToLeft));
 
         var requiredGsubStage = 0;
         var requiredGposStage = 0;
@@ -122,10 +124,11 @@ internal sealed class ShapePlan
         plan.FracMask = plan.GetFeature("frac")?.Mask ?? 0;
         plan.NumrMask = plan.GetFeature("numr")?.Mask ?? 0;
         plan.DnomMask = plan.GetFeature("dnom")?.Mask ?? 0;
+        plan.RtlmMask = plan.GetFeature("rtlm")?.Mask ?? 0;
         return plan;
     }
 
-    private static List<FeatureRequest> CollectRequests(IReadOnlyList<FontFeature> userFeatures)
+    private static List<FeatureRequest> CollectRequests(IReadOnlyList<FontFeature> userFeatures, bool rightToLeft)
     {
         var requests = new List<FeatureRequest>();
         var gsubStage = 0;
@@ -149,9 +152,17 @@ internal sealed class ShapePlan
         }
 
         gsubStage++;
-        foreach (var tag in DirectionFeatures)
+        if (rightToLeft)
         {
-            Add(tag, FeatureFlags.Global);
+            Add("rtla", FeatureFlags.Global);
+            Add("rtlm", FeatureFlags.None);
+        }
+        else
+        {
+            foreach (var tag in DirectionFeatures)
+            {
+                Add(tag, FeatureFlags.Global);
+            }
         }
 
         Add("frac", FeatureFlags.None);

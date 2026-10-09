@@ -32,6 +32,8 @@ internal sealed partial class LookupApplier
         _coordinates = coordinates;
     }
 
+    public bool RightToLeft { get; set; }
+
     private enum SkipResult
     {
         No,

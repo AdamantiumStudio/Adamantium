@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Adamantium.Fonts.Text;
 
 namespace Adamantium.Fonts.Shaping;
 
@@ -13,8 +14,9 @@ public static class TextShaper
     /// <see cref="FontFeature"/> of value 0 turns one off. Any other feature applies only when asked for.</summary>
     public static IReadOnlyList<string> DefaultFeatures { get; } = Array.AsReadOnly(ShapePlan.DefaultFeatures);
 
-    /// <summary>Shapes <paramref name="text"/> left to right; the result is in font design units. Without a script in
-    /// <paramref name="options"/> the text is split where its script changes and each part is shaped with its own.</summary>
+    /// <summary>Shapes <paramref name="text"/>; the result is in font design units, each run's glyphs in visual order,
+    /// a right-to-left run's first character last. Without a script in <paramref name="options"/> the text is split
+    /// where its script changes and each part is shaped with its own.</summary>
     public static ShapedGlyph[] Shape(IFont font, string text, ShapingOptions options = null)
     {
         options ??= ShapingOptions.Default;
@@ -45,16 +47,23 @@ public static class TextShaper
         UnicodeProps.SetAll(buffer);
         FormClusters(buffer);
 
+        var rightToLeft = options.Direction == TextDirection.RightToLeft ||
+                          (options.Direction == TextDirection.Auto && IsRightToLeft(script));
         var layout = font.Layout;
-        var plan = GetPlan(layout, script, options, font.NormalizedCoordinates);
+        var plan = GetPlan(layout, script, options, font.NormalizedCoordinates, rightToLeft);
+
+        if (rightToLeft)
+        {
+            Mirror(font, buffer, plan);
+        }
 
         Normalizer.Normalize(font, buffer);
         SetupMasks(buffer, plan, options);
         SetGlyphProps(buffer, layout);
 
-        var applier = new LookupApplier(layout, buffer, font.NormalizedCoordinates);
+        var applier = new LookupApplier(layout, buffer, font.NormalizedCoordinates) { RightToLeft = rightToLeft };
         applier.ApplyGsub(plan);
-        Positioner.Position(font, buffer, plan, applier);
+        Positioner.Position(font, buffer, plan, applier, rightToLeft);
         HideDefaultIgnorables(font, buffer);
 
         var result = new ShapedGlyph[buffer.Length];
@@ -62,11 +71,32 @@ public static class TextShaper
         {
             var info = buffer.Info[i];
             var placement = buffer.Placements[i];
-            result[i] = new ShapedGlyph(info.Glyph, info.Cluster, placement.XAdvance, placement.YAdvance,
-                placement.XOffset, placement.YOffset);
+            result[rightToLeft ? buffer.Length - 1 - i : i] = new ShapedGlyph(info.Glyph, info.Cluster, placement.XAdvance,
+                placement.YAdvance, placement.XOffset, placement.YOffset);
         }
 
         return result;
+    }
+
+    private static bool IsRightToLeft(string script) => script is "Arab" or "Hebr" or "Syrc" or "Thaa" or "Cprt" or "Khar"
+        or "Phnx" or "Nkoo" or "Lydi" or "Avst" or "Armi" or "Phli" or "Prti" or "Sarb" or "Orkh" or "Samr" or "Mand"
+        or "Merc" or "Mero" or "Narb" or "Nbat" or "Palm" or "Mani" or "Hatr" or "Hung" or "Phlp" or "Adlm" or "Rohg"
+        or "Sogo" or "Sogd" or "Elym" or "Chrs" or "Yezi" or "Ougr" or "Mend" or "Gara";
+
+    private static void Mirror(IFont font, GlyphBuffer buffer, ShapePlan plan)
+    {
+        var info = buffer.Info;
+        for (var i = 0; i < buffer.Length; i++)
+        {
+            var mirror = BidiProperties.Mirror(info[i].Codepoint);
+            if (mirror < 0 || !font.TryGetGlyphIndex(mirror, out _))
+            {
+                info[i].Mask |= plan.RtlmMask;
+                continue;
+            }
+
+            info[i].Codepoint = mirror;
+        }
     }
 
     private static void AddText(GlyphBuffer buffer, string text, int from, int to)
@@ -111,16 +141,18 @@ public static class TextShaper
     }
 
 
-    private static ShapePlan GetPlan(OpenTypeLayout layout, string script, ShapingOptions options, float[] coordinates)
+    private static ShapePlan GetPlan(OpenTypeLayout layout, string script, ShapingOptions options, float[] coordinates,
+        bool rightToLeft)
     {
         var scriptTag = OpenTypeTags.ScriptTag(script);
         var languageTag = OpenTypeTags.LanguageTag(options.Language);
         var features = string.Join(",", options.Features.Select(f => $"{f.Tag}={f.Value}{(f.IsGlobal ? "g" : "r")}"));
         var gsubVariation = layout.Gsub?.FeatureVariations?.Find(coordinates) ?? -1;
         var gposVariation = layout.Gpos?.FeatureVariations?.Find(coordinates) ?? -1;
-        var key = $"{scriptTag}|{languageTag}|{features}|{gsubVariation}|{gposVariation}";
+        var key = $"{scriptTag}|{languageTag}|{features}|{gsubVariation}|{gposVariation}|{(rightToLeft ? "rtl" : "ltr")}";
         return layout.Plans.GetOrAdd(key,
-            _ => ShapePlan.Create(layout, scriptTag, languageTag, options.Features, gsubVariation, gposVariation));
+            _ => ShapePlan.Create(layout, scriptTag, languageTag, options.Features, gsubVariation, gposVariation,
+                rightToLeft));
     }
 
     private static void SetupMasks(GlyphBuffer buffer, ShapePlan plan, ShapingOptions options)
@@ -128,7 +160,7 @@ public static class TextShaper
         var info = buffer.Info;
         for (var i = 0; i < buffer.Length; i++)
         {
-            info[i].Mask = plan.GlobalMask;
+            info[i].Mask = plan.GlobalMask | (info[i].Mask & plan.RtlmMask);
         }
 
         foreach (var feature in options.Features)

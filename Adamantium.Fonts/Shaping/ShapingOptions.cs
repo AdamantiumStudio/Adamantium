@@ -7,11 +7,13 @@ public sealed class ShapingOptions
 {
     public static readonly ShapingOptions Default = new();
 
-    public ShapingOptions(string script = null, string language = null, IReadOnlyList<FontFeature> features = null)
+    public ShapingOptions(string script = null, string language = null, IReadOnlyList<FontFeature> features = null,
+        TextDirection direction = TextDirection.Auto)
     {
         Script = script;
         Language = language;
         Features = features ?? [];
+        Direction = direction;
     }
 
     /// <summary>ISO 15924 script code, such as <c>Latn</c> or <c>Cyrl</c>; null takes it from the text.</summary>
@@ -22,4 +24,8 @@ public sealed class ShapingOptions
 
     /// <summary>Features on top of the defaults for the script; a feature set to 0 turns a default off.</summary>
     public IReadOnlyList<FontFeature> Features { get; }
+
+    /// <summary>Which way the text runs; <see cref="TextDirection.Auto"/> takes it from the script, right to left for
+    /// Hebrew and Arabic. A right-to-left run comes out in visual order, its first character last.</summary>
+    public TextDirection Direction { get; }
 }
