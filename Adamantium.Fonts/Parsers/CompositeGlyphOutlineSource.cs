@@ -11,6 +11,6 @@ internal class CompositeGlyphOutlineSource : IGlyphOutlineSource
 
     public void LoadOutlines(Glyph glyph)
     {
-        glyph.AddComponentOutlines(glyphs);
+        glyph.AddComponentOutlines(index => glyphs[index]);
     }
 }

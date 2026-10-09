@@ -810,7 +810,7 @@ public class TextLayout : DisposableObject
                 continue;
             }
 
-            var font = word.Font ?? Font;
+            var font = DrawnFont(word.Font ?? Font);
             var paint = font.GetColorPaint(word.Glyph.Index);
             if (paint.Count > 0)
             {
@@ -828,7 +828,11 @@ public class TextLayout : DisposableObject
             var layers = font.GetColorLayers(word.Glyph.Index);
             if (layers.Count == 0)
             {
-                yield return (font, word.Glyph);
+                foreach (var field in FieldsOf(word.Font ?? Font, word.Glyph))
+                {
+                    yield return field;
+                }
+
                 continue;
             }
 
@@ -838,8 +842,26 @@ public class TextLayout : DisposableObject
             }
         }
 
-        yield return (Font, dotGlyph);
+        foreach (var field in FieldsOf(Font, dotGlyph))
+        {
+            yield return field;
+        }
     }
+
+    private static IEnumerable<(IFont Font, Glyph Glyph)> FieldsOf(IFont font, Glyph glyph)
+    {
+        if (font.Blend is not { } blend)
+        {
+            yield return (font, glyph);
+            yield break;
+        }
+
+        yield return (blend.From, blend.From.GetGlyphByIndex(glyph.Index));
+        yield return (blend.To, blend.To.GetGlyphByIndex(glyph.Index));
+    }
+
+    private static IFont DrawnFont(IFont font) =>
+        font.Blend is not { } blend ? font : blend.Amount < 0.5f ? blend.From : blend.To;
 
     /// <summary>Glyphs have landed in the atlas since this block built its quads; the render side rebuilds on this.</summary>
     public bool NeedsGlyphRefresh => FontAtlas != null && (FontAtlas.IsDisposed || FontAtlas.Version != _atlasVersion);
@@ -881,39 +903,46 @@ public class TextLayout : DisposableObject
             var word = _wordData[i];
             if (IsBlank(word.Symbol) || word.Symbol == '\n') continue;
 
+            var font = DrawnFont(word.Font);
             var palette = word.Attributes?.ColorPalette ?? 0;
-            if (palette < 0 || palette >= word.Font.ColorPalettes.Count)
+            if (palette < 0 || palette >= font.ColorPalettes.Count)
             {
                 palette = 0;
             }
-            var paint = word.Font.GetColorPaint(word.Glyph.Index, palette);
+            var paint = font.GetColorPaint(word.Glyph.Index, palette);
             if (paint.Count > 0)
             {
-                AddProgramItem(word, FontAtlas.GetPaintProgram(word.Font, word.Glyph.Index, palette, paint));
+                AddProgramItem(word, FontAtlas.GetPaintProgram(font, word.Glyph.Index, palette, paint));
                 continue;
             }
 
-            var layers = word.Font.GetColorLayers(word.Glyph.Index, palette);
+            var layers = font.GetColorLayers(word.Glyph.Index, palette);
             if (layers.Count == 0)
             {
-                if (word.Font.ColorBitmapSizes.Count > 0 &&
-                    FontAtlas.TryGetImageProgram(word.Font, word.Glyph.Index, out var image))
+                if (font.ColorBitmapSizes.Count > 0 &&
+                    FontAtlas.TryGetImageProgram(font, word.Glyph.Index, out var image))
                 {
                     AddProgramItem(word, image);
                     continue;
                 }
 
-                AddGlyphItem(word, word.Glyph, word.Rect, GlyphColor(word));
+                if (word.Font.Blend != null)
+                {
+                    AddBlendedGlyphItem(word, GlyphColor(word));
+                    continue;
+                }
+
+                AddGlyphItem(word, word.Font, word.Glyph, word.Rect, GlyphColor(word));
                 continue;
             }
 
-            var scale = word.FontSize / word.Font.UnitsPerEm;
+            var scale = word.FontSize / font.UnitsPerEm;
             foreach (var layer in layers)
             {
-                var glyph = word.Font.GetGlyphByIndex(layer.GlyphIndex);
-                var rect = CalculateGlyphPosition(word.Font, glyph, word.PenX + word.OffsetX, Baseline(word), scale);
+                var glyph = font.GetGlyphByIndex(layer.GlyphIndex);
+                var rect = CalculateGlyphPosition(font, glyph, word.PenX + word.OffsetX, Baseline(word), scale);
                 var color = layer.Color is { } own ? own.ToVector4() : GlyphColor(word);
-                AddGlyphItem(word, glyph, rect, color);
+                AddGlyphItem(word, font, glyph, rect, color);
             }
         }
 
@@ -955,23 +984,96 @@ public class TextLayout : DisposableObject
         };
     }
 
-    private void AddGlyphItem(GlyphWordData word, Glyph glyph, RectangleF rect, Vector4F color)
+    private void AddBlendedGlyphItem(GlyphWordData word, Vector4F color)
+    {
+        var blend = word.Font.Blend;
+        var scale = word.FontSize / word.Font.UnitsPerEm;
+        var first = KeyCell(word, blend.From, scale);
+        var second = KeyCell(word, blend.To, scale);
+        var amount = blend.Amount;
+        if (first == null && second == null)
+        {
+            return;
+        }
+
+        if (first == null || second == null)
+        {
+            first ??= second;
+            second ??= first;
+            amount = 0;
+        }
+
+        var left = Math.Max(first.Value.Quad.X, second.Value.Quad.X);
+        var top = Math.Max(first.Value.Quad.Y, second.Value.Quad.Y);
+        var right = Math.Min(first.Value.Quad.X + first.Value.Quad.Z, second.Value.Quad.X + second.Value.Quad.Z);
+        var bottom = Math.Min(first.Value.Quad.Y + first.Value.Quad.W, second.Value.Quad.Y + second.Value.Quad.W);
+        if (right <= left || bottom <= top)
+        {
+            return;
+        }
+
+        var quad = new Vector4F(left, top, right - left, bottom - top);
+        EnsureItemCapacity((int)ElementsCount + 1);
+        fontItems[ElementsCount] = new FontItem
+        {
+            ArrangeRect = quad,
+            Source = SourceOver(first.Value, quad),
+            Layer = first.Value.Layer,
+            Depth = 1.0f,
+            Color = color,
+            Synthesis = GlyphSynthesis(word, quad),
+            SecondSource = SourceOver(second.Value, quad),
+            Second = new Vector2F(second.Value.Layer, amount)
+        };
+        ElementsCount++;
+    }
+
+    private (Vector4F Quad, RectangleF Source, float Layer)? KeyCell(GlyphWordData word, IFont key, double scale)
+    {
+        var glyph = key.GetGlyphByIndex(word.Glyph.Index);
+        var gd = FontAtlas.GetGlyphData(key, glyph);
+        if (gd == null || gd.BoundingRect.Width <= 0 || gd.BoundingRect.Height <= 0)
+        {
+            return null;
+        }
+
+        var rect = CalculateGlyphPosition(key, glyph, word.PenX + word.OffsetX, Baseline(word), scale);
+        return (CellQuad(word, gd, rect), CellSource(gd), gd.DepthLayer);
+    }
+
+    private static Vector4F SourceOver((Vector4F Quad, RectangleF Source, float Layer) cell, Vector4F quad)
+    {
+        var width = cell.Source.Right - cell.Source.Left;
+        var height = cell.Source.Bottom - cell.Source.Top;
+        return new Vector4F(
+            cell.Source.Left + (quad.X - cell.Quad.X) / cell.Quad.Z * width,
+            cell.Source.Top + (quad.Y - cell.Quad.Y) / cell.Quad.W * height,
+            quad.Z / cell.Quad.Z * width,
+            quad.W / cell.Quad.W * height);
+    }
+
+    private Vector4F CellQuad(GlyphWordData word, GlyphTextureData gd, RectangleF rect)
+    {
+        var margin = gd.Margin - 0.5;
+        // Per-axis margin maps the body exactly onto the pixel-snapped rect; a zero-size side falls back to the
+        // uniform margin, or the quad collapses.
+        var uniform = margin * word.FontSize / FontAtlas.MSDFTextureSize;
+        var mx = rect.Width > 0 ? margin * rect.Width / gd.BoundingRect.Width : uniform;
+        var my = rect.Height > 0 ? margin * rect.Height / gd.BoundingRect.Height : uniform;
+        return new Vector4F((float)(rect.X - mx), (float)(rect.Y - my),
+            (float)(rect.Width + 2 * mx), (float)(rect.Height + 2 * my));
+    }
+
+    private void AddGlyphItem(GlyphWordData word, IFont font, Glyph glyph, RectangleF rect, Vector4F color)
     {
         // The cell (body plus margin) less half a texel on each side: outline/glow/shadow keep the margin, and the
         // filter never reaches the neighbor cell, whose field would draw a sliver of another glyph.
-        var gd = FontAtlas.GetGlyphData(word.Font, glyph);
+        var gd = FontAtlas.GetGlyphData(font, glyph);
         FontItem item;
         if (gd != null && gd.BoundingRect.Width > 0 && gd.BoundingRect.Height > 0)
         {
-            var margin = gd.Margin - 0.5;
-            // Per-axis margin maps the body exactly onto the pixel-snapped rect; a zero-size side falls back to the
-            // uniform margin, or the quad collapses.
-            var uniform = margin * word.FontSize / FontAtlas.MSDFTextureSize;
-            var mx = rect.Width > 0 ? margin * rect.Width / gd.BoundingRect.Width : uniform;
-            var my = rect.Height > 0 ? margin * rect.Height / gd.BoundingRect.Height : uniform;
             var source = CellSource(gd);
-            var quad = new Vector4F((float)(rect.X - mx), (float)(rect.Y - my),
-                (float)(rect.Width + 2 * mx), (float)(rect.Height + 2 * my));
+            var quad = CellQuad(word, gd, rect);
             item = new FontItem
             {
                 ArrangeRect = quad,
@@ -987,7 +1089,7 @@ public class TextLayout : DisposableObject
             item = new FontItem
             {
                 ArrangeRect = rect,
-                Source = FontAtlas.GetUVCoordinatesForGlyph(word.Font, glyph),
+                Source = FontAtlas.GetUVCoordinatesForGlyph(font, glyph),
                 Layer = gd.DepthLayer,
                 Depth = 1.0f,
                 Color = color,

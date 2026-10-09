@@ -15,6 +15,8 @@ namespace Adamantium.Fonts
 
         private readonly List<IFont> fonts;
         private List<Glyph> glyphs;
+        private Glyph[] madeGlyphs;
+        private Func<uint, Glyph> glyphFactory;
         private List<UInt32> unicodes;
         private readonly List<string> errorMessages;
         internal IFontParser Parser { get; set; }
@@ -38,8 +40,9 @@ namespace Adamantium.Fonts
 
         public IReadOnlyList<IFont> Fonts => fonts.AsReadOnly();
 
-        public uint GlyphCount => (uint)glyphs.Count;
-        public IReadOnlyCollection<Glyph> Glyphs => glyphs.AsReadOnly();
+        public uint GlyphCount => glyphFactory != null ? (uint)madeGlyphs.Length : (uint)glyphs.Count;
+
+        public IReadOnlyCollection<Glyph> Glyphs => glyphFactory != null ? AllMadeGlyphs() : glyphs.AsReadOnly();
         public IReadOnlyCollection<string> ErrorMessages => errorMessages.AsReadOnly();
 
         internal void AddFont(IFont font)
@@ -80,18 +83,49 @@ namespace Adamantium.Fonts
         public bool GetGlyphByIndex(uint index, out Glyph glyph)
         {
             glyph = null;
-            
-            if (index >= glyphs.Count) return false;
-            
-            glyph = glyphs[(int)index];
+
+            if (index >= GlyphCount)
+            {
+                return false;
+            }
+
+            glyph = glyphFactory != null ? MadeGlyph(index) : glyphs[(int)index];
 
             return true;
         }
-        
+
         internal void SetGlyphs(IEnumerable<Glyph> glyphsArray)
         {
             glyphs.Clear();
             glyphs.AddRange(glyphsArray);
+        }
+
+        internal void SetGlyphFactory(int count, Func<uint, Glyph> factory)
+        {
+            madeGlyphs = new Glyph[count];
+            glyphFactory = factory;
+        }
+
+        private Glyph MadeGlyph(uint index)
+        {
+            var glyph = System.Threading.Volatile.Read(ref madeGlyphs[index]);
+            if (glyph != null)
+            {
+                return glyph;
+            }
+
+            var made = glyphFactory(index);
+            return System.Threading.Interlocked.CompareExchange(ref madeGlyphs[index], made, null) ?? made;
+        }
+
+        private Glyph[] AllMadeGlyphs()
+        {
+            for (var index = 0u; index < madeGlyphs.Length; index++)
+            {
+                MadeGlyph(index);
+            }
+
+            return madeGlyphs;
         }
 
         internal void AddErrorMessage(string message)

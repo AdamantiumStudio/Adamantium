@@ -67,6 +67,9 @@
     <Content Include="..\Adamantium.FontTests\ColorFonts\chromacheck-colr.ttf" Link="Fonts\chromacheck-colr.ttf">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="..\Adamantium.FontTests\Variations\RobotoFlex-Variable.ttf" Link="Fonts\RobotoFlex-Variable.ttf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>

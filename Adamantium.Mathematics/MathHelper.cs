@@ -787,8 +787,8 @@ namespace Adamantium.Mathematics
                 var c = end.X * start.Y;
                 var d = end.Y * start.X;
 
-                var e = Math.Pow((end.Y - start.Y), 2);
-                var f = Math.Pow((end.X - start.X), 2);
+                var e = (end.Y - start.Y) * (end.Y - start.Y);
+                var f = (end.X - start.X) * (end.X - start.X);
 
                 var num = Math.Abs(a - b + c - d);
                 var den = Math.Sqrt(e + f);

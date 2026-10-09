@@ -32,7 +32,7 @@ internal class CFFGlyphOutlineSource : IGlyphOutlineSource, IVariableGlyphOutlin
         glyph.FillOutlines(commands, font.VariationStore?.VariationRegionList, coordinates).RecalculateBounds(true);
     }
 
-    public IGlyphOutlineSource Vary(Font variedFont, float[] variedCoordinates, Glyph[] glyphs)
+    public IGlyphOutlineSource Vary(Font variedFont, float[] variedCoordinates, Typeface variedTypeface)
     {
         return font.VariationStore == null ? null : new CFFGlyphOutlineSource(parser, font, fontDicts, variedCoordinates);
     }

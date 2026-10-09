@@ -78,6 +78,21 @@ public struct FontItem
     [VertexInputElement("TEXCOORD3")]
     public Vector4F Paint;
 
+    /// <summary>
+    /// A glyph of a font on the way between two key instances (<see cref="Adamantium.Fonts.FontBlend"/>): the second
+    /// key's cell over the same quad as <see cref="Source"/>, as u, v, width and height; zero for a glyph drawn from one
+    /// field.
+    /// </summary>
+    [VertexInputElement("TEXCOORD4")]
+    public Vector4F SecondSource;
+
+    /// <summary>
+    /// x = the atlas layer of <see cref="SecondSource"/>; y = how far the glyph is from the first key to the second. Such
+    /// a glyph is drawn from the true distance of both fields, blended.
+    /// </summary>
+    [VertexInputElement("TEXCOORD5")]
+    public Vector2F Second;
+
     /// <summary>The <see cref="Color"/> of a glyph that takes the element's foreground: a negative alpha.</summary>
     public static readonly Vector4F InheritedColor = new(0, 0, 0, -1);
 

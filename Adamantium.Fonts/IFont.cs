@@ -80,6 +80,16 @@ namespace Adamantium.Fonts
         /// does not vary, or values that are all defaults, give this font.</summary>
         public IFont GetInstance(IReadOnlyList<FontVariation> variations);
 
+        /// <summary>This variable font at a point on the way from one set of axis values to another, as an animation
+        /// passes it, <paramref name="progress"/> 0 at the first and 1 at the second: laid out at exactly the values
+        /// there, and drawn between the two key instances around it (<see cref="Blend"/>), whose glyphs are kept and
+        /// serve every animation that passes them. The point itself is not kept as an instance is.</summary>
+        public IFont GetInstance(IReadOnlyList<FontVariation> from, IReadOnlyList<FontVariation> to, float progress);
+
+        /// <summary>The key instances a font on the way between two sets of axis values is drawn between; null for a
+        /// font drawn as itself.</summary>
+        public FontBlend Blend { get; }
+
         /// <summary>This font at the optical size of text set at <paramref name="size"/>, its other axes kept, as CSS's
         /// <c>font-optical-sizing: auto</c> sets 'opsz'; the font itself when it has no 'opsz' axis or its 'opsz' was
         /// asked for by value.</summary>
