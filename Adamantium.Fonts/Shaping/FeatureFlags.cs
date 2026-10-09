@@ -11,4 +11,5 @@ internal enum FeatureFlags
     ManualZwnj = 0x04,
     ManualZwj = 0x08,
     ManualJoiners = ManualZwnj | ManualZwj,
+    GlobalSearch = 0x10,
 }

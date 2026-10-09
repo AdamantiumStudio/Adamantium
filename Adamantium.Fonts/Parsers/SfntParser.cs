@@ -330,10 +330,10 @@ namespace Adamantium.Fonts.Parsers
                 { "CFF2",    60     },
                 { "cmap",    70     },
                 { "hhea",    80     },
+                { "vhea",    85     },
                 { "hmtx",    90     },
                 { "vmtx",    91     },
                 { "fvar",    92	    },
-                { "vhea",    100    },
                 { "OS/2",    120    },
                 { "post",    130    },
                 { "BASE",    140    },
@@ -514,6 +514,9 @@ namespace Adamantium.Fonts.Parsers
                         break;
                     case TableNames.vmtx:
                         ReadVerticalMetricsTable(tableEntry);
+                        break;
+                    case TableNames.VORG:
+                        ReadVerticalOriginTable(tableEntry);
                         break;
                     case TableNames.OS2:
                         ReadOS2Table(tableEntry);
@@ -997,24 +1000,28 @@ namespace Adamantium.Fonts.Parsers
 
             vhea.MetricDataFormat = FontReader.ReadInt16();
             vhea.NumberOfYMetrics = FontReader.ReadUInt16();
-
-            CurrentFont.LineSpacingMultiplier = (vhea.Ascender - vhea.Descender + vhea.LineGap)/(float)CurrentFont.UnitsPerEm;
         }
         
         protected virtual void ReadVerticalMetricsTable(TableEntry entry)
         {
+            if (vhea == null || vhea.NumberOfYMetrics == 0)
+            {
+                return;
+            }
+
             vmtx = new VerticalMetricsTable();
-            
+
             FontReader.Position = entry.Offset;
 
             ushort lastAdvanceWidth = 0;
 
             vmtx.AdvanceHeights = new ushort[maxp.NumGlyphs];
             vmtx.TopSideBearings = new short[maxp.NumGlyphs];
+            CurrentFont.SetVerticalMetrics(vmtx.AdvanceHeights, vmtx.TopSideBearings);
 
             for (var i = 0; i < maxp.NumGlyphs; ++i)
             {
-                if (i < hhea.NumberOfHMetrics)
+                if (i < vhea.NumberOfYMetrics)
                 {
                     var advanceWidth = FontReader.ReadUInt16();
                     vmtx.AdvanceHeights[i] = advanceWidth;
@@ -1032,6 +1039,23 @@ namespace Adamantium.Fonts.Parsers
                 glyph.AdvanceHeight = lastAdvanceWidth;
                 glyph.TopSideBearing = topSideBearing;
             }
+        }
+
+        protected virtual void ReadVerticalOriginTable(TableEntry entry)
+        {
+            FontReader.Position = entry.Offset;
+            FontReader.ReadUInt16();
+            FontReader.ReadUInt16();
+            var defaultY = FontReader.ReadInt16();
+            var count = FontReader.ReadUInt16();
+            var origins = new Dictionary<uint, short>(count);
+            for (var i = 0; i < count; i++)
+            {
+                var glyph = FontReader.ReadUInt16();
+                origins[glyph] = FontReader.ReadInt16();
+            }
+
+            CurrentFont.SetVerticalOrigins(defaultY, origins);
         }
 
         protected virtual void ReadOS2Table(TableEntry entry)
@@ -1113,6 +1137,7 @@ namespace Adamantium.Fonts.Parsers
 
         protected virtual void ReadTTFGlyphs(TableEntry entry)
         {
+            CurrentFont.MarkTrueTypeOutlines();
             var glyphs = new Glyph[maxp.NumGlyphs];
             var source = new TTFGlyphOutlineSource(this, FontReader.GetBuffer(), entry.Offset, loca.GlyphOffsets, glyphs);
             Typeface.OutlineSource = source;

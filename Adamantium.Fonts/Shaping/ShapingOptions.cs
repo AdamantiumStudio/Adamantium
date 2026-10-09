@@ -8,13 +8,19 @@ public sealed class ShapingOptions
     public static readonly ShapingOptions Default = new();
 
     public ShapingOptions(string script = null, string language = null, IReadOnlyList<FontFeature> features = null,
-        TextDirection direction = TextDirection.Auto)
+        TextDirection direction = TextDirection.Auto, bool vertical = false)
     {
         Script = script;
         Language = language;
         Features = features ?? [];
         Direction = direction;
+        Vertical = vertical;
     }
+
+    /// <summary>Whether the text runs top to bottom, as HarfBuzz shapes it: the 'vert' forms, no horizontal features
+    /// (<c>kern</c>, <c>liga</c>, <c>calt</c>…), advances down by the font's vertical metrics, and offsets from each
+    /// glyph's vertical origin. Its glyphs come out in logical order, with negative y advances.</summary>
+    public bool Vertical { get; }
 
     /// <summary>ISO 15924 script code, such as <c>Latn</c> or <c>Cyrl</c>; null takes it from the text.</summary>
     public string Script { get; }

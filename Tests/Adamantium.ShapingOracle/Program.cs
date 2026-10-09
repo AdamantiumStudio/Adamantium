@@ -112,9 +112,10 @@ public static class Program
         using var buffer = new Buffer();
 
         buffer.AddUtf16(text);
-        buffer.Script = Script.Parse(script);
-        buffer.Direction = buffer.Script.HorizontalDirection == Direction.RightToLeft
-            ? Direction.RightToLeft
+        var vertical = script.EndsWith(":TTB", StringComparison.Ordinal);
+        buffer.Script = Script.Parse(vertical ? script[..^4] : script);
+        buffer.Direction = vertical ? Direction.TopToBottom
+            : buffer.Script.HorizontalDirection == Direction.RightToLeft ? Direction.RightToLeft
             : Direction.LeftToRight;
         if (language.Length > 0)
         {
@@ -150,6 +151,11 @@ public static class Program
         }
 
         text.Append('+').Append(position.XAdvance);
+        if (position.YAdvance != 0)
+        {
+            text.Append('|').Append(position.YAdvance);
+        }
+
         return text.ToString();
     }
 

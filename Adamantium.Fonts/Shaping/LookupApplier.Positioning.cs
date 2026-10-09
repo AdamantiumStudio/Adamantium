@@ -61,7 +61,14 @@ internal sealed partial class LookupApplier
 
         placement.XOffset += value.XPlacement + Delta(value.XPlacementVariation);
         placement.YOffset += value.YPlacement + Delta(value.YPlacementVariation);
-        placement.XAdvance += value.XAdvance + Delta(value.XAdvanceVariation);
+        if (Vertical)
+        {
+            placement.YAdvance -= value.YAdvance + Delta(value.YAdvanceVariation);
+        }
+        else
+        {
+            placement.XAdvance += value.XAdvance + Delta(value.XAdvanceVariation);
+        }
     }
 
     private int Delta(int variation)

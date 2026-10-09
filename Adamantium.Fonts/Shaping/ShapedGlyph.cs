@@ -30,6 +30,7 @@ public readonly struct ShapedGlyph
     public override string ToString()
     {
         var offset = XOffset != 0 || YOffset != 0 ? $"@{XOffset},{YOffset}" : string.Empty;
-        return $"{GlyphIndex}={Cluster}{offset}+{XAdvance}";
+        var down = YAdvance != 0 ? $"|{YAdvance}" : string.Empty;
+        return $"{GlyphIndex}={Cluster}{offset}+{XAdvance}{down}";
     }
 }

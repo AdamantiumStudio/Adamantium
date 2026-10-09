@@ -59,6 +59,18 @@ namespace Adamantium.Fonts
         /// <summary>The space left of a glyph's outline, in font units, from this font's own 'hmtx'.</summary>
         public short GetLeftSideBearing(uint glyphIndex);
 
+        /// <summary>Whether the font has vertical metrics ('vmtx') for setting text top to bottom.</summary>
+        public bool HasVerticalMetrics { get; }
+
+        /// <summary>How far a glyph moves the pen down in vertical text: its 'vmtx' advance, the font's ascender
+        /// less its descender without one.</summary>
+        public ushort GetAdvanceHeight(uint glyphIndex);
+
+        /// <summary>The height above the baseline of a glyph's vertical origin - where the pen stands in vertical
+        /// text - as HarfBuzz finds it: from 'VORG', else the glyph's top plus its 'vmtx' top side bearing, else the
+        /// glyph centered in the line's height.</summary>
+        public short GetVerticalOriginY(uint glyphIndex);
+
         /// <summary>The axes this font varies along ('fvar'); empty for a font that does not vary.</summary>
         public IReadOnlyList<FontAxis> Axes { get; }
 

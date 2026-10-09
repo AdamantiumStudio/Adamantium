@@ -63,6 +63,7 @@ namespace Adamantium.Fonts.Extensions
                 record.XPlacementVariation = reader.ReadVariationIndex(parentOffset, record.XPlacementDevice);
                 record.YPlacementVariation = reader.ReadVariationIndex(parentOffset, record.YPlacementDevice);
                 record.XAdvanceVariation = reader.ReadVariationIndex(parentOffset, record.XAdvanceDevice);
+                record.YAdvanceVariation = reader.ReadVariationIndex(parentOffset, record.YAdvanceDevice);
                 reader.Position = position;
             }
 
