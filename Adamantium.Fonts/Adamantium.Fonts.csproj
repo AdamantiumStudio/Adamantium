@@ -40,6 +40,7 @@
     <ItemGroup>
       <EmbeddedResource Remove="obj\**" />
       <EmbeddedResource Include="Data\*.ucd;Data\*.dat" />
+      <EmbeddedResource Include="Data\Hyphenation\*.tex" LogicalName="Adamantium.Fonts.Data.Hyphenation.%(Filename)%(Extension)" />
     </ItemGroup>
 
 </Project>

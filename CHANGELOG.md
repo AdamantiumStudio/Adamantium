@@ -7,6 +7,19 @@ All packages share one version.
 
 ### Added
 
+- Hyphenation. `TextLayout.Hyphens` (`Hyphens`: `None`, `Manual` - the default - and `Auto`) lets a word wrapped by
+  `WrapByWords` break across lines, a hyphen (U+2010, or `-` when the font lacks it) ending the line: at its soft
+  hyphens (U+00AD, drawn only where a line breaks at one), and under `Auto`, in a word without any, where the
+  hyphenation patterns of its language allow. `Hyphenator` runs Liang's algorithm over TeX's patterns from hyph-utf8,
+  with their exception lists and the letters each language keeps at each side of a break; built in are Russian,
+  English as the United States and as Britain write it, German (1996 orthography), French and Spanish, and
+  `Hyphenator.Register` adds others (`Hyphenator.Load` reads any hyph-utf8 `.tex` file). The language is the run's
+  `TextAttributes.Language`, else the new `TextLayout.Language`, which also picks the font's localized forms and the
+  fallback fonts for plain text. Checked against the `hyphen` package, another implementation of the algorithm, on
+  132 words over the six pattern files (`Tests/Adamantium.HyphenationOracle`).
+- `TextTrimming` with `WrapByWords`: a word too wide for its line, which hyphenation cannot break, ends in an ellipsis
+  and the text goes on below it; the last line the height leaves room for ends in one when text is left over, after a
+  word or a newline (`WordEllipses` drops the word that does not fit, or cuts by characters on a line without spaces). Trimming used to apply only without wrapping or by characters.
 - Arabic shaping, as HarfBuzz's Arabic shaper does it: letters take their joined forms (`isol`, `fina`, `fin2`,
   `fin3`, `medi`, `med2`, `init`, by the joining types of `ArabicShaping.txt`), the features apply in their stages
   (`ccmp`/`locl`, each form, `rlig`, `calt`, `mset`), and modifier marks such as hamza go first among the marks of
@@ -195,6 +208,11 @@ All packages share one version.
 
 ### Fixed
 
+- `WrapByWords` measured a word by the sum of its glyphs' ink, leaving out the gaps between them, so a word wider than
+  the room left could stay on the line and run past the edge. It is measured from the pen to the right edge of its
+  ink now.
+- `WrapByWords` took a newline and the word after it for part of the word before, so `"aa Hello\nworld"` measured
+  "Hello" together with "world" and could move it to a line of its own. A word ends at a newline now.
 - Specks beside a glyph where its outline has a corner twice, a hair apart, as a variable font's deltas can leave it
   (Bahnschrift's "3" at weight 380): cutting the outline where it crosses itself made near copies of corners, so a
   corner looked like two loose ends and the outside leaked in along a row of texels. Cuts that fall on a corner are

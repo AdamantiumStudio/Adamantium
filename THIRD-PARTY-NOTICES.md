@@ -177,6 +177,31 @@ codes, unchanged, taken from the code tables SIL International publishes as the 
 
 ---
 
+## Hyphenation patterns (hyph-utf8)
+
+**Where:** `Adamantium.Fonts/Data/Hyphenation/` — `hyph-ru.tex`, `hyph-en-us.tex`, `hyph-en-gb.tex`,
+`hyph-de-1996.tex`, `hyph-fr.tex` and `hyph-es.tex`, embedded in `Adamantium.Fonts`, unchanged, from the hyph-utf8
+package of the TeX hyphenation project (https://github.com/hyphenation/tex-hyphen, commit
+`5684c0f51c0b81133db2efbe60a408b4155a3ff5`).
+
+Data, not code: TeX's hyphenation patterns and exception lists, read by `Hyphenator`. Each file keeps its own header,
+which names its authors and its licence and must stay with it:
+
+| File | Copyright | Licence |
+|------|-----------|---------|
+| `hyph-ru.tex` | © 1999-2003 Alexander I. Lebedev | LaTeX Project Public License 1.2 or later (https://latex-project.org/lppl/) |
+| `hyph-en-us.tex` | © 1990, 2004, 2005 Gerard D.C. Kuiken | Copying and distribution, with or without modification, permitted provided the copyright notice and this notice are preserved |
+| `hyph-en-gb.tex` | © 1992, 1996, 2005, 2016 Dominik Wujastyk, Graham Toal | MIT |
+| `hyph-de-1996.tex` | © 2013-2024 Stephan Hennig, Werner Lemberg, Günter Milde, Sander van Geloven, Georg Pfeiffer, Gisbert W. Selke, Tobias Wendorf, Keno Wehr | MIT |
+| `hyph-fr.tex` | © 1994-2002 Daniel Flipo, Bernard Gaulle, 2016 Arthur Reutenauer | MIT |
+| `hyph-es.tex` | © 1993, 1997 Javier Bezos, 2001-2019 Javier Bezos, CervanTeX | MIT |
+
+The Russian patterns are under the LPPL, not the MIT licence: they are distributed unmodified, as the LPPL allows, and
+a change to them would have to go into a file of another name. The British patterns were made from a word list of
+Oxford University Press that is not part of them and is not distributed.
+
+---
+
 ## Google color font test glyphs
 
 **Where:** `Tests/Adamantium.FontTests/ColorFonts/` — `test_glyphs-glyf_colr_1.ttf`,
