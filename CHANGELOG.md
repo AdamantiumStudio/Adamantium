@@ -195,6 +195,10 @@ All packages share one version.
 
 ### Fixed
 
+- Specks beside a glyph where its outline has a corner twice, a hair apart, as a variable font's deltas can leave it
+  (Bahnschrift's "3" at weight 380): cutting the outline where it crosses itself made near copies of corners, so a
+  corner looked like two loose ends and the outside leaked in along a row of texels. Cuts that fall on a corner are
+  not made, and the distance field joins ends nearer than a thousandth of a unit and drops segments that short.
 - Three layout tables were read wrong, so their lookups did nothing or put marks far off: the rules of a contextual
   lookup of format 1 or 2 (read without their offsets and with an empty input sequence), the anchors of a
   mark-to-mark lookup after its first mark, and the anchors of a mark-to-ligature lookup (taken from the wrong table).
