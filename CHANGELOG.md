@@ -7,6 +7,21 @@ All packages share one version.
 
 ### Added
 
+- Text in both directions, by the Unicode Bidirectional Algorithm (UAX #9, Unicode 16.0; every case of `BidiTest.txt`
+  and `BidiCharacterTest.txt` passes). `TextLayout.Direction` (`TextDirection`: `Auto` takes each paragraph's
+  direction from its first strong letter) lays Hebrew and other right-to-left runs out right to left, numbers and
+  Latin among them left to right, and each line in visual order after it breaks. `BidiParagraph` gives the levels of
+  a paragraph. The shaper shapes right to left as HarfBuzz does: mirrored brackets (`rtlm`, `rtla`), cursive
+  attachment and marks the other way, HarfBuzz's combining classes for Hebrew marks; checked against HarfBuzz on
+  Noto Sans Hebrew.
+- Caret and selection for text in both directions. `CaretStop.IsRightToLeft`, `Left`, `Right` and `After` (the caret
+  before a right-to-left letter stands on its right edge, after it on its left). `CaretPosition` (before a character,
+  or after the one before it: two places where the direction changes), `TextLayout.GetCaretPoint`, `MoveVisually`
+  (one letter left or right on screen, over invisible marks), `GetLineStart` and `GetLineEnd` (the line's edges on
+  screen; the end is before the newline or at the end of the text, so typing there appends), and selection by the
+  screen: `GetVisualRanges` (the characters between two points on screen, which may lie apart in the text).
+  `IsRightToLeftParagraph`. A paragraph separator inside a line starts a paragraph of its own.
+
 - A variable font on the way between two sets of axis values, as an animation passes it:
   `IFont.GetInstance(from, to, progress)` lays text out at exactly the values there, and its `Blend` names the two key
   instances around it, set at every eighteenth of the axis that moves most (wght 100, 150, 200...) so animations share
@@ -257,6 +272,13 @@ All packages share one version.
 
 ### Changed
 
+- `HorizontalTextAlignment.Left` puts a line at its start and `Right` at its end, as WPF does: a right-to-left
+  paragraph aligned `Left` stands on the right edge. Left-to-right text is aligned as before.
+- `TextLayout.HitTest` beside a line stands on the line's edge on screen: on the side its paragraph ends, before the
+  newline or at the end of the text (`IsTrailing` false); on the other, the outer edge of the outermost grapheme. The
+  caret stop at the end of text that mixes directions stands where its last paragraph ends: the right edge of a
+  left-to-right one, the left of a right-to-left one; so does the empty line after a right-to-left paragraph's
+  newline. `GetLine` and `LineCount` no longer walk every caret stop.
 - An instance of a variable font makes its glyphs as they are asked for, instead of all of them: Roboto Flex's
   instance took 1.2 ms and 720 KB (and set off collections that held frames for 15 ms), and takes 0.03 ms and 21 KB.
 - A glyph's distance field takes about a third of the work it did, with the same bytes (checked on 7498 glyphs of ten

@@ -112,8 +112,10 @@ public static class Program
         using var buffer = new Buffer();
 
         buffer.AddUtf16(text);
-        buffer.Direction = Direction.LeftToRight;
         buffer.Script = Script.Parse(script);
+        buffer.Direction = buffer.Script.HorizontalDirection == Direction.RightToLeft
+            ? Direction.RightToLeft
+            : Direction.LeftToRight;
         if (language.Length > 0)
         {
             buffer.Language = new Language(language);

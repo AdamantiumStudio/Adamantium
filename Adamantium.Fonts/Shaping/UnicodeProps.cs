@@ -37,7 +37,7 @@ internal static class UnicodeProps
         if (UnicodeData.IsMark(info.Category))
         {
             info.Flags |= UnicodeFlags.Continuation;
-            info.CombiningClass = UnicodeData.GetCombiningClass(codepoint);
+            info.CombiningClass = UnicodeData.GetModifiedCombiningClass(codepoint);
         }
     }
 

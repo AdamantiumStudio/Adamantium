@@ -157,10 +157,20 @@ internal sealed partial class LookupApplier
         var exit = cursive.ExitAnchors[previousIndex];
         var entry = cursive.EntryAnchors[thisIndex];
 
-        placements[i].XAdvance = X(exit) + placements[i].XOffset;
-        var d = X(entry) + placements[j].XOffset;
-        placements[j].XAdvance -= d;
-        placements[j].XOffset -= d;
+        if (RightToLeft)
+        {
+            var d = X(exit) + placements[i].XOffset;
+            placements[i].XAdvance -= d;
+            placements[i].XOffset -= d;
+            placements[j].XAdvance = X(entry) + placements[j].XOffset;
+        }
+        else
+        {
+            placements[i].XAdvance = X(exit) + placements[i].XOffset;
+            var d = X(entry) + placements[j].XOffset;
+            placements[j].XAdvance -= d;
+            placements[j].XOffset -= d;
+        }
 
         var child = i;
         var parent = j;

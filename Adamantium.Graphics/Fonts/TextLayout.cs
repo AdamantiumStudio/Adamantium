@@ -39,6 +39,13 @@ public class TextLayout : DisposableObject
     public int TabSize { get; set; } = 4;
 
     /// <summary>
+    /// Which way the text's paragraphs run: left to right, right to left, or <see cref="TextDirection.Auto"/> (the
+    /// default), each paragraph by its first strong character. Right-to-left text inside runs right to left either way,
+    /// by the Unicode Bidirectional Algorithm.
+    /// </summary>
+    public TextDirection Direction { get; set; } = TextDirection.Auto;
+
+    /// <summary>
     /// Where a character the text's font lacks is drawn from: the operating system's fallback fonts unless set; null
     /// draws the font's own missing-glyph box instead.
     /// </summary>
@@ -66,6 +73,9 @@ public class TextLayout : DisposableObject
 
     private TextRenderingParameters _previousRenderingParameters;
     private int _laidOutTabSize;
+    private TextDirection _laidOutDirection;
+    private List<(int Start, int End, BidiParagraph Paragraph)> _paragraphs;
+    private byte[] _characterLevels;
     private FontFallback _fallback;
     private bool _fallbackSet;
 
@@ -76,6 +86,7 @@ public class TextLayout : DisposableObject
     private double[] _lineBaselines;
     private double _verticalShift;
     private CaretStop[] _caretStops;
+    private int[] _lineStarts;
     private bool[] _graphemes;
     private bool[] _words;
     private FontItem[] fontItems;
@@ -146,7 +157,8 @@ public class TextLayout : DisposableObject
         TextRenderingParameters renderingParameters)
     {
         return Text == text && MathHelper.IsZero(FontSize - fontSize) &&
-               _previousRenderingParameters == renderingParameters && _laidOutTabSize == TabSize;
+               _previousRenderingParameters == renderingParameters && _laidOutTabSize == TabSize &&
+               _laidOutDirection == Direction;
     }
 
     public Size ProcessText(string text,
@@ -193,6 +205,18 @@ public class TextLayout : DisposableObject
 
         _textUpdated = true;
         return ProcessText(text.Text, fontSize, @params);
+    }
+
+    /// <summary>Whether the paragraph holding UTF-16 <paramref name="index"/> of the text last laid out runs right to
+    /// left: its lines start on the right, where <see cref="HorizontalTextAlignment.Left"/> puts them.</summary>
+    public bool IsRightToLeftParagraph(int index)
+    {
+        if (_paragraphs == null || string.IsNullOrEmpty(Text))
+        {
+            return _laidOutDirection == TextDirection.RightToLeft;
+        }
+
+        return (ParagraphAt(Math.Max(0, Math.Min(index, Text.Length - 1))).Paragraph.BaseLevel & 1) == 1;
     }
 
     /// <summary>The attributed text last laid out; null when it was a plain string.</summary>
@@ -253,6 +277,9 @@ public class TextLayout : DisposableObject
         var _b1 = System.GC.GetAllocatedBytesForCurrentThread();
 
         var scale = fontSize / Font.UnitsPerEm;
+        _laidOutDirection = Direction;
+        _paragraphs = ResolveParagraphs(text);
+        _characterLevels = null;
         var items = Shape(text, fontSize);
         _laidOutTabSize = TabSize;
         var tabStop = Font.GetAdvanceWidth(spaceGlyph.Index) * scale * Math.Max(TabSize, 1);
@@ -325,6 +352,8 @@ public class TextLayout : DisposableObject
             wordStart = wordEnd + 1;
         }
 
+        ReorderLines(glyphsData);
+
         // Not published yet: the render thread reads _wordData, and the alignment below still moves every glyph.
         // The height is a font metric (the bottom of the last line, its descent included), not the ink, so same-size
         // strings measure alike and a turned label keeps its descenders. A line is as tall as its largest text.
@@ -365,6 +394,7 @@ public class TextLayout : DisposableObject
         _lineBaselines = lineBaselines;
         _verticalShift = verticalShift;
         _caretStops = null;
+        _lineStarts = null;
         _words = null;
 
         var _b4 = System.GC.GetAllocatedBytesForCurrentThread();
@@ -493,6 +523,9 @@ public class TextLayout : DisposableObject
             var minY = glyphsData.Min(x => x.Rect.Top);
             switch (renderingParameters.HorizontalTextAlignment)
             {
+                case HorizontalTextAlignment.Left or HorizontalTextAlignment.Right when _paragraphs != null:
+                    AlignToEachLinesStart();
+                    break;
                 case HorizontalTextAlignment.Center:
                 {
                     var maxLines = glyphsData.Max(x => x.LineIndex);
@@ -617,6 +650,41 @@ public class TextLayout : DisposableObject
                     }
                 }
                 break;
+            }
+        }
+
+        void AlignToEachLinesStart()
+        {
+            var lineStart = 0;
+            while (lineStart < glyphsData.Count)
+            {
+                var lineEnd = lineStart;
+                while (lineEnd < glyphsData.Count && glyphsData[lineEnd].LineIndex == glyphsData[lineStart].LineIndex)
+                {
+                    lineEnd++;
+                }
+
+                var first = -1;
+                for (var k = lineStart; k < lineEnd && first < 0; k++)
+                {
+                    first = glyphsData[k].PositionInString;
+                }
+
+                var rightToLeft = first >= 0 && (ParagraphAt(first).Paragraph.BaseLevel & 1) == 1;
+                var toRight = rightToLeft == (renderingParameters.HorizontalTextAlignment == HorizontalTextAlignment.Left);
+                var ink = Enumerable.Range(lineStart, lineEnd - lineStart).Select(k => glyphsData[k])
+                    .Where(g => !IsBlank(g.Symbol)).ToArray();
+                if (toRight && ink.Length > 0)
+                {
+                    var shift = finalRect.Width - ink.Max(g => g.Rect.Right);
+                    for (var k = lineStart; k < lineEnd; k++)
+                    {
+                        glyphsData[k].Rect.X += (float)shift;
+                        glyphsData[k].PenX += shift;
+                    }
+                }
+
+                lineStart = lineEnd;
             }
         }
 
@@ -1206,20 +1274,42 @@ public class TextLayout : DisposableObject
             var j = i;
             while (j < data.Count && data[j].PositionInString == cluster)
             {
+                x = Math.Min(x, data[j].PenX);
                 width += data[j].Advance;
                 j++;
             }
 
             var next = j < data.Count && data[j].PositionInString > cluster ? data[j].PositionInString : text.Length;
-            DistributeCluster(text, cluster, next, x, width, line, stops, filled);
-            endX = x + width;
+            var rightToLeft = IsRightToLeftAt(cluster);
+            DistributeCluster(text, cluster, next, x, width, line, rightToLeft, stops, filled);
+            endX = rightToLeft ? x : x + width;
             endLine = line;
             i = j;
         }
 
+        if (_paragraphs != null)
+        {
+            var rightToLeft = IsRightToLeftParagraph(text.Length - 1);
+            for (var k = 0; k < text.Length; k++)
+            {
+                if (filled[k] && stops[k].LineIndex == endLine)
+                {
+                    endX = rightToLeft ? Math.Min(endX, stops[k].Left) : Math.Max(endX, stops[k].Right);
+                }
+            }
+        }
+
         if (text[text.Length - 1] == '\n')
         {
-            stops[text.Length] = new CaretStop(0, endLine + 1);
+            var rightToLeft = _laidOutDirection == TextDirection.RightToLeft
+                || (_laidOutDirection == TextDirection.Auto && IsRightToLeftParagraph(text.Length - 1));
+            var right = 0.0;
+            for (var k = 0; k < text.Length && rightToLeft; k++)
+            {
+                right = filled[k] ? Math.Max(right, stops[k].Right) : right;
+            }
+
+            stops[text.Length] = new CaretStop(right, endLine + 1);
             filled[text.Length] = true;
         }
 
@@ -1235,37 +1325,32 @@ public class TextLayout : DisposableObject
     }
 
     /// <summary>How many visual lines the text takes.</summary>
-    public int LineCount => Stops().Max(s => s.LineIndex) + 1;
+    public int LineCount => LineStarts().Length - 1;
 
     /// <summary>A visual line: the characters it shows and where it stands.</summary>
     public TextLineMetrics GetLine(int lineIndex)
     {
         var stops = Stops();
-        var start = -1;
-        var end = stops.Length - 1;
-        var width = 0.0;
-        for (var i = 0; i < stops.Length; i++)
+        var starts = LineStarts();
+        var start = 0;
+        var end = 0;
+        if (lineIndex >= starts.Length - 1)
         {
-            if (stops[i].LineIndex < lineIndex)
-            {
-                continue;
-            }
-
-            if (stops[i].LineIndex > lineIndex)
-            {
-                end = i;
-                break;
-            }
-
-            if (start < 0)
-            {
-                start = i;
-            }
-
-            width = Math.Max(width, stops[i].X + stops[i].Width);
+            start = end = stops.Length - 1;
+        }
+        else if (lineIndex >= 0)
+        {
+            start = starts[lineIndex];
+            end = starts[lineIndex + 1];
         }
 
-        if (start < 0)
+        var width = 0.0;
+        for (var i = start; i < stops.Length && stops[i].LineIndex == lineIndex; i++)
+        {
+            width = Math.Max(width, stops[i].Right);
+        }
+
+        if (start < stops.Length && stops[start].LineIndex != lineIndex)
         {
             start = end;
         }
@@ -1413,38 +1498,250 @@ public class TextLayout : DisposableObject
         lineIndex = Math.Max(0, Math.Min(lineIndex, LineCount - 1));
         var line = GetLine(lineIndex);
 
-        var last = line.Start;
+        var newline = -1;
+        var leftmost = -1;
+        var rightmost = -1;
+        var lineLeft = double.MaxValue;
+        var lineRight = double.MinValue;
         for (var g = line.Start; g < line.End && g < text.Length; g = TextBoundaries.Next(graphemes, g))
         {
             if (text[g] is '\n' or '\r')
             {
-                return new TextHit(g, false, false, g);
+                newline = newline < 0 ? g : newline;
+                continue;
             }
 
             var next = TextBoundaries.Next(graphemes, g);
-            var left = stops[g].X;
-            var right = left;
-            for (var c = g; c < next; c++)
+            var left = double.MaxValue;
+            var right = double.MinValue;
+            for (var c = g; c < next && c < stops.Length; c++)
             {
-                right = Math.Max(right, stops[c].X + stops[c].Width);
+                left = Math.Min(left, stops[c].Left);
+                right = Math.Max(right, stops[c].Right);
             }
 
-            var inside = insideY && x >= left && x < right;
-            if (x < (left + right) / 2)
+            if (left < lineLeft)
             {
-                return new TextHit(g, false, inside, g);
+                lineLeft = left;
+                leftmost = g;
             }
 
-            if (x < right)
+            if (right > lineRight)
             {
-                return new TextHit(g, true, inside, next);
+                lineRight = right;
+                rightmost = g;
             }
 
-            last = g;
+            if (x < left || x >= right)
+            {
+                continue;
+            }
+
+            var leading = stops[g].IsRightToLeft ? x >= (left + right) / 2 : x < (left + right) / 2;
+            return leading ? new TextHit(g, false, insideY, g) : new TextHit(g, true, insideY, Math.Min(next, line.End));
         }
 
-        var end = TextBoundaries.Next(graphemes, last);
-        return new TextHit(last, true, false, Math.Min(end, line.End));
+        if (leftmost < 0)
+        {
+            var at = newline >= 0 ? newline : line.Start;
+            return new TextHit(at, false, false, at);
+        }
+
+        var onLeft = x < lineLeft;
+        var nearest = onLeft ? leftmost : rightmost;
+        var logicalEnd = LogicalLineEnd(line);
+        if (logicalEnd >= 0 && onLeft == IsRightToLeftParagraph(line.Start))
+        {
+            return new TextHit(nearest, false, false, logicalEnd);
+        }
+
+        var after = Math.Min(TextBoundaries.Next(graphemes, nearest), line.End);
+        if (newline >= 0)
+        {
+            after = Math.Min(after, newline);
+        }
+
+        return stops[nearest].IsRightToLeft == onLeft
+            ? new TextHit(nearest, true, false, after)
+            : new TextHit(nearest, false, false, nearest);
+    }
+
+    /// <summary>Where the caret stands for a position, in layout coordinates, and on which visual line.</summary>
+    public (double X, int LineIndex) GetCaretPoint(CaretPosition position)
+    {
+        var stops = Stops();
+        var text = Text ?? string.Empty;
+        var index = Clamp(position.Index);
+        var held = position.AfterPrevious ? HeldCharacter(index) : -1;
+        if (held >= 0)
+        {
+            return (stops[held].After, stops[held].LineIndex);
+        }
+
+        var line = stops[index].LineIndex;
+        if (_paragraphs != null && index < text.Length && text[index] is '\n' or '\r')
+        {
+            var boxes = LineBoxes(line);
+            if (boxes.Count > 0)
+            {
+                return (IsRightToLeftParagraph(index) ? boxes[0].Left : boxes[boxes.Count - 1].Right, line);
+            }
+        }
+
+        return (stops[index].X, line);
+    }
+
+    /// <summary>The caret position one grapheme to the left or the right of <paramref name="from"/> on screen, whichever
+    /// way the text there runs; past a line's edge, the nearer edge of the line the reading goes on to.</summary>
+    public CaretPosition MoveVisually(CaretPosition from, bool toRight)
+    {
+        var (x, lineIndex) = GetCaretPoint(from);
+        var boxes = LineBoxes(lineIndex);
+        if (boxes.Count > 0)
+        {
+            var edge = EdgeOf(from, boxes, x);
+            if (toRight)
+            {
+                while (edge + 1 < boxes.Count && boxes[edge].Right <= boxes[edge].Left)
+                {
+                    edge++;
+                }
+
+                if (edge < boxes.Count)
+                {
+                    return RightEdgeOf(boxes[edge]);
+                }
+            }
+            else
+            {
+                while (edge > 1 && boxes[edge - 1].Right <= boxes[edge - 1].Left)
+                {
+                    edge--;
+                }
+
+                if (edge > 0)
+                {
+                    return LeftEdgeOf(boxes[edge - 1]);
+                }
+            }
+        }
+
+        var forward = toRight != IsRightToLeftParagraph(GetLine(lineIndex).Start);
+        var target = lineIndex + (forward ? 1 : -1);
+        if (target < 0 || target >= LineCount)
+        {
+            return from;
+        }
+
+        var targetBoxes = LineBoxes(target);
+        if (targetBoxes.Count == 0)
+        {
+            return new CaretPosition(GetLine(target).Start);
+        }
+
+        return toRight ? LeftEdgeOf(targetBoxes[0]) : RightEdgeOf(targetBoxes[targetBoxes.Count - 1]);
+    }
+
+    /// <summary>The caret position on the edge a line starts from on screen: the left for a left-to-right paragraph, the
+    /// right for a right-to-left one.</summary>
+    public CaretPosition GetLineStart(int lineIndex)
+    {
+        var line = GetLine(lineIndex);
+        var boxes = LineBoxes(lineIndex);
+        if (boxes.Count == 0)
+        {
+            return new CaretPosition(line.Start);
+        }
+
+        return IsRightToLeftParagraph(line.Start) ? RightEdgeOf(boxes[boxes.Count - 1]) : LeftEdgeOf(boxes[0]);
+    }
+
+    /// <summary>The caret position where a line ends: before its newline or at the end of the text, on the edge its
+    /// paragraph ends on; after the last character on screen when the line wraps.</summary>
+    public CaretPosition GetLineEnd(int lineIndex)
+    {
+        var line = GetLine(lineIndex);
+        var end = LogicalLineEnd(line);
+        var boxes = LineBoxes(lineIndex);
+        if (end >= 0 || boxes.Count == 0)
+        {
+            return new CaretPosition(end >= 0 ? end : line.Start);
+        }
+
+        return IsRightToLeftParagraph(line.Start) ? LeftEdgeOf(boxes[0]) : RightEdgeOf(boxes[boxes.Count - 1]);
+    }
+
+    /// <summary>The characters lying on screen between two caret positions: on one line, between the two; across lines,
+    /// from the upper one to its line's end, every line between, and from the lower line's start. In order of the text,
+    /// one range per unbroken run of characters.</summary>
+    public IReadOnlyList<(int Start, int End)> GetVisualRanges(CaretPosition anchor, CaretPosition focus)
+    {
+        var text = Text ?? string.Empty;
+        var selected = new bool[text.Length];
+        var (anchorX, anchorLine) = GetCaretPoint(anchor);
+        var (focusX, focusLine) = GetCaretPoint(focus);
+        if (anchorLine == focusLine)
+        {
+            SelectBetween(anchorLine, Math.Min(anchorX, focusX), Math.Max(anchorX, focusX), selected);
+        }
+        else
+        {
+            var (upper, upperX, lower, lowerX) = anchorLine < focusLine
+                ? (anchorLine, anchorX, focusLine, focusX)
+                : (focusLine, focusX, anchorLine, anchorX);
+            var upperLine = GetLine(upper);
+            if (IsRightToLeftParagraph(upperLine.Start))
+            {
+                SelectBetween(upper, double.MinValue, upperX, selected);
+            }
+            else
+            {
+                SelectBetween(upper, upperX, double.MaxValue, selected);
+            }
+
+            var newline = LogicalLineEnd(upperLine);
+            for (var c = Math.Max(newline, 0); newline >= 0 && c < upperLine.End && c < text.Length; c++)
+            {
+                selected[c] = true;
+            }
+
+            for (var lineIndex = upper + 1; lineIndex < lower; lineIndex++)
+            {
+                var line = GetLine(lineIndex);
+                for (var c = line.Start; c < line.End && c < text.Length; c++)
+                {
+                    selected[c] = true;
+                }
+            }
+
+            if (IsRightToLeftParagraph(GetLine(lower).Start))
+            {
+                SelectBetween(lower, lowerX, double.MaxValue, selected);
+            }
+            else
+            {
+                SelectBetween(lower, double.MinValue, lowerX, selected);
+            }
+        }
+
+        var ranges = new List<(int Start, int End)>();
+        for (var i = 0; i < selected.Length; i++)
+        {
+            if (!selected[i])
+            {
+                continue;
+            }
+
+            var start = i;
+            while (i < selected.Length && selected[i])
+            {
+                i++;
+            }
+
+            ranges.Add((start, i));
+        }
+
+        return ranges;
     }
 
     private int Clamp(int index) => Math.Max(0, Math.Min(index, (Text ?? string.Empty).Length));
@@ -1509,39 +1806,191 @@ public class TextLayout : DisposableObject
 
     private CaretStop[] Stops() => _caretStops ??= GetCaretStops();
 
+    private int[] LineStarts()
+    {
+        if (_lineStarts != null)
+        {
+            return _lineStarts;
+        }
+
+        var stops = Stops();
+        var count = stops.Max(s => s.LineIndex) + 1;
+        var starts = new int[count + 1];
+        var line = 0;
+        for (var i = 0; i < stops.Length; i++)
+        {
+            while (line <= stops[i].LineIndex)
+            {
+                starts[line++] = i;
+            }
+        }
+
+        starts[count] = stops.Length - 1;
+        return _lineStarts = starts;
+    }
+
+    private int HeldCharacter(int index)
+    {
+        var text = Text ?? string.Empty;
+        if (index <= 0 || index > text.Length || text[index - 1] is '\n' or '\r')
+        {
+            return -1;
+        }
+
+        var character = index - 1;
+        return character > 0 && char.IsLowSurrogate(text[character]) && char.IsHighSurrogate(text[character - 1])
+            ? character - 1
+            : character;
+    }
+
+    private List<(int Start, int End, double Left, double Right)> LineBoxes(int lineIndex)
+    {
+        var text = Text ?? string.Empty;
+        var stops = Stops();
+        var graphemes = Graphemes();
+        var line = GetLine(lineIndex);
+        var boxes = new List<(int Start, int End, double Left, double Right)>();
+        for (var g = line.Start; g < line.End && g < text.Length; g = TextBoundaries.Next(graphemes, g))
+        {
+            if (text[g] is '\n' or '\r')
+            {
+                continue;
+            }
+
+            var next = TextBoundaries.Next(graphemes, g);
+            var left = double.MaxValue;
+            var right = double.MinValue;
+            for (var c = g; c < next && c < stops.Length; c++)
+            {
+                left = Math.Min(left, stops[c].Left);
+                right = Math.Max(right, stops[c].Right);
+            }
+
+            boxes.Add((g, next, left, right));
+        }
+
+        return boxes.OrderBy(b => b.Left).ThenBy(b => stops[b.Start].IsRightToLeft ? -b.Start : b.Start).ToList();
+    }
+
+    private int EdgeOf(CaretPosition position, List<(int Start, int End, double Left, double Right)> boxes, double x)
+    {
+        var stops = Stops();
+        var held = position.AfterPrevious ? HeldCharacter(Clamp(position.Index)) : -1;
+        for (var k = 0; k < boxes.Count; k++)
+        {
+            var rightToLeft = stops[boxes[k].Start].IsRightToLeft;
+            if (held >= boxes[k].Start && held < boxes[k].End)
+            {
+                return rightToLeft ? k : k + 1;
+            }
+
+            if (held < 0 && position.Index == boxes[k].Start)
+            {
+                return rightToLeft ? k + 1 : k;
+            }
+        }
+
+        var edge = 0;
+        var distance = double.MaxValue;
+        for (var k = 0; k <= boxes.Count; k++)
+        {
+            var edgeX = k < boxes.Count ? boxes[k].Left : boxes[k - 1].Right;
+            if (Math.Abs(edgeX - x) < distance)
+            {
+                distance = Math.Abs(edgeX - x);
+                edge = k;
+            }
+        }
+
+        return edge;
+    }
+
+    private int LogicalLineEnd(TextLineMetrics line)
+    {
+        var text = Text ?? string.Empty;
+        for (var c = line.Start; c < line.End && c < text.Length; c++)
+        {
+            if (text[c] is '\n' or '\r')
+            {
+                return c;
+            }
+        }
+
+        return line.End >= text.Length ? text.Length : -1;
+    }
+
+    private CaretPosition LeftEdgeOf((int Start, int End, double Left, double Right) box) =>
+        Stops()[box.Start].IsRightToLeft ? new CaretPosition(box.End, true) : new CaretPosition(box.Start);
+
+    private CaretPosition RightEdgeOf((int Start, int End, double Left, double Right) box) =>
+        Stops()[box.Start].IsRightToLeft ? new CaretPosition(box.Start) : new CaretPosition(box.End, true);
+
+    private void SelectBetween(int lineIndex, double left, double right, bool[] selected)
+    {
+        foreach (var box in LineBoxes(lineIndex))
+        {
+            var middle = (box.Left + box.Right) / 2;
+            if (middle <= left || middle >= right)
+            {
+                continue;
+            }
+
+            for (var c = box.Start; c < box.End; c++)
+            {
+                selected[c] = true;
+            }
+        }
+    }
+
     private IEnumerable<(int Line, double Left, double Right)> RangeSegments(int start, int end)
     {
         var stops = Stops();
         start = Math.Max(0, start);
         end = Math.Min(end, stops.Length - 1);
         var line = -1;
-        double left = 0;
-        double right = 0;
+        var pieces = new List<(double Left, double Right)>();
         for (var i = start; i < end; i++)
         {
             if (stops[i].LineIndex != line)
             {
-                if (line >= 0)
+                foreach (var piece in Merged(pieces))
                 {
-                    yield return (line, left, right);
+                    yield return (line, piece.Left, piece.Right);
                 }
 
+                pieces.Clear();
                 line = stops[i].LineIndex;
-                left = stops[i].X;
-                right = left;
             }
 
-            right = Math.Max(right, stops[i].X + stops[i].Width);
+            pieces.Add((stops[i].Left, stops[i].Right));
         }
 
-        if (line >= 0)
+        foreach (var piece in Merged(pieces))
         {
-            yield return (line, left, right);
+            yield return (line, piece.Left, piece.Right);
         }
     }
 
+    private static List<(double Left, double Right)> Merged(List<(double Left, double Right)> pieces)
+    {
+        var merged = new List<(double Left, double Right)>();
+        foreach (var piece in pieces.OrderBy(p => p.Left))
+        {
+            if (merged.Count > 0 && piece.Left <= merged[merged.Count - 1].Right + 0.01)
+            {
+                var last = merged[merged.Count - 1];
+                merged[merged.Count - 1] = (last.Left, Math.Max(last.Right, piece.Right));
+                continue;
+            }
+
+            merged.Add(piece);
+        }
+
+        return merged;
+    }
+
     private static void DistributeCluster(string text, int start, int end, double x, double width, int line,
-        CaretStop[] stops, bool[] filled)
+        bool rightToLeft, CaretStop[] stops, bool[] filled)
     {
         var count = 0;
         for (var c = start; c < end; c++)
@@ -1558,11 +2007,12 @@ public class TextLayout : DisposableObject
         {
             if (IsTrailingSurrogate(text, c))
             {
-                stops[c] = new CaretStop(stops[c - 1].X, line);
+                stops[c] = new CaretStop(stops[c - 1].X, line, 0, rightToLeft);
             }
             else
             {
-                stops[c] = new CaretStop(x + share * ordinal, line, share);
+                var caret = rightToLeft ? x + width - share * ordinal : x + share * ordinal;
+                stops[c] = new CaretStop(caret, line, share, rightToLeft);
                 ordinal++;
             }
 
@@ -1578,6 +2028,216 @@ public class TextLayout : DisposableObject
     private static bool IsTrailingSurrogate(string text, int index)
     {
         return index > 0 && char.IsLowSurrogate(text[index]) && char.IsHighSurrogate(text[index - 1]);
+    }
+
+    private List<(int Start, int End, BidiParagraph Paragraph)> ResolveParagraphs(string text)
+    {
+        if (!BidiParagraph.IsNeeded(text, 0, text.Length, Direction))
+        {
+            return null;
+        }
+
+        var paragraphs = new List<(int Start, int End, BidiParagraph Paragraph)>();
+        var start = 0;
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (BidiParagraph.IsParagraphSeparator(text, i))
+            {
+                paragraphs.Add((start, i + 1, new BidiParagraph(text, start, i + 1, Direction)));
+                start = i + 1;
+            }
+        }
+
+        if (start < text.Length || paragraphs.Count == 0)
+        {
+            paragraphs.Add((start, text.Length, new BidiParagraph(text, start, text.Length, Direction)));
+        }
+
+        return paragraphs;
+    }
+
+    private (int Start, int End, BidiParagraph Paragraph) ParagraphAt(int index)
+    {
+        var low = 0;
+        var high = _paragraphs.Count - 1;
+        while (low < high)
+        {
+            var middle = (low + high) / 2;
+            if (index < _paragraphs[middle].End)
+            {
+                high = middle;
+            }
+            else
+            {
+                low = middle + 1;
+            }
+        }
+
+        return _paragraphs[low];
+    }
+
+    private bool IsRightToLeftAt(int index)
+    {
+        if (_paragraphs == null || index < 0)
+        {
+            return false;
+        }
+
+        var level = _characterLevels != null && index < _characterLevels.Length
+            ? _characterLevels[index]
+            : ParagraphAt(index).Paragraph.LevelAt(index);
+        return (level & 1) == 1;
+    }
+
+    private IEnumerable<(int Start, int End, TextDirection Direction)> LevelRuns(int start, int end)
+    {
+        if (_paragraphs == null)
+        {
+            yield return (start, end, TextDirection.Auto);
+            yield break;
+        }
+
+        var runStart = start;
+        var level = ParagraphAt(start).Paragraph.LevelAt(start);
+        for (var i = start + 1; i < end; i++)
+        {
+            var next = ParagraphAt(i).Paragraph.LevelAt(i);
+            if (next == level)
+            {
+                continue;
+            }
+
+            yield return (runStart, i, DirectionOf(level));
+            runStart = i;
+            level = next;
+        }
+
+        yield return (runStart, end, DirectionOf(level));
+    }
+
+    private static TextDirection DirectionOf(int level) =>
+        (level & 1) == 1 ? TextDirection.RightToLeft : TextDirection.LeftToRight;
+
+    private static ShapedGlyph[] ToLogicalOrder(ShapedGlyph[] visual)
+    {
+        var logical = new ShapedGlyph[visual.Length];
+        var start = 0;
+        while (start < visual.Length)
+        {
+            var end = start + 1;
+            while (end < visual.Length && visual[end].Cluster <= visual[end - 1].Cluster)
+            {
+                end++;
+            }
+
+            for (var k = start; k < end; k++)
+            {
+                logical[start + end - 1 - k] = visual[k];
+            }
+
+            start = end;
+        }
+
+        return logical;
+    }
+
+    private void ReorderLines(List<GlyphWordData> glyphs)
+    {
+        if (_paragraphs == null)
+        {
+            return;
+        }
+
+        _characterLevels = new byte[_paragraphs[_paragraphs.Count - 1].End];
+        var start = 0;
+        while (start < glyphs.Count)
+        {
+            var end = start;
+            while (end < glyphs.Count && glyphs[end].LineIndex == glyphs[start].LineIndex)
+            {
+                end++;
+            }
+
+            ReorderLine(glyphs, start, end);
+            start = end;
+        }
+    }
+
+    private void ReorderLine(List<GlyphWordData> glyphs, int start, int end)
+    {
+        var x = double.MaxValue;
+        for (var k = start; k < end; k++)
+        {
+            x = Math.Min(x, glyphs[k].PenX);
+        }
+
+        var segment = start;
+        while (segment < end)
+        {
+            var first = -1;
+            for (var k = segment; k < end && first < 0; k++)
+            {
+                first = glyphs[k].PositionInString;
+            }
+
+            if (first < 0)
+            {
+                return;
+            }
+
+            var (_, paragraphEnd, paragraph) = ParagraphAt(first);
+            var segmentEnd = segment;
+            while (segmentEnd < end && glyphs[segmentEnd].PositionInString < paragraphEnd)
+            {
+                segmentEnd++;
+            }
+
+            var lineEnd = paragraphEnd;
+            for (var k = segmentEnd; k < glyphs.Count && segmentEnd == end; k++)
+            {
+                if (glyphs[k].PositionInString >= first)
+                {
+                    lineEnd = Math.Min(lineEnd, glyphs[k].PositionInString);
+                    break;
+                }
+            }
+
+            x = PlaceInVisualOrder(glyphs, segment, segmentEnd, paragraph, first, lineEnd, x);
+            segment = segmentEnd;
+        }
+    }
+
+    private double PlaceInVisualOrder(List<GlyphWordData> glyphs, int start, int end, BidiParagraph paragraph,
+        int first, int lineEnd, double x)
+    {
+        var lineLevels = paragraph.LineLevels(first, lineEnd);
+        Array.Copy(lineLevels, 0, _characterLevels, first, lineLevels.Length);
+        var levels = new byte[end - start];
+        var moves = false;
+        for (var k = start; k < end; k++)
+        {
+            var cluster = glyphs[k].PositionInString;
+            levels[k - start] = cluster >= first && cluster < lineEnd
+                ? lineLevels[cluster - first]
+                : (byte)paragraph.BaseLevel;
+            moves |= levels[k - start] != 0;
+        }
+
+        if (!moves)
+        {
+            return glyphs[end - 1].PenX + glyphs[end - 1].Advance;
+        }
+
+        foreach (var index in BidiParagraph.VisualOrder(levels))
+        {
+            var glyph = glyphs[start + index];
+            var shift = x - glyph.PenX;
+            glyph.PenX = x;
+            glyph.Rect.X += (float)shift;
+            x += glyph.Advance;
+        }
+
+        return x;
     }
 
     private List<ShapedItem> Shape(string text, double fontSize)
@@ -1602,23 +2262,35 @@ public class TextLayout : DisposableObject
                 var stop = newline < 0 ? end : newline;
                 foreach (var (runStart, runEnd, runFont, pending) in FontRuns(text, graphemes, position, stop, font, attributes?.Language))
                 {
-                    var piece = text.Substring(runStart, runEnd - runStart);
                     var blank = pending ? runFont.GetGlyphByCharacter(' ') : null;
-                    foreach (var glyph in TextShaper.Shape(runFont, piece, options))
+                    foreach (var (levelStart, levelEnd, direction) in LevelRuns(runStart, runEnd))
                     {
-                        var cluster = runStart + glyph.Cluster;
-                        var glyphAttributes = AttributesAt(cluster);
-                        var size = glyphAttributes?.FontSize ?? fontSize;
-                        var scale = size / runFont.UnitsPerEm;
-                        var advance = glyph.XAdvance * scale;
-                        if (advance > 0 && IsEmboldened(glyphAttributes))
+                        var piece = text.Substring(levelStart, levelEnd - levelStart);
+                        var shaped = direction == TextDirection.Auto
+                            ? TextShaper.Shape(runFont, piece, options)
+                            : TextShaper.Shape(runFont, piece,
+                                new ShapingOptions(options.Script, options.Language, options.Features, direction));
+                        if (direction == TextDirection.RightToLeft)
                         {
-                            advance += 2 * FontSynthesisRules.EmboldenPerSide(size) * size;
+                            shaped = ToLogicalOrder(shaped);
                         }
 
-                        items.Add(new ShapedItem(blank ?? runFont.GetGlyphByIndex(glyph.GlyphIndex), text[cluster], cluster,
-                            advance, glyph.XOffset * scale, glyph.YOffset * scale,
-                            glyphAttributes, runFont, size));
+                        foreach (var glyph in shaped)
+                        {
+                            var cluster = levelStart + glyph.Cluster;
+                            var glyphAttributes = AttributesAt(cluster);
+                            var size = glyphAttributes?.FontSize ?? fontSize;
+                            var scale = size / runFont.UnitsPerEm;
+                            var advance = glyph.XAdvance * scale;
+                            if (advance > 0 && IsEmboldened(glyphAttributes))
+                            {
+                                advance += 2 * FontSynthesisRules.EmboldenPerSide(size) * size;
+                            }
+
+                            items.Add(new ShapedItem(blank ?? runFont.GetGlyphByIndex(glyph.GlyphIndex), text[cluster],
+                                cluster, advance, glyph.XOffset * scale, glyph.YOffset * scale,
+                                glyphAttributes, runFont, size));
+                        }
                     }
                 }
 

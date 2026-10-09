@@ -33,6 +33,9 @@
         <Content Include="..\Adamantium.FontTests\TTFFonts\SourceSans3-It.ttf" Link="Fonts\SourceSans3-It.ttf">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </Content>
+        <Content Include="..\Adamantium.FontTests\ScriptFonts\NotoSansHebrew-Regular.ttf" Link="Fonts\NotoSansHebrew-Regular.ttf">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
     </ItemGroup>
 
 </Project>

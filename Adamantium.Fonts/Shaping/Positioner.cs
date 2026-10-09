@@ -2,7 +2,7 @@ namespace Adamantium.Fonts.Shaping;
 
 internal static class Positioner
 {
-    public static void Position(IFont font, GlyphBuffer buffer, ShapePlan plan, LookupApplier applier)
+    public static void Position(IFont font, GlyphBuffer buffer, ShapePlan plan, LookupApplier applier, bool rightToLeft)
     {
         buffer.ClearPlacements();
         var info = buffer.Info;
@@ -58,7 +58,7 @@ internal static class Positioner
 
         for (var i = 0; i < buffer.Length; i++)
         {
-            PropagateAttachment(placements, buffer.Length, i, 64);
+            PropagateAttachment(placements, buffer.Length, i, 64, rightToLeft);
         }
     }
 
@@ -153,7 +153,7 @@ internal static class Positioner
         }
     }
 
-    private static void PropagateAttachment(GlyphPlacement[] placements, int length, int i, int nesting)
+    private static void PropagateAttachment(GlyphPlacement[] placements, int length, int i, int nesting, bool rightToLeft)
     {
         var chain = placements[i].AttachChain;
         var type = placements[i].AttachType;
@@ -169,7 +169,7 @@ internal static class Positioner
             return;
         }
 
-        PropagateAttachment(placements, length, j, nesting - 1);
+        PropagateAttachment(placements, length, j, nesting - 1, rightToLeft);
         if ((type & GlyphPlacement.AttachCursive) != 0)
         {
             placements[i].YOffset += placements[j].YOffset;
@@ -178,6 +178,17 @@ internal static class Positioner
 
         placements[i].XOffset += placements[j].XOffset;
         placements[i].YOffset += placements[j].YOffset;
+        if (rightToLeft)
+        {
+            for (var k = j + 1; k <= i; k++)
+            {
+                placements[i].XOffset += placements[k].XAdvance;
+                placements[i].YOffset += placements[k].YAdvance;
+            }
+
+            return;
+        }
+
         for (var k = j; k < i; k++)
         {
             placements[i].XOffset -= placements[k].XAdvance;
