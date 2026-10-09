@@ -7,6 +7,15 @@ All packages share one version.
 
 ### Added
 
+- Shaping top to bottom, as HarfBuzz does it: `ShapingOptions.Vertical` applies the 'vert' forms (found anywhere in
+  the font when the script lacks them), leaves out the horizontal features (`kern`, `liga`, `calt`…), advances each
+  glyph down by its 'vmtx' advance and offsets it from its vertical origin ('VORG', else its top plus its 'vmtx' top
+  side bearing, for TrueType outlines; the font's ascender otherwise); without a 'vert' feature it falls back to
+  Unicode's vertical presentation forms. GPOS values move the pen down in vertical text (`vpal`, `vkrn`), and
+  Arabic-family scripts do not join in it, as in HarfBuzz. Checked against HarfBuzz on Noto Sans CJK (Japanese, kana,
+  brackets and punctuation, `vpal`, Korean, Latin), on fonts without vertical metrics, on CFF Latin and on Arabic. `IFont.HasVerticalMetrics`, `GetAdvanceHeight` and `GetVerticalOriginY` give the metrics;
+  `VerticalOrientations` gives the Vertical_Orientation of characters (UAX #50, Unicode 16.0): which stand upright in
+  vertical text and which lie turned.
 - Text frames. `TextLayout.Frames` flows text wrapped by words through rectangles in turn - columns side by side, or
   frames anywhere, as InDesign threads them - each holding as many lines as its height takes; what none has room for
   is not laid out, and `OversetIndex` tells where it starts. `TextLayout.Exclusions` are areas the text flows around:
@@ -240,6 +249,8 @@ All packages share one version.
 
 ### Fixed
 
+- 'vmtx' was read with the horizontal metrics' count (`hhea`) instead of its own (`vhea`), and before `vhea`, so the
+  vertical advances of most CJK fonts were wrong; `vhea` also overwrote the line spacing `hhea` gives.
 - `Justify` stretched the last line of every paragraph but the text's last, a line ending at a newline; it stays as it
   is now, unless `justifyLastLine` asks otherwise.
 - `WrapByWords` measured a word by the sum of its glyphs' ink, leaving out the gaps between them, so a word wider than

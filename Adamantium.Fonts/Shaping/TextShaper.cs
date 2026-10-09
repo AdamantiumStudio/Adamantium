@@ -67,8 +67,8 @@ public static class TextShaper
         UnicodeProps.SetAll(buffer);
         FormClusters(buffer);
 
-        var rightToLeft = options.Direction == TextDirection.RightToLeft ||
-                          (options.Direction == TextDirection.Auto && IsRightToLeft(script));
+        var rightToLeft = !options.Vertical && (options.Direction == TextDirection.RightToLeft ||
+                                                (options.Direction == TextDirection.Auto && IsRightToLeft(script)));
         var layout = font.Layout;
         var plan = GetPlan(layout, script, options, font.NormalizedCoordinates, rightToLeft);
 
@@ -77,11 +77,20 @@ public static class TextShaper
             Mirror(font, buffer, plan);
         }
 
+        if (options.Vertical && plan.GetFeature("vert") == null)
+        {
+            ToVerticalForms(font, buffer);
+        }
+
         Normalizer.Normalize(font, buffer, plan.JoinsLetters);
         SetupMasks(buffer, plan, options, text, start, end, origin);
         SetGlyphProps(buffer, layout);
 
-        var applier = new LookupApplier(layout, buffer, font.NormalizedCoordinates) { RightToLeft = rightToLeft };
+        var applier = new LookupApplier(layout, buffer, font.NormalizedCoordinates)
+        {
+            RightToLeft = rightToLeft,
+            Vertical = options.Vertical,
+        };
         applier.ApplyGsub(plan);
         Positioner.Position(font, buffer, plan, applier, rightToLeft);
         HideDefaultIgnorables(font, buffer);
@@ -116,6 +125,19 @@ public static class TextShaper
             }
 
             info[i].Codepoint = mirror;
+        }
+    }
+
+    private static void ToVerticalForms(IFont font, GlyphBuffer buffer)
+    {
+        var info = buffer.Info;
+        for (var i = 0; i < buffer.Length; i++)
+        {
+            var form = VerticalForms.Of(info[i].Codepoint);
+            if (form != info[i].Codepoint && font.TryGetGlyphIndex(form, out _))
+            {
+                info[i].Codepoint = form;
+            }
         }
     }
 
@@ -170,10 +192,10 @@ public static class TextShaper
         var gsubVariation = layout.Gsub?.FeatureVariations?.Find(coordinates) ?? -1;
         var gposVariation = layout.Gpos?.FeatureVariations?.Find(coordinates) ?? -1;
         var key = $"{script}|{scriptTag}|{languageTag}|{features}|{gsubVariation}|{gposVariation}|" +
-                  (rightToLeft ? "rtl" : "ltr");
+                  (options.Vertical ? "ttb" : rightToLeft ? "rtl" : "ltr");
         return layout.Plans.GetOrAdd(key,
             _ => ShapePlan.Create(layout, scriptTag, languageTag, options.Features, gsubVariation, gposVariation,
-                rightToLeft, script));
+                rightToLeft, script, options.Vertical));
     }
 
     private static void SetupMasks(GlyphBuffer buffer, ShapePlan plan, ShapingOptions options, string text, int start,

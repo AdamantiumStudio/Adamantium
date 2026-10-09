@@ -34,6 +34,8 @@ internal sealed partial class LookupApplier
 
     public bool RightToLeft { get; set; }
 
+    public bool Vertical { get; set; }
+
     private enum SkipResult
     {
         No,

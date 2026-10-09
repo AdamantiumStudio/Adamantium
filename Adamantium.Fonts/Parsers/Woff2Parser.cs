@@ -305,6 +305,7 @@ namespace Adamantium.Fonts.Parsers
         
         protected override void ReadTTFGlyphs(TableEntry entry)
         {
+            CurrentFont.MarkTrueTypeOutlines();
             // Null transform. Use default implementation
             if (entry.PreprocessingTransform == 3)
             {

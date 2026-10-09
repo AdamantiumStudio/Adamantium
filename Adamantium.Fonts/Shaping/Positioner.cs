@@ -9,12 +9,22 @@ internal static class Positioner
         var placements = buffer.Placements;
         for (var i = 0; i < buffer.Length; i++)
         {
-            placements[i].XAdvance = font.GetAdvanceWidth(info[i].Glyph);
+            var glyph = info[i].Glyph;
+            if (plan.Vertical)
+            {
+                placements[i].YAdvance = -font.GetAdvanceHeight(glyph);
+                placements[i].XOffset = -(font.GetAdvanceWidth(glyph) / 2);
+                placements[i].YOffset = -font.GetVerticalOriginY(glyph);
+            }
+            else
+            {
+                placements[i].XAdvance = font.GetAdvanceWidth(glyph);
+            }
         }
 
         if (buffer.HasSpaceFallback)
         {
-            FallbackSpaces(font, buffer);
+            FallbackSpaces(font, buffer, plan.Vertical);
         }
 
         if (plan.ApplyGpos)
@@ -62,7 +72,7 @@ internal static class Positioner
         }
     }
 
-    private static void FallbackSpaces(IFont font, GlyphBuffer buffer)
+    private static void FallbackSpaces(IFont font, GlyphBuffer buffer, bool vertical)
     {
         var info = buffer.Info;
         var placements = buffer.Placements;
@@ -84,17 +94,17 @@ internal static class Positioner
                 case SpaceKind.Em6:
                 case SpaceKind.Em16:
                     var divisor = (int)info[i].Space;
-                    placements[i].XAdvance = (em + divisor / 2) / divisor;
+                    SetAdvance(i, (em + divisor / 2) / divisor);
                     break;
                 case SpaceKind.FourEm18:
-                    placements[i].XAdvance = em * 4 / 18;
+                    SetAdvance(i, em * 4 / 18);
                     break;
                 case SpaceKind.Figure:
                     for (var digit = '0'; digit <= '9'; digit++)
                     {
                         if (font.TryGetGlyphIndex(digit, out var glyph))
                         {
-                            placements[i].XAdvance = font.GetAdvanceWidth(glyph);
+                            SetAdvance(i, vertical ? font.GetAdvanceHeight(glyph) : font.GetAdvanceWidth(glyph));
                             break;
                         }
                     }
@@ -103,13 +113,33 @@ internal static class Positioner
                 case SpaceKind.Punctuation:
                     if (font.TryGetGlyphIndex('.', out var period) || font.TryGetGlyphIndex(',', out period))
                     {
-                        placements[i].XAdvance = font.GetAdvanceWidth(period);
+                        SetAdvance(i, vertical ? font.GetAdvanceHeight(period) : font.GetAdvanceWidth(period));
                     }
 
                     break;
                 case SpaceKind.Narrow:
-                    placements[i].XAdvance /= 2;
+                    if (vertical)
+                    {
+                        placements[i].YAdvance /= 2;
+                    }
+                    else
+                    {
+                        placements[i].XAdvance /= 2;
+                    }
+
                     break;
+            }
+        }
+
+        void SetAdvance(int index, int advance)
+        {
+            if (vertical)
+            {
+                placements[index].YAdvance = -advance;
+            }
+            else
+            {
+                placements[index].XAdvance = advance;
             }
         }
     }

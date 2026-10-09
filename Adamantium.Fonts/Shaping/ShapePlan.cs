@@ -48,6 +48,8 @@ internal sealed class ShapePlan
 
     public uint RtlmMask { get; private set; }
 
+    public bool Vertical { get; private set; }
+
     public bool JoinsLetters => JoiningScript != null;
 
     public string JoiningScript { get; private set; }
@@ -56,13 +58,16 @@ internal sealed class ShapePlan
 
     public static ShapePlan Create(OpenTypeLayout layout, string scriptTag, string languageTag,
         IReadOnlyList<FontFeature> userFeatures, int gsubVariation = -1, int gposVariation = -1, bool rightToLeft = false,
-        string script = null)
+        string script = null, bool vertical = false)
     {
         var plan = new ShapePlan();
         var gsub = Select(layout.Gsub, scriptTag, languageTag, gsubVariation);
         var gpos = Select(layout.Gpos, scriptTag, languageTag, gposVariation);
-        plan.JoiningScript = ArabicShaper.Shapes(script, gsub.Script != null && gsub.Script != "DFLT") ? script : null;
-        var (collected, stageCount) = CollectRequests(userFeatures, rightToLeft, plan.JoiningScript);
+        plan.JoiningScript = !vertical && ArabicShaper.Shapes(script, gsub.Script != null && gsub.Script != "DFLT")
+            ? script
+            : null;
+        plan.Vertical = vertical;
+        var (collected, stageCount) = CollectRequests(userFeatures, rightToLeft, plan.JoiningScript, vertical);
         var requests = Merge(collected);
 
         var requiredGsubStage = 0;
@@ -90,6 +95,11 @@ internal sealed class ShapePlan
 
             var gsubIndex = FindFeature(layout.Gsub, gsub.LangSys, request.Tag);
             var gposIndex = FindFeature(layout.Gpos, gpos.LangSys, request.Tag);
+            if (gsubIndex < 0 && gposIndex < 0 && (request.Flags & FeatureFlags.GlobalSearch) != 0)
+            {
+                gsubIndex = FindAnyFeature(layout.Gsub, request.Tag);
+                gposIndex = gsubIndex < 0 ? FindAnyFeature(layout.Gpos, request.Tag) : -1;
+            }
             if (gsubIndex < 0 && gposIndex < 0 && (request.Flags & FeatureFlags.HasFallback) == 0)
             {
                 continue;
@@ -130,7 +140,7 @@ internal sealed class ShapePlan
 
         var kern = plan.GetFeature("kern");
         plan.ApplyGpos = layout.Gpos?.LookupList?.Length > 0;
-        plan.ApplyKernTable = layout.HasKernTable && (kern == null || kern.GposIndex < 0);
+        plan.ApplyKernTable = !vertical && layout.HasKernTable && (kern == null || kern.GposIndex < 0);
         plan.KernMask = kern?.Mask ?? 0;
         plan.FracMask = plan.GetFeature("frac")?.Mask ?? 0;
         plan.NumrMask = plan.GetFeature("numr")?.Mask ?? 0;
@@ -145,7 +155,7 @@ internal sealed class ShapePlan
     }
 
     private static (List<FeatureRequest> Requests, int StageCount) CollectRequests(
-        IReadOnlyList<FontFeature> userFeatures, bool rightToLeft, string joiningScript)
+        IReadOnlyList<FontFeature> userFeatures, bool rightToLeft, string joiningScript, bool vertical)
     {
         var requests = new List<FeatureRequest>();
         var gsubStage = 0;
@@ -169,12 +179,12 @@ internal sealed class ShapePlan
         }
 
         gsubStage++;
-        if (rightToLeft)
+        if (!vertical && rightToLeft)
         {
             Add("rtla", FeatureFlags.Global);
             Add("rtlm", FeatureFlags.None);
         }
-        else
+        else if (!vertical)
         {
             foreach (var tag in DirectionFeatures)
             {
@@ -216,9 +226,16 @@ internal sealed class ShapePlan
             Add(tag, tag is "mark" or "mkmk" ? FeatureFlags.Global | FeatureFlags.ManualJoiners : FeatureFlags.Global);
         }
 
-        foreach (var tag in HorizontalFeatures)
+        if (vertical)
         {
-            Add(tag, tag == "kern" ? FeatureFlags.Global | FeatureFlags.HasFallback : FeatureFlags.Global);
+            Add("vert", FeatureFlags.Global | FeatureFlags.GlobalSearch);
+        }
+        else
+        {
+            foreach (var tag in HorizontalFeatures)
+            {
+                Add(tag, tag == "kern" ? FeatureFlags.Global | FeatureFlags.HasFallback : FeatureFlags.Global);
+            }
         }
 
         foreach (var feature in userFeatures)
@@ -370,6 +387,19 @@ internal sealed class ShapePlan
     private static ScriptTable FindScript(IFontLayout table, string tag)
     {
         return table.ScriptList.FirstOrDefault(s => s.Name == tag);
+    }
+
+    private static int FindAnyFeature(IFontLayout table, string tag)
+    {
+        for (var index = 0; table?.FeatureList != null && index < table.FeatureList.Length; index++)
+        {
+            if (table.FeatureList[index].Name == tag)
+            {
+                return index;
+            }
+        }
+
+        return -1;
     }
 
     private static int FindFeature(IFontLayout table, LangSysTable langSys, string tag)

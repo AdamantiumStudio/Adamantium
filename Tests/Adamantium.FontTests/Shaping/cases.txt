@@ -49,6 +49,21 @@ TTFFonts/CascadiaCode-Regular.ttf	Latn		ss01	fifl
 OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani			漢字とかな、カタカナ。
 OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani	ja		骨直刃
 OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani	zh-Hans		骨直刃
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani:TTB			漢字とかな、カタカナ。
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani:TTB	ja		「吾輩は猫である。」（名前はまだ無い）
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hira:TTB	ja		ぁぃぅぇぉっゃゅょ
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Kana:TTB	ja		ニャーニャー〜…‥
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani:TTB	ja	vert=0	「名前。」
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani:TTB		vert=0	–—‥…、。〈〉《》「」『』【】〔〕〖〗﹏！（），：；？［］＿｛｝
+TTFFonts/SourceSans3-Regular.ttf	Latn:TTB			–—…
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hira:TTB	ja	vpal	かな、。ー
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Latn:TTB		kern	To AV
+ScriptFonts/NotoSansArabic-Regular.ttf	Arab:TTB			سلام
+OTFFonts/customfont.otf	Latn:TTB			A
+OTFFonts/SourceSans3-Regular.otf	Latn:TTB			Ao
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Latn:TTB			Tokyo 2026 AV
+OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hang:TTB	ko		한국어 문장입니다.
+TTFFonts/SourceSans3-Regular.ttf	Latn:TTB			AVATAR office
 OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani	zh-Hant		骨直刃
 OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani	zh-TW		骨直刃
 OTFFonts/FontCollections/NotoSansCJK-Regular.ttc	Hani	ko		骨直刃

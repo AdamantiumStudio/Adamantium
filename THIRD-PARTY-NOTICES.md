@@ -58,14 +58,16 @@ JPEG 2000 — that is a different format built on wavelets, and there is no code
 
 ---
 
-## HarfBuzz — Arabic shaper, modified combining classes
+## HarfBuzz — Arabic shaper, modified combining classes, vertical forms
 
-**Where:** `Adamantium.Fonts/Shaping/ArabicShaper.cs`, and `GetModifiedCombiningClass` in
-`Adamantium.Fonts/Shaping/UnicodeData.cs`
+**Where:** `Adamantium.Fonts/Shaping/ArabicShaper.cs`, `GetModifiedCombiningClass` in
+`Adamantium.Fonts/Shaping/UnicodeData.cs`, and `Adamantium.Fonts/Shaping/VerticalForms.cs`
 
 The joining state table, the list of modifier combining marks and the order the Arabic features apply in follow
 HarfBuzz's Arabic shaper (`src/hb-ot-shaper-arabic.cc`, https://github.com/harfbuzz/harfbuzz); the combining classes
-remapped for Hebrew, Arabic, Thai and Tibetan follow its `hb-unicode.hh`. Both are ported to C#. HarfBuzz is under the
+remapped for Hebrew, Arabic, Thai and Tibetan follow its `hb-unicode.hh`; the vertical presentation forms text set
+top to bottom falls back to without a 'vert' feature follow its `hb_vert_char_for` (`src/hb-ot-shape.cc`). All are
+ported to C#. HarfBuzz is under the
 "Old MIT" licence:
 
 ```
@@ -112,17 +114,18 @@ PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
 
 **Where:** `Adamantium.Fonts/Data/` — `Scripts.ucd`, `CombiningClass.ucd`, `Decompositions.ucd`,
 `ExtendedPictographic.ucd`, `GraphemeBreak.ucd`, `WordBreak.ucd`, `IndicConjunctBreak.ucd`, `LineBreak.ucd`,
-`EastAsianWidth.ucd`, `BidiClass.ucd`, `BidiBrackets.ucd`, `BidiMirroring.ucd` and `JoiningType.ucd`, embedded in
-`Adamantium.Fonts`;
+`EastAsianWidth.ucd`, `BidiClass.ucd`, `BidiBrackets.ucd`, `BidiMirroring.ucd`, `JoiningType.ucd` and
+`VerticalOrientation.ucd`, embedded in `Adamantium.Fonts`;
 and, for the tests only, `GraphemeBreakTest.txt`, `WordBreakTest.txt`, `LineBreakTest.txt`, `BidiTest.txt` and
 `BidiCharacterTest.txt` in `Tests/Adamantium.FontTests/Unicode/`.
 
 Data, not code: the script, canonical combining class, canonical decomposition, Extended_Pictographic, grapheme, word
 and line break, Indic_Conjunct_Break, East_Asian_Width, Bidi_Class, Bidi_Paired_Bracket, Bidi_Mirroring_Glyph,
-Joining_Type and Joining_Group properties of Unicode 16.0, cut down from the UCD files (`Scripts.txt`,
-`DerivedCombiningClass.txt`, `UnicodeData.txt`, `DerivedNormalizationProps.txt`, `emoji-data.txt`,
+Joining_Type, Joining_Group and Vertical_Orientation properties of Unicode 16.0, cut down from the UCD files
+(`Scripts.txt`, `DerivedCombiningClass.txt`, `UnicodeData.txt`, `DerivedNormalizationProps.txt`, `emoji-data.txt`,
 `GraphemeBreakProperty.txt`, `WordBreakProperty.txt`, `DerivedCoreProperties.txt`, `LineBreak.txt`,
-`EastAsianWidth.txt`, `DerivedBidiClass.txt`, `BidiBrackets.txt`, `BidiMirroring.txt`, `ArabicShaping.txt`) to the
+`EastAsianWidth.txt`, `DerivedBidiClass.txt`, `BidiBrackets.txt`, `BidiMirroring.txt`, `ArabicShaping.txt`,
+`VerticalOrientation.txt`) to the
 columns the text shaper, the text boundaries and the bidirectional algorithm read, with adjacent ranges joined.
 
 ```

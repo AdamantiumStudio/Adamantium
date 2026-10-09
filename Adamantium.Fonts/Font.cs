@@ -25,6 +25,11 @@ namespace Adamantium.Fonts
         private short[] leftSideBearings;
         private Dictionary<string, Font> instances = new();
         private Font baseFont;
+        private ushort[] advanceHeights;
+        private short[] topSideBearings;
+        private bool trueTypeOutlines;
+        private short defaultVerticalOriginY;
+        private Dictionary<uint, short> verticalOrigins;
         private float[] coordinates;
         private int[] variedAdvances;
         private readonly ConcurrentDictionary<ulong, ColorLayer[]> colorLayerCache = new();
@@ -713,6 +718,57 @@ namespace Adamantium.Fonts
 
             return Typeface.GetGlyphByIndex(glyphIndex, out var glyph) ? glyph.LeftSideBearing : (short)0;
         }
+
+        public bool HasVerticalMetrics => (baseFont ?? this).advanceHeights != null;
+
+        public ushort GetAdvanceHeight(uint glyphIndex)
+        {
+            var heights = (baseFont ?? this).advanceHeights;
+            return heights != null && glyphIndex < heights.Length
+                ? heights[glyphIndex]
+                : (ushort)Math.Max(0, LineAscent + LineDescent);
+        }
+
+        public short GetVerticalOriginY(uint glyphIndex)
+        {
+            var source = baseFont ?? this;
+            if (source.verticalOrigins != null)
+            {
+                return source.verticalOrigins.TryGetValue(glyphIndex, out var origin) ? origin : source.defaultVerticalOriginY;
+            }
+
+            Glyph glyph = null;
+            if (!source.trueTypeOutlines
+                || (!TryGetOutlineGlyph(glyphIndex, out glyph) && !Typeface.GetGlyphByIndex(glyphIndex, out glyph)))
+            {
+                return LineAscent;
+            }
+
+            var bounds = glyph.BoundingRectangle;
+            var top = bounds.Y + bounds.Height;
+            var bearings = source.topSideBearings;
+            if (bearings != null)
+            {
+                return (short)(top + (glyphIndex < bearings.Length ? bearings[glyphIndex] : 0));
+            }
+
+            var advance = LineAscent + LineDescent;
+            return (short)(top + ((advance - bounds.Height) >> 1));
+        }
+
+        internal void SetVerticalOrigins(short defaultY, Dictionary<uint, short> origins)
+        {
+            defaultVerticalOriginY = defaultY;
+            verticalOrigins = origins;
+        }
+
+        internal void SetVerticalMetrics(ushort[] heights, short[] topBearings)
+        {
+            advanceHeights = heights;
+            topSideBearings = topBearings;
+        }
+
+        internal void MarkTrueTypeOutlines() => trueTypeOutlines = true;
 
         void IFont.UpdateGlyphNamesCache()
         {

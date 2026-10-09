@@ -37,7 +37,9 @@ public class ShapingTests
         string expected)
     {
         var font = Fonts.GetOrAdd(fontPath, p => Typeface.LoadFont(p, 3).GetFont(0));
-        var options = new ShapingOptions(script, language.Length > 0 ? language : null, FontFeature.ParseList(features));
+        var vertical = script.EndsWith(":TTB", StringComparison.Ordinal);
+        var options = new ShapingOptions(vertical ? script[..^4] : script, language.Length > 0 ? language : null,
+            FontFeature.ParseList(features), vertical: vertical);
 
         var glyphs = TextShaper.Shape(font, Unescape(text), options);
 

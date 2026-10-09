@@ -57,5 +57,7 @@ namespace Adamantium.Fonts.Tables.Layout
         public int YPlacementVariation { get; set; } = -1;
 
         public int XAdvanceVariation { get; set; } = -1;
+
+        public int YAdvanceVariation { get; set; } = -1;
     }
 }

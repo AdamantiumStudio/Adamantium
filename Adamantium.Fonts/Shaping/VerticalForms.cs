@@ -1,0 +1,46 @@
+// The vertical presentation forms HarfBuzz falls back to without a 'vert' feature (hb_vert_char_for in
+// src/hb-ot-shape.cc). Copyright © 2009-2022 Red Hat, Inc., Google, Inc. and the HarfBuzz authors. Under the
+// "Old MIT" licence, details: THIRD-PARTY-NOTICES.md.
+
+namespace Adamantium.Fonts.Shaping;
+
+internal static class VerticalForms
+{
+    public static int Of(int codepoint) => codepoint switch
+    {
+        0x2013 => 0xFE32,
+        0x2014 => 0xFE31,
+        0x2025 => 0xFE30,
+        0x2026 => 0xFE19,
+        0x3001 => 0xFE11,
+        0x3002 => 0xFE12,
+        0x3008 => 0xFE3F,
+        0x3009 => 0xFE40,
+        0x300A => 0xFE3D,
+        0x300B => 0xFE3E,
+        0x300C => 0xFE41,
+        0x300D => 0xFE42,
+        0x300E => 0xFE43,
+        0x300F => 0xFE44,
+        0x3010 => 0xFE3B,
+        0x3011 => 0xFE3C,
+        0x3014 => 0xFE39,
+        0x3015 => 0xFE3A,
+        0x3016 => 0xFE17,
+        0x3017 => 0xFE18,
+        0xFE4F => 0xFE34,
+        0xFF01 => 0xFE15,
+        0xFF08 => 0xFE35,
+        0xFF09 => 0xFE36,
+        0xFF0C => 0xFE10,
+        0xFF1A => 0xFE13,
+        0xFF1B => 0xFE14,
+        0xFF1F => 0xFE16,
+        0xFF3B => 0xFE47,
+        0xFF3D => 0xFE48,
+        0xFF3F => 0xFE33,
+        0xFF5B => 0xFE37,
+        0xFF5D => 0xFE38,
+        _ => codepoint,
+    };
+}

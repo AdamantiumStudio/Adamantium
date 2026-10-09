@@ -87,6 +87,9 @@ public static class Program
         var joining = DataLines(await Download(ucd + "ArabicShaping.txt"))
             .Select(f => ParseRange(f[0], f[3] switch { "ALAPH" => "A", "DALATH RISH" => "S", _ => f[2] }));
         Write(output, "JoiningType.ucd", FormatRanges(joining, true));
+
+        var orientations = ParseRanges(await Download(ucd + "VerticalOrientation.txt")).Where(r => r.Value != "R");
+        Write(output, "VerticalOrientation.ucd", FormatRanges(orientations, true));
         return 0;
     }
 
