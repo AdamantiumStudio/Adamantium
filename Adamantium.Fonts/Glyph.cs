@@ -310,11 +310,11 @@ namespace Adamantium.Fonts
             outlines.Add(outline);
         }
 
-        internal void AddComponentOutlines(Glyph[] fontGlyphs)
+        internal void AddComponentOutlines(Func<uint, Glyph> glyphAt)
         {
             foreach (var component in CompositeGlyphComponents)
             {
-                var componentGlyph = fontGlyphs[component.SimpleGlyphIndex];
+                var componentGlyph = glyphAt(component.SimpleGlyphIndex);
                 var componentOutlines = componentGlyph.TransformBasicOutlines(component.TransformMatrix);
                 if (component.IsAnchored)
                 {

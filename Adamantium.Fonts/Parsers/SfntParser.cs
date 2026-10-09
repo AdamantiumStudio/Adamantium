@@ -1170,7 +1170,7 @@ namespace Adamantium.Fonts.Parsers
         {
             if (ReadGlyphData(reader, glyph).NumberOfContours < 0)
             {
-                glyph.AddComponentOutlines(fontGlyphs);
+                glyph.AddComponentOutlines(index => fontGlyphs[index]);
             }
         }
 

@@ -26,11 +26,11 @@ internal class TTFGlyphOutlineSource : IGlyphOutlineSource, IVariableGlyphOutlin
         parser.ReadGlyphOutlines(reader, glyph, glyphs);
     }
 
-    public IGlyphOutlineSource Vary(Font font, float[] coordinates, Glyph[] variedGlyphs)
+    public IGlyphOutlineSource Vary(Font font, float[] coordinates, Typeface variedTypeface)
     {
         return font.GlyphVariations == null
             ? null
-            : new VariedTTFGlyphOutlineSource(parser, fontData, glyfTableOffset, glyphOffsets, variedGlyphs, font,
-                coordinates);
+            : new VariedTTFGlyphOutlineSource(parser, fontData, glyfTableOffset, glyphOffsets, glyphs.Length,
+                variedTypeface, font, coordinates);
     }
 }

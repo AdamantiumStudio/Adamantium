@@ -133,6 +133,71 @@ public class VariationAxisTests
         });
     }
 
+    // An instance makes its glyphs as they are asked for, and finds them through its base font's maps: whichever way a
+    // glyph is asked for, it is the instance's own, with the instance's outline.
+    [Test]
+    public void AnInstance_FindsItsOwnGlyph_ByCharacterNameAndIndex()
+    {
+        var font = Load("Variations/RobotoFlex-Variable.ttf");
+        var bold = font.GetInstance([new FontVariation("wght", 900)]);
+        var regular = font.GetGlyphByCharacter('l');
+
+        var byCharacter = bold.GetGlyphByCharacter('l');
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(byCharacter, Is.Not.SameAs(regular));
+            Assert.That(bold.GetGlyphByIndex(regular.Index), Is.SameAs(byCharacter));
+            Assert.That(bold.GetGlyphByName(regular.Name), Is.SameAs(byCharacter));
+            Assert.That(byCharacter.BoundingRectangle.Width, Is.GreaterThan(regular.BoundingRectangle.Width),
+                "the heavy stem");
+            Assert.That(bold.GlyphCount, Is.EqualTo(font.GlyphCount));
+        });
+    }
+
+    // An animation from weight 400 to 700 passes 525: laid out there, drawn between the key instances at 500 and 550,
+    // which every animation of the weight shares, the same instances as asked for by value.
+    [Test]
+    public void APointOnTheWay_IsDrawnBetweenTheKeyInstancesAroundIt()
+    {
+        var font = Load("Variations/RobotoFlex-Variable.ttf");
+        FontVariation[] from = [new("wght", 400)];
+        FontVariation[] to = [new("wght", 700)];
+
+        var moving = font.GetInstance(from, to, 125f / 300);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(Weight(moving), Is.EqualTo(525).Within(1e-3));
+            Assert.That(moving.Blend.From, Is.SameAs(font.GetInstance([new FontVariation("wght", 500)])));
+            Assert.That(moving.Blend.To, Is.SameAs(font.GetInstance([new FontVariation("wght", 550)])));
+            Assert.That(moving.Blend.Amount, Is.EqualTo(0.5f).Within(1e-4));
+            Assert.That(font.GetInstance(from, to, 125f / 300), Is.SameAs(moving), "asked again, the same point");
+            Assert.That(font.GetInstance(from, to, 0).Blend.From, Is.SameAs(font.GetInstance(from)), "the way starts at rest");
+            Assert.That(font.GetInstance(from, from, 0.5f), Is.SameAs(font.GetInstance(from)), "a way that does not move");
+        });
+    }
+
+    // Text sets the optical size of a point on the way as it does of any font, and the point stays on its way.
+    [Test]
+    public void APointOnTheWay_TakesTheTextsOpticalSize()
+    {
+        var font = Load("Variations/RobotoFlex-Variable.ttf");
+
+        var sized = font.GetInstance([new FontVariation("wght", 400)], [new FontVariation("wght", 700)], 0.5f)
+            .AtOpticalSize(36);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sized.Variations.Single(v => v.Tag == "opsz").Value, Is.EqualTo(36));
+            Assert.That(Weight(sized), Is.EqualTo(550).Within(1e-3));
+            Assert.That(sized.Blend.From.Variations.Single(v => v.Tag == "opsz").Value, Is.EqualTo(36));
+            Assert.That(sized.Blend.To, Is.SameAs(font.GetInstance([new FontVariation("wght", 550)]).AtOpticalSize(36)));
+        });
+    }
+
+    private static float Weight(IFont font) => font.Variations.Single(v => v.Tag == "wght").Value;
+
     [Test]
     public void AFontWithoutStyleAttributes_NamesNoAxisValues()
     {

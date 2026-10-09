@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using Adamantium.Fonts.Common;
@@ -34,6 +35,10 @@ namespace Adamantium.Fonts
         private readonly Dictionary<ushort, string> names = new();
         private readonly Lazy<GlyphSubstitutionMap> substitutionMap;
         private bool opticalSizeSet;
+        private readonly List<(string Name, Font Font)> movingInstances = [];
+        private IReadOnlyList<FontVariation> movingFrom;
+        private IReadOnlyList<FontVariation> movingTo;
+        private float movingProgress;
         public Typeface Typeface { get; private set; }
         internal VariationStore VariationData { get; set; }
 
@@ -110,7 +115,7 @@ namespace Adamantium.Fonts
         public IReadOnlyList<string> GetGlyphText(uint glyphIndex) => substitutionMap.Value.Text(glyphIndex);
 
         internal IReadOnlyDictionary<uint, Glyph> UnicodeToGlyph => unicodeToGlyph;
-        public uint GlyphCount => (uint)glyphs.Count;
+        public uint GlyphCount => baseFont != null ? baseFont.GlyphCount : (uint)glyphs.Count;
         public ushort UnitsPerEm { get; internal set; }
         public Int16 Ascender { get; internal set; }
         public Int16 Descender { get; internal set; }
@@ -144,7 +149,9 @@ namespace Adamantium.Fonts
 
         public DateTime Modified { get; internal set; }
 
-        public IReadOnlyCollection<Glyph> Glyphs => glyphs.AsReadOnly();
+        public IReadOnlyCollection<Glyph> Glyphs => baseFont != null
+            ? baseFont.glyphs.Select(glyph => GetGlyphByIndex(glyph.Index)).ToList().AsReadOnly()
+            : glyphs.AsReadOnly();
         public IReadOnlyCollection<uint> Unicodes => unicodes.AsReadOnly();
         internal KerningSubtable[] KerningData { get; set; }
         internal OpenTypeLayout Layout { get; } = new OpenTypeLayout();
@@ -349,6 +356,12 @@ namespace Adamantium.Fonts
                 return this;
             }
 
+            if (Blend != null)
+            {
+                return baseFont.GetMovingInstance(WithOpticalSize(movingFrom, size), WithOpticalSize(movingTo, size),
+                    movingProgress, false);
+            }
+
             var variations = Variations.Where(v => v.Tag != OpticalSizeAxis)
                 .Append(new FontVariation(OpticalSizeAxis, size))
                 .ToArray();
@@ -356,12 +369,26 @@ namespace Adamantium.Fonts
         }
 
         private const string OpticalSizeAxis = "opsz";
+        private const int KeyStepsPerAxis = 18;
+        private const double KeyTolerance = 1e-3;
+        private const int MovingInstancesKept = 16;
 
-        private IFont GetInstance(IReadOnlyList<FontVariation> variations, bool opticalSize)
+        private static FontVariation[] WithOpticalSize(IReadOnlyList<FontVariation> variations, float size) =>
+            variations.Where(v => v.Tag != OpticalSizeAxis).Append(new FontVariation(OpticalSizeAxis, size)).ToArray();
+
+        /// <inheritdoc />
+        public IFont GetInstance(IReadOnlyList<FontVariation> from, IReadOnlyList<FontVariation> to, float progress) =>
+            GetMovingInstance(from, to, progress, from.Concat(to).Any(v => v.Tag == OpticalSizeAxis));
+
+        /// <inheritdoc />
+        public FontBlend Blend { get; private set; }
+
+        private IFont GetMovingInstance(IReadOnlyList<FontVariation> from, IReadOnlyList<FontVariation> to, float progress,
+            bool opticalSize)
         {
             if (baseFont != null)
             {
-                return baseFont.GetInstance(variations, opticalSize);
+                return baseFont.GetMovingInstance(from, to, progress, opticalSize);
             }
 
             if (Axes.Count == 0 || Typeface.OutlineSource is not IVariableGlyphOutlineSource variable)
@@ -369,7 +396,113 @@ namespace Adamantium.Fonts
                 return this;
             }
 
-            var normalized = new int[Axes.Count];
+            var start = Normalize(from, out _);
+            var end = Normalize(to, out _);
+            var keys = KeyProgress(start, end);
+            var at = Math.Max(0f, Math.Min(1f, progress));
+            if (keys.Count < 2)
+            {
+                return GetInstance(start, opticalSize);
+            }
+
+            var name = string.Join(",", start.Concat(end).Select(v => v.Value.ToString("R", CultureInfo.InvariantCulture))) +
+                       "@" + at.ToString("R", CultureInfo.InvariantCulture) + (opticalSize ? "|opsz" : "");
+            lock (movingInstances)
+            {
+                foreach (var kept in movingInstances)
+                {
+                    if (kept.Name == name)
+                    {
+                        return kept.Font;
+                    }
+                }
+            }
+
+            var k = 0;
+            while (k < keys.Count - 2 && at > keys[k + 1])
+            {
+                k++;
+            }
+
+            var exact = Normalize(Lerp(start, end, at), out var normalized);
+            var instance = CreateInstance(variable, normalized.Select(n => n / 16384f).ToArray(), exact);
+            if (instance == this)
+            {
+                return this;
+            }
+
+            instance.opticalSizeSet = opticalSize;
+            instance.movingFrom = from;
+            instance.movingTo = to;
+            instance.movingProgress = progress;
+            instance.Blend = new FontBlend(GetInstance(Lerp(start, end, keys[k]), opticalSize),
+                GetInstance(Lerp(start, end, keys[k + 1]), opticalSize), (at - keys[k]) / (keys[k + 1] - keys[k]));
+            lock (movingInstances)
+            {
+                movingInstances.Add((name, instance));
+                if (movingInstances.Count > MovingInstancesKept)
+                {
+                    movingInstances.RemoveAt(0);
+                }
+            }
+
+            return instance;
+        }
+
+        private List<float> KeyProgress(FontVariation[] start, FontVariation[] end)
+        {
+            var dominant = -1;
+            var widest = 0.0;
+            for (var a = 0; a < Axes.Count; a++)
+            {
+                var range = Axes[a].MaxValue - Axes[a].MinValue;
+                var moved = range > 0 ? Math.Abs(end[a].Value - start[a].Value) / range : 0;
+                if (moved > widest)
+                {
+                    widest = moved;
+                    dominant = a;
+                }
+            }
+
+            if (dominant < 0)
+            {
+                return [0f];
+            }
+
+            var axis = Axes[dominant];
+            var step = (axis.MaxValue - axis.MinValue) / (double)KeyStepsPerAxis;
+            double first = start[dominant].Value;
+            double last = end[dominant].Value;
+            var low = Math.Min(first, last);
+            var high = Math.Max(first, last);
+            var keys = new List<float> { 0f, 1f };
+            for (var j = (int)Math.Floor((low - axis.MinValue) / step) + 1; axis.MinValue + j * step < high; j++)
+            {
+                var value = axis.MinValue + j * step;
+                if (value - low > KeyTolerance * step && high - value > KeyTolerance * step)
+                {
+                    keys.Add((float)((value - first) / (last - first)));
+                }
+            }
+
+            keys.Sort();
+            return keys;
+        }
+
+        private static FontVariation[] Lerp(FontVariation[] start, FontVariation[] end, float at)
+        {
+            var values = new FontVariation[start.Length];
+            for (var a = 0; a < start.Length; a++)
+            {
+                values[a] = new FontVariation(start[a].Tag, start[a].Value + (end[a].Value - start[a].Value) * at);
+            }
+
+            return values;
+        }
+
+        private FontVariation[] Normalize(IReadOnlyList<FontVariation> variations, out int[] normalized)
+        {
+            normalized = new int[Axes.Count];
             var values = new FontVariation[Axes.Count];
             for (var a = 0; a < Axes.Count; a++)
             {
@@ -392,6 +525,23 @@ namespace Adamantium.Fonts
                 }
             }
 
+            return values;
+        }
+
+        private IFont GetInstance(IReadOnlyList<FontVariation> variations, bool opticalSize)
+        {
+            if (baseFont != null)
+            {
+                return baseFont.GetInstance(variations, opticalSize);
+            }
+
+            if (Axes.Count == 0 || Typeface.OutlineSource is not IVariableGlyphOutlineSource variable)
+            {
+                return this;
+            }
+
+            var values = Normalize(variations, out var normalized);
+
             if (normalized.All(n => n == 0) && !opticalSize)
             {
                 return this;
@@ -413,9 +563,8 @@ namespace Adamantium.Fonts
 
         private Font CreateInstance(IVariableGlyphOutlineSource variable, float[] normalized, FontVariation[] values)
         {
-            var baseGlyphs = Typeface.Glyphs.ToArray();
-            var glyphs = new Glyph[baseGlyphs.Length];
-            var source = variable.Vary(this, normalized, glyphs);
+            var typeface = new Typeface { Parser = Typeface.Parser };
+            var source = variable.Vary(this, normalized, typeface);
             if (source == null)
             {
                 if (MetricsVariations == null && FontMetricsVariations == null && ColorPaints?.Varies != true)
@@ -426,7 +575,6 @@ namespace Adamantium.Fonts
                 source = (IGlyphOutlineSource)variable;
             }
 
-            var typeface = new Typeface { Parser = Typeface.Parser };
             var instance = (Font)MemberwiseClone();
             instance.Typeface = typeface;
             instance.baseFont = this;
@@ -442,42 +590,44 @@ namespace Adamantium.Fonts
             instance.Style = values.Any(v => v.Tag == "ital" && v.Value >= 0.5f) ? FontStyle.Italic
                 : values.Any(v => v.Tag == "slnt" && v.Value != 0) ? FontStyle.Oblique
                 : Style;
-            instance.variedAdvances = Enumerable.Repeat(-1, glyphs.Length).ToArray();
-            instance.instances = new Dictionary<string, Font>();
-
-            for (var i = 0; i < glyphs.Length; i++)
+            var count = (int)Typeface.GlyphCount;
+            instance.variedAdvances = new int[count];
+            for (var i = 0; i < count; i++)
             {
-                var original = baseGlyphs[i];
-                var glyph = original.IsEmpty ? Glyph.EmptyGlyph(original.Index) : new Glyph(original.Index, original.OutlineType);
-                glyph.Name = original.Name;
-                glyph.SID = original.SID;
-                glyph.ClassDefinition = original.ClassDefinition;
-                glyph.AdvanceWidth = original.AdvanceWidth;
-                glyph.LeftSideBearing = original.LeftSideBearing;
-                glyph.AdvanceHeight = original.AdvanceHeight;
-                glyph.TopSideBearing = original.TopSideBearing;
-                glyph.SetUnicodes(original.Unicodes);
-                if (!original.IsEmpty)
-                {
-                    glyph.SetOutlineSource(source);
-                }
-
-                glyphs[i] = glyph;
+                instance.variedAdvances[i] = -1;
             }
 
-            typeface.SetGlyphs(glyphs);
+            instance.instances = new Dictionary<string, Font>();
+            instance.glyphs = null;
+            typeface.SetGlyphFactory(count, index => VariedGlyph(index, source));
             typeface.AddFont(instance);
             typeface.SetDefaultFont();
-            instance.glyphs = this.glyphs.Select(g => glyphs[g.Index]).ToList();
-            instance.unicodes = new List<uint>(unicodes);
-            instance.unicodeToGlyph = unicodeToGlyph.ToDictionary(p => p.Key, p => glyphs[p.Value.Index]);
-            instance.nameToGlyph = nameToGlyph.ToDictionary(p => p.Key, p => glyphs[p.Value.Index]);
             if (FontMetricsVariations != null)
             {
                 instance.VaryMetrics(FontMetricsVariations, normalized);
             }
 
             return instance;
+        }
+
+        private Glyph VariedGlyph(uint index, IGlyphOutlineSource source)
+        {
+            Typeface.GetGlyphByIndex(index, out var original);
+            var glyph = original.IsEmpty ? Glyph.EmptyGlyph(original.Index) : new Glyph(original.Index, original.OutlineType);
+            glyph.Name = original.Name;
+            glyph.SID = original.SID;
+            glyph.ClassDefinition = original.ClassDefinition;
+            glyph.AdvanceWidth = original.AdvanceWidth;
+            glyph.LeftSideBearing = original.LeftSideBearing;
+            glyph.AdvanceHeight = original.AdvanceHeight;
+            glyph.TopSideBearing = original.TopSideBearing;
+            glyph.SetUnicodes(original.Unicodes);
+            if (!original.IsEmpty)
+            {
+                glyph.SetOutlineSource(source);
+            }
+
+            return glyph;
         }
 
         private void VaryMetrics(MetricsVariationTable table, float[] normalized)
@@ -566,7 +716,7 @@ namespace Adamantium.Fonts
 
         void IFont.UpdateGlyphNamesCache()
         {
-            if (!IsGlyphNamesProvided) return;
+            if (!IsGlyphNamesProvided || baseFont != null) return;
 
             foreach (var glyph in glyphs)
             {
@@ -656,17 +806,17 @@ namespace Adamantium.Fonts
                 return null;
             }
 
-            return glyph;
+            return baseFont != null ? GetGlyphByIndex(glyph.Index) : glyph;
         }
 
         public Glyph GetGlyphByUnicode(uint unicode)
         {
             if (!unicodeToGlyph.TryGetValue(unicode, out var glyph))
             {
-                return glyphs[0];
+                return baseFont != null ? GetGlyphByIndex(baseFont.glyphs[0].Index) : glyphs[0];
             }
 
-            return glyph;
+            return baseFont != null ? GetGlyphByIndex(glyph.Index) : glyph;
         }
 
         public Glyph GetGlyphByCharacter(char character)

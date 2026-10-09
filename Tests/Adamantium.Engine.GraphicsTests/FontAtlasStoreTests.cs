@@ -105,6 +105,40 @@ public class FontAtlasStoreTests
         Assert.That(layout.ElementsCount, Is.EqualTo(0));
     }
 
+    // A weight animation's frame lays the text out at its own weight and draws each glyph from the two key instances
+    // around it: they go into the atlas, the frame's own glyphs never do.
+    [Test]
+    public void AGlyphOnTheWayBetweenTwoWeights_IsDrawnFromBothKeyInstances()
+    {
+        var device = GpuFixture.CreateRenderDevice();
+        FontAtlasStore.SynchronousFill = true;
+        var typeface = Typeface.LoadFont(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fonts",
+            "RobotoFlex-Variable.ttf"));
+        var moving = typeface.Fonts[0].GetInstance([new FontVariation("wght", 400)], [new FontVariation("wght", 700)], 0.42f);
+        var layout = new TextLayout(moving.Typeface, moving);
+        layout.ProcessText("m", 40, new Size(double.NaN, double.NaN), TextWrapping.NoWrap, TextTrimming.None,
+            HorizontalTextAlignment.Left, VerticalTextAlignment.Top);
+
+        layout.Update(device);
+        var run = layout.SnapshotGlyphs();
+        var word = layout.GetTextData().Single();
+        var blend = word.Font.Blend;
+        var atlas = layout.FontAtlas;
+        var item = run.Glyphs[0];
+
+        Assert.That(run.Count, Is.EqualTo(1));
+        Assert.That(blend, Is.Not.Null, "at the text's optical size, still on the way");
+        Assert.Multiple(() =>
+        {
+            Assert.That(atlas.GetGlyphData(blend.From, blend.From.GetGlyphByIndex(word.Glyph.Index)), Is.Not.Null);
+            Assert.That(atlas.GetGlyphData(blend.To, blend.To.GetGlyphByIndex(word.Glyph.Index)), Is.Not.Null);
+            Assert.That(atlas.GetGlyphData(word.Font, word.Glyph), Is.Null, "the frame's own glyph");
+            Assert.That(item.SecondSource.Z, Is.GreaterThan(0), "the second key's cell");
+            Assert.That(item.Second.Y, Is.EqualTo(blend.Amount).Within(1e-6));
+            Assert.That(item.Source.Z, Is.GreaterThan(0));
+        });
+    }
+
     [Test]
     public void AColorGlyph_DrawsOneQuadThatRunsItsPaintProgram()
     {

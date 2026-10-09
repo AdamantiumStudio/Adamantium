@@ -7,6 +7,11 @@ All packages share one version.
 
 ### Added
 
+- A variable font on the way between two sets of axis values, as an animation passes it:
+  `IFont.GetInstance(from, to, progress)` lays text out at exactly the values there, and its `Blend` names the two key
+  instances around it, set at every eighteenth of the axis that moves most (wght 100, 150, 200...) so animations share
+  them. `TextLayout` draws such a glyph from both keys' cells (`FontItem.SecondSource`, `Second`) and `FontEffect`
+  blends their true distance; the point's own glyphs never reach the atlas. Color glyphs are drawn as the nearer key.
 - The rest of a variable font's axes. `FontAxis.Name` and `IsHidden` (the font's name for an axis, and whether it
   keeps out of style panels); `IFont.NamedInstances` (the styles 'fvar' names, as "Bold Condensed");
   `IFont.AxisValues` and `ElidedFallbackName` from the style attributes table ('STAT': "Light" on `wght`, "Condensed"
@@ -252,6 +257,8 @@ All packages share one version.
 
 ### Changed
 
+- An instance of a variable font makes its glyphs as they are asked for, instead of all of them: Roboto Flex's
+  instance took 1.2 ms and 720 KB (and set off collections that held frames for 15 ms), and takes 0.03 ms and 21 KB.
 - A glyph's distance field takes about a third of the work it did, with the same bytes (checked on 7498 glyphs of ten
   fonts, TrueType, CFF, variable, CJK and emoji): one grid searches every channel at once, by squared distance, from
   the bounds the texel before it left; a texel far enough from the outline that its colors are replaced by the true

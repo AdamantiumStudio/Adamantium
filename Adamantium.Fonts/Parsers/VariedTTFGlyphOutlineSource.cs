@@ -12,22 +12,22 @@ internal sealed class VariedTTFGlyphOutlineSource : IGlyphOutlineSource
     private readonly byte[] fontData;
     private readonly long glyfTableOffset;
     private readonly uint[] glyphOffsets;
-    private readonly Glyph[] glyphs;
+    private readonly Typeface typeface;
     private readonly Font font;
     private readonly float[] coordinates;
     private readonly double[] originShifts;
 
     public VariedTTFGlyphOutlineSource(SfntParser parser, byte[] fontData, long glyfTableOffset, uint[] glyphOffsets,
-        Glyph[] glyphs, Font font, float[] coordinates)
+        int glyphCount, Typeface typeface, Font font, float[] coordinates)
     {
         this.parser = parser;
         this.fontData = fontData;
         this.glyfTableOffset = glyfTableOffset;
         this.glyphOffsets = glyphOffsets;
-        this.glyphs = glyphs;
+        this.typeface = typeface;
         this.font = font;
         this.coordinates = coordinates;
-        originShifts = new double[glyphs.Length];
+        originShifts = new double[glyphCount];
     }
 
     public void LoadOutlines(Glyph glyph)
@@ -112,7 +112,7 @@ internal sealed class VariedTTFGlyphOutlineSource : IGlyphOutlineSource
         for (var i = 0; i < count; i++)
         {
             var component = components[i];
-            _ = glyphs[component.SimpleGlyphIndex].HasOutlines;
+            _ = GlyphAt(component.SimpleGlyphIndex).HasOutlines;
             var componentShift = originShifts[component.SimpleGlyphIndex];
             var matrix = component.TransformMatrix;
             matrix.M31 = xs[i] + componentShift * matrix.M11 - shift;
@@ -120,8 +120,14 @@ internal sealed class VariedTTFGlyphOutlineSource : IGlyphOutlineSource
             component.TransformMatrix = matrix;
         }
 
-        glyph.AddComponentOutlines(glyphs);
+        glyph.AddComponentOutlines(GlyphAt);
         Finish(glyph, xs, count);
+    }
+
+    private Glyph GlyphAt(uint index)
+    {
+        typeface.GetGlyphByIndex(index, out var glyph);
+        return glyph;
     }
 
     private void SetPhantoms(uint glyphIndex, short xMin, double[] xs, int count)

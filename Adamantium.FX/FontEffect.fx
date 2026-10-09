@@ -18,6 +18,10 @@ struct FontItem
     // A 'COLR' version 1 glyph: x = its paint program plus one (0 = an ordinary glyph). Destination then holds the pen
     // and baseline (xy) and the pixels per font unit (zw).
     float4 Paint : TEXCOORD3;
+    // A glyph on the way between two key instances of a variable font: the second key's cell over the same quad (zero
+    // for a glyph drawn from one field), and its layer (x) and how far the glyph is from the first key to it (y).
+    float4 SecondSource : TEXCOORD4;
+    float2 Second : TEXCOORD5;
 };
 
 // The atlas layer is a runtime index, so glyphs the packer spills to layers 1+ are sampled from their own layer.
@@ -41,7 +45,19 @@ struct PSInput
     nointerpolation float PaintProgram : TEXCOORD5;
     float2 PaintPoint : TEXCOORD6;
     nointerpolation float OwnFade : TEXCOORD7;
+    // A glyph between two key instances: the point in the second key's cell, and that cell's layer (x, negative for a
+    // glyph drawn from one field) and its share (y).
+    float2 SecondUV : TEXCOORD8;
+    nointerpolation float2 Second : TEXCOORD9;
 };
+
+// Where a glyph is drawn between two key instances, the second field's place for this corner and its layer and share;
+// a negative layer for a glyph drawn from one field.
+void SecondField(float4 secondSource, float2 second, float2 corner, out float2 uv, out float2 field)
+{
+    uv = secondSource.xy + corner * secondSource.zw;
+    field = secondSource.z > 0.0 ? second : float2(-1.0, 0.0);
+}
 
 // A synthesized italic: the corner's shift right, for a quad of the given height, slanted about its baseline.
 float SlantShift(float4 synthesis, float cornerY, float height)
@@ -439,6 +455,7 @@ PSInput ExpandGlyphCorner(FontItem item, int corner)
 
     float2 uvCorner = TextureCornerCoords[corner ^ item.SpriteEffect];
     vertex.UV = item.Source.xy + uvCorner * item.Source.zw;
+    SecondField(item.SecondSource, item.Second, uvCorner, vertex.SecondUV, vertex.Second);
 
     // The clip comes in as a uniform here (see DirectClipBox) instead of from the table by slot, and it has to be
     // WRITTEN either way: a varying this vertex shader does not set reaches the pixel shader as whatever was in the
@@ -474,6 +491,20 @@ float SampleGlyphCoverage(float4 samp, float2 uv)
     float texelsPerPx = max(length(ddx(uv) * MSDFAtlasSize), length(ddy(uv) * MSDFAtlasSize));
     float t = smoothstep(SdfBlendLo, SdfBlendHi, texelsPerPx);
     return lerp(msdf, samp.a, t);
+}
+
+// The field a glyph's coverage comes from. A glyph between two key instances of a variable font blends the true
+// distance of both: their colored channels are split into edges differently and do not blend, and the true distance
+// only rounds its corners while it moves.
+float GlyphField(float4 samp, float2 uv, float2 secondUV, float2 second)
+{
+    if (second.x < 0.0)
+    {
+        return SampleGlyphCoverage(samp, uv);
+    }
+
+    float4 secondSamp = Texture.SampleLevel(TextureSampler, float3(secondUV, second.x), 0.0);
+    return lerp(samp.a, secondSamp.a, second.y);
 }
 
 float MaskField(float2 uv, float layer, float blend)
@@ -617,7 +648,7 @@ float4 FontPixelShaderMsdf(PSInput input) : SV_Target
     float2 glyphDx = ddx(input.PaintPoint);
     float2 glyphDy = ddy(input.PaintPoint);
     float4 samp = Texture.Sample(TextureSampler, float3(input.UV, input.Layer));
-    float sd = SampleGlyphCoverage(samp, input.UV);
+    float sd = GlyphField(samp, input.UV, input.SecondUV, input.Second);
     float opacity = clamp(ScreenPxRange(input.UV) * (sd - 0.5 + FontWeight + input.Embolden) + 0.5, 0.0, 1.0);
     // A glyph of attributed text brings its own color; a negative alpha means the element's foreground.
     float4 color = input.Color.a < 0 ? ForegroundColor : float4(input.Color.rgb, input.Color.a * GlyphFade);
@@ -646,7 +677,7 @@ float4 FontPixelShaderMsdfBatch(PSInput input) : SV_Target
     float2 glyphDx = ddx(input.PaintPoint);
     float2 glyphDy = ddy(input.PaintPoint);
     float4 samp = Texture.Sample(TextureSampler, float3(input.UV, input.Layer));
-    float sd = SampleGlyphCoverage(samp, input.UV);
+    float sd = GlyphField(samp, input.UV, input.SecondUV, input.Second);
     float opacity = clamp(ScreenPxRange(input.UV) * (sd - 0.5 + FontWeight + input.Embolden) + 0.5, 0.0, 1.0);
     // Unchanged on purpose - the element's fade is pre-compensated in the vertex stage so that this very boost hands
     // it back linear. See the FADE line in FontBatchInstancedVS.
@@ -680,6 +711,8 @@ struct GlyphData
     float4 Paint;       // .x = a 'COLR' version 1 glyph's paint program plus one, or 0 (LocalRect is then the pen and
                         // baseline, xy, and pixels per font unit, zw); .y = the element's opacity raised to 2.2, for the
                         // glyph's own colors
+    float4 SecondSource; // a glyph between two key instances: the second key's cell over the same quad, or zero
+    float4 Second;      // .x = that cell's layer; .y = its share
 };
 
 [shader("vertex")]
@@ -704,6 +737,7 @@ PSInput FontBatchInstancedVS(uint vertexId : SV_VertexID, uint instanceId : SV_I
     float4 worldPos = mul(float4(localPos, g.Params.z, 1.0), nodeWorld);
     o.Position = mul(worldPos, MatrixTransform);   // MatrixTransform = the (transposed-on-upload) projection
     o.UV = g.Source.xy + corner * g.Source.zw;     // SpriteEffect == 0 for batched glyphs
+    SecondField(g.SecondSource, g.Second.xy, corner, o.SecondUV, o.Second);
     // The element's alpha from the OPACITY SLOT, exactly as every other family reads it: a fading ancestor then moves
     // one number in the table instead of re-baking every glyph under it. Params.w is -1 when nothing above fades.
     float fadeSlot = g.Params.w;
