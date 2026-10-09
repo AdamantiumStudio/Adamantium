@@ -252,6 +252,11 @@ All packages share one version.
 
 ### Changed
 
+- A glyph's distance field takes about a third of the work it did, with the same bytes (checked on 7498 glyphs of ten
+  fonts, TrueType, CFF, variable, CJK and emoji): one grid searches every channel at once, by squared distance, from
+  the bounds the texel before it left; a texel far enough from the outline that its colors are replaced by the true
+  distance anyway is not searched for them; and the rows of a glyph are computed in bands on several threads. One
+  glyph went from 6-10 ms to 1.3-1.6 ms, a parallel atlas of Segoe UI from 2.1 s to 0.9 s.
 - Glyphs reach the atlas one by one as they are rasterized, the heaviest started first and spread over the workers, so
   a few complex glyphs no longer hold back the rest of a batch: the sandbox's text page went from 8.6 s of glyph
   generation to 1.1 s. The distance field of a glyph looks only at the outline segments near each texel (a grid of
