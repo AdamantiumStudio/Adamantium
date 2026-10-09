@@ -7,6 +7,16 @@ All packages share one version.
 
 ### Added
 
+- The paragraph composer. `TextLayout.LineBreaking` (`LineBreaking`: `Greedy` - the default, a line at a time - or
+  `Paragraph`) breaks text wrapped by `WrapByWords` a paragraph at a time, as TeX and InDesign's Paragraph Composer
+  do. `ParagraphComposer` is Knuth and Plass's algorithm over boxes, glue and penalties, with TeX's badness, fitness
+  classes and demerits (line penalty 10, a hyphen after a hyphen 10000, a hyphenated next to last line 5000, fitness
+  classes two apart 10000), and its three passes: without automatic hyphenation at tolerance 100, with it at 200,
+  then with an emergency stretch, where a word wider than the line overflows. Justified text gets spaces that
+  stretch by half and shrink by a third; ragged text an even edge, with a stretch of 2em at the end of each line.
+  Checked against every breaking of 400 random paragraphs; a paragraph's demerits are never above those of the same
+  text broken a line at a time.
+- Justified lines shrink their spaces, by up to a third, when the composer set them tighter than their natural width.
 - Hyphenation. `TextLayout.Hyphens` (`Hyphens`: `None`, `Manual` - the default - and `Auto`) lets a word wrapped by
   `WrapByWords` break across lines, a hyphen (U+2010, or `-` when the font lacks it) ending the line: at its soft
   hyphens (U+00AD, drawn only where a line breaks at one), and under `Auto`, in a word without any, where the
@@ -208,6 +218,8 @@ All packages share one version.
 
 ### Fixed
 
+- `Justify` stretched the last line of every paragraph but the text's last, a line ending at a newline; it stays as it
+  is now, unless `justifyLastLine` asks otherwise.
 - `WrapByWords` measured a word by the sum of its glyphs' ink, leaving out the gaps between them, so a word wider than
   the room left could stay on the line and run past the edge. It is measured from the pen to the right edge of its
   ink now.
