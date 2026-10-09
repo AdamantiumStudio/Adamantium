@@ -2265,10 +2265,9 @@ public class TextLayout : DisposableObject
                     var blank = pending ? runFont.GetGlyphByCharacter(' ') : null;
                     foreach (var (levelStart, levelEnd, direction) in LevelRuns(runStart, runEnd))
                     {
-                        var piece = text.Substring(levelStart, levelEnd - levelStart);
                         var shaped = direction == TextDirection.Auto
-                            ? TextShaper.Shape(runFont, piece, options)
-                            : TextShaper.Shape(runFont, piece,
+                            ? TextShaper.Shape(runFont, text, levelStart, levelEnd, options)
+                            : TextShaper.Shape(runFont, text, levelStart, levelEnd,
                                 new ShapingOptions(options.Script, options.Language, options.Features, direction));
                         if (direction == TextDirection.RightToLeft)
                         {

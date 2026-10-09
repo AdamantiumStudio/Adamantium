@@ -62,3 +62,19 @@ ScriptFonts/NotoSansHebrew-Regular.ttf	Hebr			(שלום) [א] {ב} <ג> 123
 ScriptFonts/NotoSansHebrew-Regular.ttf	Hebr			שִׁין שִׂין וּ בּ כּ פּ תּ
 ScriptFonts/NotoSansHebrew-Regular.ttf	Hebr			מילה Word מילה
 TTFFonts/SourceSans3-Regular.ttf	Hebr			(a) [b] <c> {d} «e» 1+2
+ScriptFonts/NotoSansArabic-Regular.ttf	Arab			السلام عليكم
+ScriptFonts/NotoSansArabic-Regular.ttf	Arab			لا إله إلا الله
+ScriptFonts/NotoNaskhArabic-Regular.ttf	Arab			بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
+ScriptFonts/NotoNaskhArabic-Regular.ttf	Arab			مُحَمَّدٌ قُرْآن شَيْءٍ
+ScriptFonts/NotoNaskhArabic-Regular.ttf	Arab			كـــتـــب ســلام
+ScriptFonts/NotoSansArabic-Regular.ttf	Arab			عام ٢٠٢٦ (مرحبا) [نص] «اقتباس» ۱۲۳
+ScriptFonts/NotoNaskhArabic-Regular.ttf	Arab	fa		پژوهش گچ چای ژاله
+ScriptFonts/NotoNaskhArabic-Regular.ttf	Arab	ur		اردو زبان ٹھیک ہے
+ScriptFonts/NotoSansArabic-Regular.ttf	Arab			ب{U+200D}ب ب{U+200C}ب {U+200D}ب{U+200D} ل{U+200C}ا
+ScriptFonts/NotoNaskhArabic-Regular.ttf	Arab			ا{U+0655}{U+0650} ب{U+0650}{U+0655} ى{U+0654}{U+064E} ه{U+0670}{U+0654}
+ScriptFonts/NotoSansArabic-Regular.ttf	Arab			ﻻ ﷲ ﺑ ﺒ
+ScriptFonts/NotoNaskhArabic-Regular.ttf	Arab			ء آ أ ؤ إ ئ ا ب ة ت ث ج ح خ د ذ ر ز س ش ص ض ط ظ ع غ ف ق ك ل م ن ه و ى ي
+ScriptFonts/NotoNastaliqUrdu-Regular.ttf	Arab	ur		اردو زبان ٹھیک ہے
+ScriptFonts/NotoNastaliqUrdu-Regular.ttf	Arab	ur		پاکستان نستعلیق خوش آمدید
+ScriptFonts/NotoNastaliqUrdu-Regular.ttf	Arab	ur		بچپن سے ہی مجھے کتابیں پڑھنے کا شوق تھا۔
+ScriptFonts/NotoNastaliqUrdu-Regular.ttf	Arab	ur		ٹیلیفون ۱۲۳ (لاہور)

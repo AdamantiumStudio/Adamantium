@@ -83,6 +83,10 @@ public static class Program
 
         var mirrors = DataLines(await Download(ucd + "BidiMirroring.txt")).Select(f => string.Join(";", f) + "\n");
         Write(output, "BidiMirroring.ucd", string.Concat(mirrors));
+
+        var joining = DataLines(await Download(ucd + "ArabicShaping.txt"))
+            .Select(f => ParseRange(f[0], f[3] switch { "ALAPH" => "A", "DALATH RISH" => "S", _ => f[2] }));
+        Write(output, "JoiningType.ucd", FormatRanges(joining, true));
         return 0;
     }
 

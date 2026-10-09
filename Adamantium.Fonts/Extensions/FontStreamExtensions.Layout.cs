@@ -370,12 +370,18 @@ namespace Adamantium.Fonts.Extensions
             var markArrayTable = new Mark2ArrayTable();
             var count = reader.ReadUInt16();
             markArrayTable.Records = new Mark2Record[count];
+            var recordOffsets = new ushort[count][];
+            for (int i = 0; i < count; i++)
+            {
+                recordOffsets[i] = reader.ReadUInt16Array(markClassCount);
+            }
+
             for (int i = 0; i < count; i++)
             {
                 var record = new Mark2Record();
                 markArrayTable.Records[i] = record;
                 record.Anchors = new AnchorPointTable[markClassCount];
-                var anchorOffsets = reader.ReadUInt16Array(markClassCount);
+                var anchorOffsets = recordOffsets[i];
                 for (int k = 0; k < markClassCount; ++k)
                 {
                     long offset = anchorOffsets[k];
@@ -435,28 +441,35 @@ namespace Adamantium.Fonts.Extensions
             ligatureArrayTable.AttachTables = new LigatureAttachTable[ligatureCount];
             for (int k = 0; k < ligatureCount; ++k)
             {
-                reader.Position = subTableOffset + offsets[k];
-                
+                var attachOffset = subTableOffset + offsets[k];
+                reader.Position = attachOffset;
+
                 var ligatureAttachTable = new LigatureAttachTable();
                 ligatureArrayTable.AttachTables[k] = ligatureAttachTable;
-                
+
                 var componentCount = reader.ReadUInt16();
                 ligatureAttachTable.ComponentRecords = new ComponentRecord[componentCount];
+                var componentOffsets = new ushort[componentCount][];
+                for (int i = 0; i < componentCount; ++i)
+                {
+                    componentOffsets[i] = reader.ReadUInt16Array(markClassCount);
+                }
+
                 for (int i = 0; i < componentCount; ++i)
                 {
                     var componentRecord = new ComponentRecord();
                     ligatureAttachTable.ComponentRecords[i] = componentRecord;
                     componentRecord.Anchors = new AnchorPointTable[markClassCount];
-                    
-                    var anchorOffsetArray = reader.ReadUInt16Array(markClassCount);
-                    
+
+                    var anchorOffsetArray = componentOffsets[i];
+
                     for (int m = 0; m < anchorOffsetArray.Length; ++m)
                     {
                         long offset = anchorOffsetArray[m];
-                    
+
                         if (offset <= 0) continue;
 
-                        offset += subTableOffset;
+                        offset += attachOffset;
 
                         componentRecord.Anchors[m] = reader.ReadAnchorTable(offset);
                     }
@@ -473,9 +486,11 @@ namespace Adamantium.Fonts.Extensions
             var count = reader.ReadUInt16();
             var ruleSet = new SequenceRuleSetTable();
             ruleSet.Rules = new SequenceRuleTable[count];
+            var offsets = reader.ReadUInt16Array(count);
 
             for (int i = 0; i < count; ++i)
             {
+                reader.Position = offset + offsets[i];
                 ruleSet.Rules[i] = reader.ReadSequenceRuleTable();
             }
 
@@ -487,9 +502,9 @@ namespace Adamantium.Fonts.Extensions
             var table = new SequenceRuleTable();
             table.GlyphCount = reader.ReadUInt16();
             var lookupCount = reader.ReadUInt16();
-            table.InputSequence = new ushort[table.GlyphCount - 1];
+            table.InputSequence = reader.ReadUInt16Array(Math.Max(0, table.GlyphCount - 1));
             table.SeqLookupRecords = reader.ReadSequenceLookupRecordArray(lookupCount);
-            
+
             return table;
         }
         
@@ -500,9 +515,11 @@ namespace Adamantium.Fonts.Extensions
             var count = reader.ReadUInt16();
             var ruleSet = new ClassSequenceRuleSetTable();
             ruleSet.Rules = new ClassSequenceRuleTable[count];
+            var offsets = reader.ReadUInt16Array(count);
 
             for (int i = 0; i < count; ++i)
             {
+                reader.Position = offset + offsets[i];
                 ruleSet.Rules[i] = reader.ReadClassSequenceRuleTable();
             }
 
@@ -514,7 +531,7 @@ namespace Adamantium.Fonts.Extensions
             var table = new ClassSequenceRuleTable();
             var glyphCount = reader.ReadUInt16();
             var lookupCount = reader.ReadUInt16();
-            table.InputSequence = new ushort[glyphCount - 1];
+            table.InputSequence = reader.ReadUInt16Array(Math.Max(0, glyphCount - 1));
             table.LookupRecords = reader.ReadSequenceLookupRecordArray(lookupCount);
             return table;
         }
@@ -545,7 +562,7 @@ namespace Adamantium.Fonts.Extensions
             var backtrackGlyphCount = reader.ReadUInt16();
             table.BacktrackSequence = reader.ReadUInt16Array(backtrackGlyphCount);
             var inputGlyphCount = reader.ReadUInt16();
-            table.InputSequence = reader.ReadUInt16Array(inputGlyphCount - 1);
+            table.InputSequence = reader.ReadUInt16Array(Math.Max(0, inputGlyphCount - 1));
             var lookaheadGlyphCount = reader.ReadUInt16();
             table.LookaheadSequence = reader.ReadUInt16Array(lookaheadGlyphCount);
             var seqLookupCount = reader.ReadUInt16();
@@ -604,7 +621,7 @@ namespace Adamantium.Fonts.Extensions
             var ligatureTable = new LigatureTable();
             ligatureTable.LigatureGlyphID = reader.ReadUInt16();
             var componentCount = reader.ReadUInt16();
-            ligatureTable.ComponentGlypIDs = reader.ReadUInt16Array(componentCount - 1);
+            ligatureTable.ComponentGlypIDs = reader.ReadUInt16Array(Math.Max(0, componentCount - 1));
             
             return ligatureTable;
         }

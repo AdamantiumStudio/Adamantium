@@ -58,21 +58,72 @@ JPEG 2000 — that is a different format built on wavelets, and there is no code
 
 ---
 
+## HarfBuzz — Arabic shaper, modified combining classes
+
+**Where:** `Adamantium.Fonts/Shaping/ArabicShaper.cs`, and `GetModifiedCombiningClass` in
+`Adamantium.Fonts/Shaping/UnicodeData.cs`
+
+The joining state table, the list of modifier combining marks and the order the Arabic features apply in follow
+HarfBuzz's Arabic shaper (`src/hb-ot-shaper-arabic.cc`, https://github.com/harfbuzz/harfbuzz); the combining classes
+remapped for Hebrew, Arabic, Thai and Tibetan follow its `hb-unicode.hh`. Both are ported to C#. HarfBuzz is under the
+"Old MIT" licence:
+
+```
+Copyright © 2010-2022  Google, Inc.
+Copyright © 2015-2020  Ebrahim Byagowi
+Copyright © 2019,2020  Facebook, Inc.
+Copyright © 2012,2015  Mozilla Foundation
+Copyright © 2011  Codethink Limited
+Copyright © 2008,2010  Nokia Corporation and/or its subsidiary(-ies)
+Copyright © 2009  Keith Stribley
+Copyright © 2011  Martin Hosken and SIL International
+Copyright © 2007  Chris Wilson
+Copyright © 2005,2006,2020,2021,2022,2023  Behdad Esfahbod
+Copyright © 2004,2007,2008,2009,2010,2013,2021,2022,2023  Red Hat, Inc.
+Copyright © 1998-2005  David Turner and Werner Lemberg
+Copyright © 2016  Igalia S.L.
+Copyright © 2022  Matthias Clasen
+Copyright © 2018,2021  Khaled Hosny
+Copyright © 2018,2019,2020  Adobe, Inc
+Copyright © 2013-2015  Alexei Podtelezhnikov
+
+Permission is hereby granted, without written agreement and without
+license or royalty fees, to use, copy, modify, and distribute this
+software and its documentation for any purpose, provided that the
+above copyright notice and the following two paragraphs appear in
+all copies of this software.
+
+IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE TO ANY PARTY FOR
+DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES
+ARISING OUT OF THE USE OF THIS SOFTWARE AND ITS DOCUMENTATION, EVEN
+IF THE COPYRIGHT HOLDER HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+DAMAGE.
+
+THE COPYRIGHT HOLDER SPECIFICALLY DISCLAIMS ANY WARRANTIES, INCLUDING,
+BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS FOR A PARTICULAR PURPOSE.  THE SOFTWARE PROVIDED HEREUNDER IS
+ON AN "AS IS" BASIS, AND THE COPYRIGHT HOLDER HAS NO OBLIGATION TO
+PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
+```
+
+---
+
 ## Unicode Character Database
 
 **Where:** `Adamantium.Fonts/Data/` — `Scripts.ucd`, `CombiningClass.ucd`, `Decompositions.ucd`,
 `ExtendedPictographic.ucd`, `GraphemeBreak.ucd`, `WordBreak.ucd`, `IndicConjunctBreak.ucd`, `LineBreak.ucd`,
-`EastAsianWidth.ucd`, `BidiClass.ucd`, `BidiBrackets.ucd` and `BidiMirroring.ucd`, embedded in `Adamantium.Fonts`;
+`EastAsianWidth.ucd`, `BidiClass.ucd`, `BidiBrackets.ucd`, `BidiMirroring.ucd` and `JoiningType.ucd`, embedded in
+`Adamantium.Fonts`;
 and, for the tests only, `GraphemeBreakTest.txt`, `WordBreakTest.txt`, `LineBreakTest.txt`, `BidiTest.txt` and
 `BidiCharacterTest.txt` in `Tests/Adamantium.FontTests/Unicode/`.
 
 Data, not code: the script, canonical combining class, canonical decomposition, Extended_Pictographic, grapheme, word
-and line break, Indic_Conjunct_Break, East_Asian_Width, Bidi_Class, Bidi_Paired_Bracket and Bidi_Mirroring_Glyph
-properties of Unicode 16.0, cut down from the UCD files (`Scripts.txt`, `DerivedCombiningClass.txt`, `UnicodeData.txt`,
-`DerivedNormalizationProps.txt`, `emoji-data.txt`, `GraphemeBreakProperty.txt`, `WordBreakProperty.txt`,
-`DerivedCoreProperties.txt`, `LineBreak.txt`, `EastAsianWidth.txt`, `DerivedBidiClass.txt`, `BidiBrackets.txt`,
-`BidiMirroring.txt`) to the columns the text shaper, the text boundaries and the bidirectional algorithm read, with
-adjacent ranges joined.
+and line break, Indic_Conjunct_Break, East_Asian_Width, Bidi_Class, Bidi_Paired_Bracket, Bidi_Mirroring_Glyph,
+Joining_Type and Joining_Group properties of Unicode 16.0, cut down from the UCD files (`Scripts.txt`,
+`DerivedCombiningClass.txt`, `UnicodeData.txt`, `DerivedNormalizationProps.txt`, `emoji-data.txt`,
+`GraphemeBreakProperty.txt`, `WordBreakProperty.txt`, `DerivedCoreProperties.txt`, `LineBreak.txt`,
+`EastAsianWidth.txt`, `DerivedBidiClass.txt`, `BidiBrackets.txt`, `BidiMirroring.txt`, `ArabicShaping.txt`) to the
+columns the text shaper, the text boundaries and the bidirectional algorithm read, with adjacent ranges joined.
 
 ```
 UNICODE LICENSE V3
@@ -167,6 +218,22 @@ Project Authors, under the SIL Open Font License 1.1, whose text is `RobotoFlex-
 **Where:** `Tests/Adamantium.FontTests/ScriptFonts/NotoSansHebrew-Regular.ttf`, unchanged, from
 https://github.com/notofonts/hebrew, used only by the tests. Copyright 2022 The Noto Project Authors, under the SIL
 Open Font License 1.1, whose text is `LICENSE-NotoSansHebrew.txt` beside it.
+
+---
+
+## Noto Sans Arabic, Noto Naskh Arabic
+
+**Where:** `Tests/Adamantium.FontTests/ScriptFonts/NotoSansArabic-Regular.ttf` and `NotoNaskhArabic-Regular.ttf`,
+unchanged, from https://github.com/notofonts/arabic, used only by the tests. Copyright 2022 The Noto Project Authors,
+under the SIL Open Font License 1.1, whose text is `LICENSE-NotoArabic.txt` beside them.
+
+---
+
+## Noto Nastaliq Urdu
+
+**Where:** `Tests/Adamantium.FontTests/ScriptFonts/NotoNastaliqUrdu-Regular.ttf`, unchanged, from
+https://github.com/notofonts/nastaliq, used only by the tests. Copyright 2022 The Noto Project Authors, under the SIL
+Open Font License 1.1, whose text is `LICENSE-NotoNastaliqUrdu.txt` beside it.
 
 ---
 

@@ -48,13 +48,22 @@ internal sealed class ShapePlan
 
     public uint RtlmMask { get; private set; }
 
+    public bool JoinsLetters => JoiningScript != null;
+
+    public string JoiningScript { get; private set; }
+
+    public uint[] JoiningMasks { get; private set; } = [];
+
     public static ShapePlan Create(OpenTypeLayout layout, string scriptTag, string languageTag,
-        IReadOnlyList<FontFeature> userFeatures, int gsubVariation = -1, int gposVariation = -1, bool rightToLeft = false)
+        IReadOnlyList<FontFeature> userFeatures, int gsubVariation = -1, int gposVariation = -1, bool rightToLeft = false,
+        string script = null)
     {
         var plan = new ShapePlan();
         var gsub = Select(layout.Gsub, scriptTag, languageTag, gsubVariation);
         var gpos = Select(layout.Gpos, scriptTag, languageTag, gposVariation);
-        var requests = Merge(CollectRequests(userFeatures, rightToLeft));
+        plan.JoiningScript = ArabicShaper.Shapes(script, gsub.Script != null && gsub.Script != "DFLT") ? script : null;
+        var (collected, stageCount) = CollectRequests(userFeatures, rightToLeft, plan.JoiningScript);
+        var requests = Merge(collected);
 
         var requiredGsubStage = 0;
         var requiredGposStage = 0;
@@ -114,8 +123,10 @@ internal sealed class ShapePlan
             plan._features[map.Tag] = map;
         }
 
-        plan.GsubStages = CollectLookups(layout.Gsub, gsub, requiredGsubStage, maps, true, 2, gsubVariation);
-        plan.GposLookups = CollectLookups(layout.Gpos, gpos, requiredGposStage, maps, false, 1, gposVariation)[0];
+        plan.GsubStages = CollectLookups(layout.Gsub, (gsub.LangSys, gsub.Required), requiredGsubStage, maps, true,
+            stageCount, gsubVariation);
+        plan.GposLookups = CollectLookups(layout.Gpos, (gpos.LangSys, gpos.Required), requiredGposStage, maps, false, 1,
+            gposVariation)[0];
 
         var kern = plan.GetFeature("kern");
         plan.ApplyGpos = layout.Gpos?.LookupList?.Length > 0;
@@ -125,10 +136,16 @@ internal sealed class ShapePlan
         plan.NumrMask = plan.GetFeature("numr")?.Mask ?? 0;
         plan.DnomMask = plan.GetFeature("dnom")?.Mask ?? 0;
         plan.RtlmMask = plan.GetFeature("rtlm")?.Mask ?? 0;
+        if (plan.JoinsLetters)
+        {
+            plan.JoiningMasks = ArabicShaper.Masks(plan);
+        }
+
         return plan;
     }
 
-    private static List<FeatureRequest> CollectRequests(IReadOnlyList<FontFeature> userFeatures, bool rightToLeft)
+    private static (List<FeatureRequest> Requests, int StageCount) CollectRequests(
+        IReadOnlyList<FontFeature> userFeatures, bool rightToLeft, string joiningScript)
     {
         var requests = new List<FeatureRequest>();
         var gsubStage = 0;
@@ -168,6 +185,32 @@ internal sealed class ShapePlan
         Add("frac", FeatureFlags.None);
         Add("numr", FeatureFlags.None);
         Add("dnom", FeatureFlags.None);
+        if (joiningScript != null)
+        {
+            Add("stch", FeatureFlags.Global);
+            gsubStage++;
+            Add("ccmp", FeatureFlags.Global | FeatureFlags.ManualZwj);
+            Add("locl", FeatureFlags.Global | FeatureFlags.ManualZwj);
+            gsubStage++;
+            foreach (var tag in ArabicShaper.ActionFeatures)
+            {
+                var fallback = joiningScript == "Arab" && tag is not ("fin2" or "fin3" or "med2");
+                Add(tag, fallback ? FeatureFlags.HasFallback : FeatureFlags.None);
+                gsubStage++;
+            }
+
+            Add("rlig", FeatureFlags.Global | FeatureFlags.ManualZwj | FeatureFlags.HasFallback);
+            if (joiningScript == "Arab")
+            {
+                gsubStage++;
+            }
+
+            Add("rclt", FeatureFlags.Global | FeatureFlags.ManualZwj);
+            Add("calt", FeatureFlags.Global | FeatureFlags.ManualZwj);
+            gsubStage++;
+            Add("mset", FeatureFlags.Global);
+        }
+
         foreach (var tag in CommonFeatures)
         {
             Add(tag, tag is "mark" or "mkmk" ? FeatureFlags.Global | FeatureFlags.ManualJoiners : FeatureFlags.Global);
@@ -183,7 +226,7 @@ internal sealed class ShapePlan
             Add(feature.Tag, feature.IsGlobal ? FeatureFlags.Global : FeatureFlags.None, feature.Value);
         }
 
-        return requests;
+        return (requests, gsubStage + 1);
     }
 
     private static List<FeatureRequest> Merge(List<FeatureRequest> requests)
@@ -296,19 +339,19 @@ internal sealed class ShapePlan
     private static FeatureTable Feature(IFontLayout table, int index, int variation) =>
         table.FeatureVariations?.Substitute(variation, index, table.FeatureList[index]) ?? table.FeatureList[index];
 
-    private static (LangSysTable LangSys, FeatureTable Required) Select(IFontLayout table, string scriptTag,
-        string languageTag, int variation)
+    private static (LangSysTable LangSys, FeatureTable Required, string Script) Select(IFontLayout table,
+        string scriptTag, string languageTag, int variation)
     {
         if (table?.ScriptList == null)
         {
-            return (null, null);
+            return (null, null, null);
         }
 
         var script = FindScript(table, scriptTag) ?? FindScript(table, "DFLT") ?? FindScript(table, "dflt")
             ?? FindScript(table, "latn");
         if (script == null)
         {
-            return (null, null);
+            return (null, null, null);
         }
 
         LangSysTable langSys = null;
@@ -321,7 +364,7 @@ internal sealed class ShapePlan
         var required = langSys is { HasRequireFeature: true } && langSys.RequiredFeatureIndex < table.FeatureList.Length
             ? Feature(table, langSys.RequiredFeatureIndex, variation)
             : null;
-        return (langSys, required);
+        return (langSys, required, script.Name);
     }
 
     private static ScriptTable FindScript(IFontLayout table, string tag)

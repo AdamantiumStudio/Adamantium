@@ -7,6 +7,17 @@ All packages share one version.
 
 ### Added
 
+- Arabic shaping, as HarfBuzz's Arabic shaper does it: letters take their joined forms (`isol`, `fina`, `fin2`,
+  `fin3`, `medi`, `med2`, `init`, by the joining types of `ArabicShaping.txt`), the features apply in their stages
+  (`ccmp`/`locl`, each form, `rlig`, `calt`, `mset`), and modifier marks such as hamza go first among the marks of
+  their class (UTR #53). The same applies to Syriac, N'Ko, traditional Mongolian, Mandaic, Adlam and the other joining
+  scripts. Checked against HarfBuzz on Noto Sans Arabic, Noto Naskh Arabic and Noto Nastaliq Urdu (Persian, Urdu,
+  vowel marks, lam-alef, tatweel, ZWJ and ZWNJ). Not yet: the stretching of Syriac abbreviation marks (`stch` is
+  applied, but its glyphs are not repeated across the word), and shaping from Unicode presentation forms for a font
+  without Arabic GSUB. `TextShaper.Shape(font, text, start, end, options)` shapes a range of a string as if alone (its
+  clusters and feature ranges count from `start`) with the text around it as context, so letters join across the runs
+  `TextLayout` cuts a word into.
+
 - Text in both directions, by the Unicode Bidirectional Algorithm (UAX #9, Unicode 16.0; every case of `BidiTest.txt`
   and `BidiCharacterTest.txt` passes). `TextLayout.Direction` (`TextDirection`: `Auto` takes each paragraph's
   direction from its first strong letter) lays Hebrew and other right-to-left runs out right to left, numbers and
@@ -181,6 +192,11 @@ All packages share one version.
 
 ### Fixed
 
+- Three layout tables were read wrong, so their lookups did nothing or put marks far off: the rules of a contextual
+  lookup of format 1 or 2 (read without their offsets and with an empty input sequence), the anchors of a
+  mark-to-mark lookup after its first mark, and the anchors of a mark-to-ligature lookup (taken from the wrong table).
+  Vowel marks stacked on Arabic letters, on lam-alef and on Allah, and the contextual forms of Nastaliq, come out as
+  HarfBuzz's now.
 - A variable font's 'STAT' and 'MVAR' tables were never read: the parser keeps only the tables its ordering list names,
   and neither was on it. GPOS's 'FeatureVariations' offset was read as 16 bits instead of 32.
 - A varied advance, a font metric and a positioning delta that land on a half round up, as HarfBuzz rounds them; they
