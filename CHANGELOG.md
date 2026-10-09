@@ -7,6 +7,12 @@ All packages share one version.
 
 ### Added
 
+- Text frames. `TextLayout.Frames` flows text wrapped by words through rectangles in turn - columns side by side, or
+  frames anywhere, as InDesign threads them - each holding as many lines as its height takes; what none has room for
+  is not laid out, and `OversetIndex` tells where it starts. `TextLayout.Exclusions` are areas the text flows around:
+  a line runs in the widest part of its frame they leave free, and a row they leave too little of is skipped. Lines
+  break, hyphenate, justify and align within their own frame and width, a line at a time or a paragraph at a time;
+  a drop cap stands at the start of the first frame; a click finds the line of the frame it falls in.
 - Drop caps. `TextLayout.DropCap` (`DropCap`: how many lines, how many characters, an optional decorative font) sets
   the first characters of text wrapped by words large across its first lines, from the cap height of the first to
   the baseline of the last, the lines beside it indented by its width - a line at a time and a paragraph at a time.
