@@ -133,18 +133,24 @@ public sealed class FontCollection
         return FontOf(TypefaceStore.GetTypeface(face.Path), face);
     }
 
-    /// <summary>Loads a face at a weight and width: a variable face sets its 'wght' and 'wdth' axes to them (clamped to
-    /// its ranges); any other face is loaded as it is.</summary>
-    public static IFont Load(FontFace face, FontWeight weight, FontStretch stretch)
+    /// <summary>Loads a face at a weight, width and style: a variable face sets its 'wght' and 'wdth' axes to them, and
+    /// its 'ital' and 'slnt' to the style (clamped to its ranges; see <see cref="FontVariation.For(FontWeight, FontStretch, FontStyle, IFont)"/>);
+    /// any other face is loaded as it is.</summary>
+    public static IFont Load(FontFace face, FontWeight weight, FontStretch stretch, FontStyle style = FontStyle.Normal)
     {
-        return Vary(Load(face), face, weight, stretch);
+        return Vary(Load(face), face, weight, stretch, style);
     }
 
     /// <summary>The face at a weight and width, as <see cref="Load(FontFace, FontWeight, FontStretch)"/> gives it, when
     /// its file is already parsed; otherwise false, and the file is parsed on a worker
     /// (<see cref="TypefaceStore.LoadInBackground"/>), which raises <see cref="TypefaceStore.Loaded"/> when done. Never
     /// waits.</summary>
-    public static bool TryLoad(FontFace face, FontWeight weight, FontStretch stretch, out IFont font)
+    public static bool TryLoad(FontFace face, FontWeight weight, FontStretch stretch, out IFont font) =>
+        TryLoad(face, weight, stretch, FontStyle.Normal, out font);
+
+    /// <summary>The face at a weight, width and style, as <see cref="Load(FontFace, FontWeight, FontStretch, FontStyle)"/>
+    /// gives it, when its file is already parsed; otherwise false, as <see cref="TryLoad(FontFace, FontWeight, FontStretch, out IFont)"/>.</summary>
+    public static bool TryLoad(FontFace face, FontWeight weight, FontStretch stretch, FontStyle style, out IFont font)
     {
         if (!TypefaceStore.TryGetTypeface(face.Path, out var typeface))
         {
@@ -153,7 +159,7 @@ public sealed class FontCollection
             return false;
         }
 
-        font = Vary(FontOf(typeface, face), face, weight, stretch);
+        font = Vary(FontOf(typeface, face), face, weight, stretch, style);
         return true;
     }
 
@@ -163,9 +169,9 @@ public sealed class FontCollection
         return typeface.Fonts[index];
     }
 
-    private static IFont Vary(IFont font, FontFace face, FontWeight weight, FontStretch stretch)
+    private static IFont Vary(IFont font, FontFace face, FontWeight weight, FontStretch stretch, FontStyle style)
     {
-        return face.IsVariable ? font.GetInstance(FontVariation.For(weight, stretch)) : font;
+        return face.IsVariable ? font.GetInstance(FontVariation.For(weight, stretch, style, font)) : font;
     }
 
     private static FontCollection CreateSystem()

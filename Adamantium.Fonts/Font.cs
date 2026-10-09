@@ -33,9 +33,9 @@ namespace Adamantium.Fonts
         private readonly Dictionary<string, Glyph> outlineGlyphsByKey = new();
         private readonly Dictionary<ushort, string> names = new();
         private readonly Lazy<GlyphSubstitutionMap> substitutionMap;
+        private bool opticalSizeSet;
         public Typeface Typeface { get; private set; }
         internal VariationStore VariationData { get; set; }
-        internal List<InstanceRecord> InstanceData { get; set; }
 
         public Font(Typeface typeface)
         {
@@ -149,6 +149,8 @@ namespace Adamantium.Fonts
         internal KerningSubtable[] KerningData { get; set; }
         internal OpenTypeLayout Layout { get; } = new OpenTypeLayout();
 
+        float[] IFont.NormalizedCoordinates => coordinates;
+
         OpenTypeLayout IFont.Layout => Layout;
 
         bool IFont.TryGetGlyphIndex(int codepoint, out uint glyphIndex)
@@ -199,6 +201,15 @@ namespace Adamantium.Fonts
         public IReadOnlyList<FontAxis> Axes { get; internal set; } = [];
 
         /// <inheritdoc />
+        public IReadOnlyList<FontNamedInstance> NamedInstances { get; internal set; } = [];
+
+        /// <inheritdoc />
+        public IReadOnlyList<FontAxisValue> AxisValues { get; internal set; } = [];
+
+        /// <inheritdoc />
+        public string ElidedFallbackName { get; internal set; }
+
+        /// <inheritdoc />
         public IReadOnlyList<FontVariation> Variations { get; private set; } = [];
 
         internal AxisVariationTable AxisVariations { get; set; }
@@ -206,6 +217,10 @@ namespace Adamantium.Fonts
         internal GlyphVariationTable GlyphVariations { get; set; }
 
         internal HorizontalMetricsVariationTable MetricsVariations { get; set; }
+
+        internal MetricsVariationTable FontMetricsVariations { get; set; }
+
+        internal bool LineMetricsFromWindows { get; set; }
 
         internal ColorLayerTable ColorLayers { get; set; }
 
@@ -323,11 +338,30 @@ namespace Adamantium.Fonts
         }
 
         /// <inheritdoc />
-        public IFont GetInstance(IReadOnlyList<FontVariation> variations)
+        public IFont GetInstance(IReadOnlyList<FontVariation> variations) =>
+            GetInstance(variations, variations.Any(v => v.Tag == OpticalSizeAxis));
+
+        /// <inheritdoc />
+        public IFont AtOpticalSize(float size)
+        {
+            if (opticalSizeSet || Axes.All(axis => axis.Tag != OpticalSizeAxis))
+            {
+                return this;
+            }
+
+            var variations = Variations.Where(v => v.Tag != OpticalSizeAxis)
+                .Append(new FontVariation(OpticalSizeAxis, size))
+                .ToArray();
+            return GetInstance(variations, false);
+        }
+
+        private const string OpticalSizeAxis = "opsz";
+
+        private IFont GetInstance(IReadOnlyList<FontVariation> variations, bool opticalSize)
         {
             if (baseFont != null)
             {
-                return baseFont.GetInstance(variations);
+                return baseFont.GetInstance(variations, opticalSize);
             }
 
             if (Axes.Count == 0 || Typeface.OutlineSource is not IVariableGlyphOutlineSource variable)
@@ -358,17 +392,18 @@ namespace Adamantium.Fonts
                 }
             }
 
-            if (normalized.All(n => n == 0))
+            if (normalized.All(n => n == 0) && !opticalSize)
             {
                 return this;
             }
 
             lock (instances)
             {
-                var key = string.Join(",", normalized);
+                var key = string.Join(",", normalized) + (opticalSize ? "|opsz" : "");
                 if (!instances.TryGetValue(key, out var instance))
                 {
                     instance = CreateInstance(variable, normalized.Select(n => n / 16384f).ToArray(), values);
+                    instance.opticalSizeSet = opticalSize;
                     instances[key] = instance;
                 }
 
@@ -383,7 +418,7 @@ namespace Adamantium.Fonts
             var source = variable.Vary(this, normalized, glyphs);
             if (source == null)
             {
-                if (MetricsVariations == null && ColorPaints?.Varies != true)
+                if (MetricsVariations == null && FontMetricsVariations == null && ColorPaints?.Varies != true)
                 {
                     return this;
                 }
@@ -404,6 +439,9 @@ namespace Adamantium.Fonts
             instance.Stretch = values.FirstOrDefault(v => v.Tag == "wdth") is { Tag: not null, Value: > 0 } width
                 ? new FontStretch(width.Value)
                 : Stretch;
+            instance.Style = values.Any(v => v.Tag == "ital" && v.Value >= 0.5f) ? FontStyle.Italic
+                : values.Any(v => v.Tag == "slnt" && v.Value != 0) ? FontStyle.Oblique
+                : Style;
             instance.variedAdvances = Enumerable.Repeat(-1, glyphs.Length).ToArray();
             instance.instances = new Dictionary<string, Font>();
 
@@ -434,7 +472,37 @@ namespace Adamantium.Fonts
             instance.unicodes = new List<uint>(unicodes);
             instance.unicodeToGlyph = unicodeToGlyph.ToDictionary(p => p.Key, p => glyphs[p.Value.Index]);
             instance.nameToGlyph = nameToGlyph.ToDictionary(p => p.Key, p => glyphs[p.Value.Index]);
+            if (FontMetricsVariations != null)
+            {
+                instance.VaryMetrics(FontMetricsVariations, normalized);
+            }
+
             return instance;
+        }
+
+        private void VaryMetrics(MetricsVariationTable table, float[] normalized)
+        {
+            short Varied(int value, string tag) =>
+                (short)Math.Floor(value + table.GetDelta(tag, normalized) + 0.5f);
+
+            Ascender = Varied(Ascender, "hasc");
+            Descender = Varied(Descender, "hdsc");
+            CapsHeight = Varied(CapsHeight, "cpht");
+            UnderlinePosition = Varied(UnderlinePosition, "undo");
+            UnderlineThickness = Varied(UnderlineThickness, "unds");
+            StrikeoutPosition = Varied(StrikeoutPosition, "stro");
+            StrikeoutSize = Varied(StrikeoutSize, "strs");
+            if (LineMetricsFromWindows)
+            {
+                LineAscent = Varied(LineAscent, "hcla");
+                LineDescent = Varied(LineDescent, "hcld");
+            }
+            else
+            {
+                LineAscent = Varied(LineAscent, "hasc");
+                LineDescent = Math.Abs(Varied(-LineDescent, "hdsc"));
+                LineGap = Varied(LineGap, "hlgp");
+            }
         }
 
         public ushort GetAdvanceWidth(uint glyphIndex)
@@ -469,7 +537,7 @@ namespace Adamantium.Fonts
             if (advance < 0)
             {
                 var delta = baseFont.MetricsVariations.GetAdvanceDelta(glyphIndex, coordinates);
-                advance = Math.Max(0, baseFont.GetAdvanceWidth(glyphIndex) + (int)Math.Round(delta, MidpointRounding.AwayFromZero));
+                advance = Math.Max(0, baseFont.GetAdvanceWidth(glyphIndex) + (int)Math.Floor(delta + 0.5f));
                 Volatile.Write(ref variedAdvances[glyphIndex], advance);
             }
 

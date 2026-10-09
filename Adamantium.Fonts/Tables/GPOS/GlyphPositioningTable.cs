@@ -24,6 +24,8 @@ namespace Adamantium.Fonts.Tables.GPOS
         /// Offset to LookupList table, from beginning of GPOS table
         /// </summary>
         public ILookupTable[] LookupList { get; set; }
+
+        public FeatureVariationsTable FeatureVariations { get; set; }
         
         /// <summary>
         /// Offset to FeatureVariations table, from beginning of GPOS table (may be NULL)

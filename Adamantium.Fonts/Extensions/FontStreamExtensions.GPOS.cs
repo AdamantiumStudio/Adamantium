@@ -61,7 +61,7 @@ namespace Adamantium.Fonts.Extensions
             {
                 case 1:
                 {
-                    var record = reader.ReadValueRecord(valueFormat);
+                    var record = reader.ReadValueRecord(valueFormat, subtableOffset);
                     var coverage = reader.ReadCoverageTable(coverageOffset);
                     return new SingleAdjustmentPositioningSubTable(coverage, record);
                 }
@@ -71,7 +71,7 @@ namespace Adamantium.Fonts.Extensions
                     var records = new ValueRecord[count];
                     for (int i = 0; i < count; ++i)
                     {
-                        records[i] = reader.ReadValueRecord(valueFormat);
+                        records[i] = reader.ReadValueRecord(valueFormat, subtableOffset);
                     }
 
                     var coverage = reader.ReadCoverageTable(coverageOffset);
@@ -109,7 +109,8 @@ namespace Adamantium.Fonts.Extensions
                         var pairSets = new PairSet[pairCount];
                         for (int j = 0; j < pairCount; j++)
                         {
-                            pairSets[j] = reader.ReadPairSet(value1Format, value2Format);
+                            pairSets[j] = reader.ReadPairSet(value1Format, value2Format,
+                                subtableOffset + pairSetOffsetArray[i]);
                         }
 
                         subtable.CoverageTable = reader.ReadCoverageTable(coverageOffset + subtableOffset);
@@ -137,8 +138,8 @@ namespace Adamantium.Fonts.Extensions
                         var class2Records = new Class2Record[class2Count];
                         for (int j = 0; j < class2Count; j++)
                         {
-                            var value1 = reader.ReadValueRecord(value1Format);
-                            var value2 = reader.ReadValueRecord(value2Format);
+                            var value1 = reader.ReadValueRecord(value1Format, subtableOffset);
+                            var value2 = reader.ReadValueRecord(value2Format, subtableOffset);
                             class2Records[j] = new Class2Record() {Value1 = value1, Value2 = value2};
                         }
 

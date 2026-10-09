@@ -1,0 +1,19 @@
+# font	script	language	features	axis values	text
+# Fields are separated by tabs; {U+XXXX} in the text stands for that character. Expected results: variations-expected.txt,
+# written from this file by Tests/Adamantium.ShapingOracle in its shapevar mode.
+Variations/RobotoFlex-Variable.ttf	Latn	dflt		wght=100	{U+0024}{U+00A2}{U+20B4}{U+20B2}{U+20B1}{U+20A9}{U+20A6}
+Variations/RobotoFlex-Variable.ttf	Latn	dflt		wght=1000	{U+0024}{U+00A2}{U+20B4}{U+20B2}{U+20B1}{U+20A9}{U+20A6}
+Variations/RobotoFlex-Variable.ttf	Latn	dflt		opsz=8	{U+0024}{U+00A2}{U+20B4}{U+20B2}{U+20B1}{U+20A9}{U+20A6}
+Variations/RobotoFlex-Variable.ttf	Latn	dflt		opsz=144,wght=1000	{U+0024}{U+00A2}{U+20B4}{U+20B2}{U+20B1}{U+20A9}{U+20A6}
+Variations/RobotoFlex-Variable.ttf	Latn	dflt		wdth=25,wght=900	{U+0024}{U+00A2}{U+20B4}{U+20B2}{U+20B1}{U+20A9}{U+20A6}
+Variations/RobotoFlex-Variable.ttf	Latn	dflt		wght=100	AVATAWToTyWaYoFaPaLTVA
+Variations/RobotoFlex-Variable.ttf	Latn	dflt		wght=400	AVATAWToTyWaYoFaPaLTVA
+Variations/RobotoFlex-Variable.ttf	Latn	dflt		wght=1000	AVATAWToTyWaYoFaPaLTVA
+Variations/RobotoFlex-Variable.ttf	Latn	dflt		wdth=25	AVATAWToTyWaYoFaPaLTVA
+Variations/RobotoFlex-Variable.ttf	Latn	dflt		wdth=151,wght=700	AVATAWToTyWaYoFaPaLTVA
+Variations/RobotoFlex-Variable.ttf	Latn	dflt		opsz=144	AVATAWToTyWaYoFaPaLTVA
+Variations/RobotoFlex-Variable.ttf	Latn	dflt		GRAD=-200,XTRA=603	AVATAWToTyWaYoFaPaLTVA
+Variations/RobotoFlex-Variable.ttf	Latn	dflt		wght=100	a{U+0301}e{U+0308}A{U+030A}o{U+0303}
+Variations/RobotoFlex-Variable.ttf	Latn	dflt		wght=1000	a{U+0301}e{U+0308}A{U+030A}o{U+0303}
+Variations/RobotoFlex-Variable.ttf	Latn	dflt		opsz=144,wdth=25	a{U+0301}e{U+0308}A{U+030A}o{U+0303}
+source-sans-3v028R/VAR/SourceSans3VF-Roman.ttf	Latn	dflt		wght=900	AVATAWToTyWaYoFaPaLTVA

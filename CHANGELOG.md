@@ -7,6 +7,17 @@ All packages share one version.
 
 ### Added
 
+- The rest of a variable font's axes. `FontAxis.Name` and `IsHidden` (the font's name for an axis, and whether it
+  keeps out of style panels); `IFont.NamedInstances` (the styles 'fvar' names, as "Bold Condensed");
+  `IFont.AxisValues` and `ElidedFallbackName` from the style attributes table ('STAT': "Light" on `wght`, "Condensed"
+  on `wdth`, which ones a style's name leaves out). 'MVAR' varies a font's line, cap height, underline and strikeout
+  metrics; 'FeatureVariations' swaps the lookups a feature applies at the axis values it names (heavy `$` in Roboto
+  Flex), and kerning and mark positions take their deltas from GDEF's variation store. `IFont.AtOpticalSize` sets
+  'opsz' to the size of the text, as CSS's `font-optical-sizing: auto`, unless it was asked for by value, and
+  `TextLayout` sets each run's; `FontVariation.For` with a style sets 'ital' or 'slnt' as CSS Fonts 4 does, and
+  `FontCollection.Load` takes the style. Axes, named instances, metrics and shaping at axis values are checked
+  against HarfBuzz.
+
 - What a panel of OpenType features and a glyph panel need from a font: `Feature.Name` (a stylistic set's or a
   character variant's own label from the 'name' table, otherwise the registered name), `Tooltip`, `SampleText`,
   `ParameterLabels`, `Characters` and `ValueCount` (how many alternates the feature offers); `IFont.GetName` for any
@@ -149,6 +160,11 @@ All packages share one version.
   weight of 600 or more on a lighter face, an italic or oblique style on an upright one, only as allowed.
 
 ### Fixed
+
+- A variable font's 'STAT' and 'MVAR' tables were never read: the parser keeps only the tables its ordering list names,
+  and neither was on it. GPOS's 'FeatureVariations' offset was read as 16 bits instead of 32.
+- A varied advance, a font metric and a positioning delta that land on a half round up, as HarfBuzz rounds them; they
+  rounded away from zero, a unit off for a negative half.
 
 - A render device's per-frame constants are rewound when that device begins its own frame, not when the main device's
   frame finishes. A device recording beside the window's loop - an off-screen render - had its pool rewound mid-frame,

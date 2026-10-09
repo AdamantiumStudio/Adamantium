@@ -20,6 +20,8 @@ namespace Adamantium.Fonts.Tables.GSUB
         public FeatureTable[] FeatureList { get; set; }
         
         public ILookupTable[] LookupList { get; set; }
+
+        public FeatureVariationsTable FeatureVariations { get; set; }
         
         /// <summary>
         /// Offset to FeatureVariations table, from beginning of GPOS table (may be NULL)

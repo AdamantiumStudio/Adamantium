@@ -133,7 +133,7 @@ internal sealed class VariedTTFGlyphOutlineSource : IGlyphOutlineSource
     private void Finish(Glyph glyph, double[] xs, int count)
     {
         originShifts[glyph.Index] = xs[count];
-        glyph.AdvanceWidth = (ushort)Math.Max(0, Math.Round(xs[count + 1] - xs[count], MidpointRounding.AwayFromZero));
+        glyph.AdvanceWidth = (ushort)Math.Max(0, Math.Floor(xs[count + 1] - xs[count] + 0.5));
 
         glyph.RecalculateBounds(true);
         glyph.LeftSideBearing = (short)glyph.BoundingRectangle.X;

@@ -13,7 +13,7 @@ namespace Adamantium.Fonts.Extensions
     {
         const uint DefaultTag = 1145457748;
 
-        public static ValueRecord ReadValueRecord(this FontStreamReader reader, ValueFormat format)
+        public static ValueRecord ReadValueRecord(this FontStreamReader reader, ValueFormat format, long parentOffset = -1)
         {
             var record = new ValueRecord();
 
@@ -57,8 +57,20 @@ namespace Adamantium.Fonts.Extensions
                 record.YAdvanceDevice = reader.ReadUInt16();
             }
 
+            if (parentOffset >= 0)
+            {
+                var position = reader.Position;
+                record.XPlacementVariation = reader.ReadVariationIndex(parentOffset, record.XPlacementDevice);
+                record.YPlacementVariation = reader.ReadVariationIndex(parentOffset, record.YPlacementDevice);
+                record.XAdvanceVariation = reader.ReadVariationIndex(parentOffset, record.XAdvanceDevice);
+                reader.Position = position;
+            }
+
             return record;
         }
+
+        private static int ReadVariationIndex(this FontStreamReader reader, long parentOffset, ushort deviceOffset) =>
+            deviceOffset == 0 ? -1 : reader.ReadDeviceTable(parentOffset + deviceOffset).VariationIndex;
 
         public static LangSysTable ReadLangSysTable(this FontStreamReader reader, uint tag, long offset)
         {
@@ -277,17 +289,20 @@ namespace Adamantium.Fonts.Extensions
             table.EndSize = reader.ReadUInt16();
             table.DeltaFormat = (DeltaFormatValues)reader.ReadUInt16();
             // TODO: not sure that this is corect way of reading Delta Values
-            table.DeltaValues = reader.ReadUInt16Array(Math.Abs(table.EndSize - table.StartSize));
+            table.DeltaValues = table.DeltaFormat == DeltaFormatValues.VariationIndex
+                ? []
+                : reader.ReadUInt16Array(Math.Abs(table.EndSize - table.StartSize));
 
             return table;
         }
 
-        private static PairSet ReadPairSet(this FontStreamReader reader, ValueFormat value1Format, ValueFormat value2Format)
+        private static PairSet ReadPairSet(this FontStreamReader reader, ValueFormat value1Format, ValueFormat value2Format,
+            long pairSetOffset)
         {
             var pairSet = new PairSet();
             pairSet.SecondGlyph = reader.ReadUInt16();
-            pairSet.ValueRecord1 = reader.ReadValueRecord(value1Format);
-            pairSet.ValueRecord2 = reader.ReadValueRecord(value2Format);
+            pairSet.ValueRecord1 = reader.ReadValueRecord(value1Format, pairSetOffset);
+            pairSet.ValueRecord2 = reader.ReadValueRecord(value2Format, pairSetOffset);
 
             return pairSet;
         }
@@ -733,6 +748,7 @@ namespace Adamantium.Fonts.Extensions
                     var markGlyphSetsDefOffset = reader.ReadUInt16();
                     var itemVarStoreOffset = reader.ReadUInt32();
                     gdef.MarkGlyphSetsTable = markGlyphSetsDefOffset == 0 ? null : reader.ReadMarkGlyphSetsTable(markGlyphSetsDefOffset + offset);
+                    gdef.VariationStore = itemVarStoreOffset == 0 ? null : reader.ReadItemVariationStore(offset + itemVarStoreOffset);
                 }
                     break;
             }

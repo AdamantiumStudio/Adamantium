@@ -2,25 +2,32 @@ using System;
 
 namespace Adamantium.Fonts;
 
-/// <summary>An axis a variable font varies along ('fvar'): its tag ("wght", "wdth") and the values it takes.</summary>
 public sealed class FontAxis
 {
-    public FontAxis(string tag, float minValue, float defaultValue, float maxValue)
+    public FontAxis(string tag, float minValue, float defaultValue, float maxValue, string name = null,
+        bool isHidden = false)
     {
         Tag = tag;
         MinValue = minValue;
         DefaultValue = defaultValue;
         MaxValue = maxValue;
+        Name = name ?? tag;
+        IsHidden = isHidden;
     }
 
     public string Tag { get; }
 
     public float MinValue { get; }
 
-    /// <summary>The value the font's own outlines and metrics are drawn at.</summary>
     public float DefaultValue { get; }
 
     public float MaxValue { get; }
+
+    /// <summary>The axis's name from the 'name' table, as "Optical size"; the tag when the font gives none.</summary>
+    public string Name { get; }
+
+    /// <summary>Whether the font asks for the axis to stay out of a user interface.</summary>
+    public bool IsHidden { get; }
 
     internal int Normalize(float value)
     {

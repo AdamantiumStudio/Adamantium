@@ -1202,7 +1202,7 @@ public class TextLayout : DisposableObject
                 continue;
             }
 
-            var font = attributes.Font ?? Font;
+            var font = RunFont(attributes, FontSize);
             double em = font.UnitsPerEm;
             var scale = (attributes.FontSize ?? FontSize) / em;
             var thickness = (font.UnderlineThickness > 0 ? font.UnderlineThickness : em / 20) * scale;
@@ -1487,12 +1487,12 @@ public class TextLayout : DisposableObject
         var graphemes = Fallback == null ? null
             : ReferenceEquals(text, Text) ? Graphemes()
             : TextBoundaries.Graphemes(text);
-        foreach (var (start, end, attributes) in ShapingSegments(text))
+        foreach (var (start, end, attributes) in ShapingSegments(text, fontSize))
         {
             var options = attributes == null
                 ? ShapingOptions.Default
                 : new ShapingOptions(null, attributes.Language, attributes.Features);
-            var font = attributes?.Font ?? Font;
+            var font = RunFont(attributes, fontSize);
             var position = start;
             while (position < end)
             {
@@ -1652,7 +1652,10 @@ public class TextLayout : DisposableObject
             or UnicodeCategory.Control or UnicodeCategory.Format;
     }
 
-    private IEnumerable<(int Start, int End, TextAttributes Attributes)> ShapingSegments(string text)
+    private IFont RunFont(TextAttributes attributes, double fontSize) =>
+        (attributes?.Font ?? Font).AtOpticalSize((float)(attributes?.FontSize ?? fontSize));
+
+    private IEnumerable<(int Start, int End, TextAttributes Attributes)> ShapingSegments(string text, double fontSize)
     {
         if (_attributed == null || _attributed.Runs.Count == 0)
         {
@@ -1665,7 +1668,8 @@ public class TextLayout : DisposableObject
         var attributes = runs[0].Attributes;
         for (var i = 1; i < runs.Count; i++)
         {
-            if (runs[i].Attributes.ShapesLike(attributes))
+            if (runs[i].Attributes.ShapesLike(attributes)
+                && ReferenceEquals(RunFont(runs[i].Attributes, fontSize), RunFont(attributes, fontSize)))
             {
                 continue;
             }

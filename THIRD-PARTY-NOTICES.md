@@ -151,6 +151,14 @@ them.
 
 ---
 
+## Roboto Flex
+
+**Where:** `Tests/Adamantium.FontTests/Variations/RobotoFlex-Variable.ttf`, unchanged, the variable font from
+https://github.com/google/fonts/tree/main/ofl/robotoflex, used only by the tests. Copyright 2017 The Roboto Flex
+Project Authors, under the SIL Open Font License 1.1, whose text is `RobotoFlex-OFL.txt` beside it.
+
+---
+
 ## SharpDX
 
 **Where:** ten files still carry its notice, and only those ten are derived from it —

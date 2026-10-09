@@ -1,0 +1,5 @@
+# Fonts whose variation axes and named instances are checked against HarfBuzz (AxisTests).
+Variations/RobotoFlex-Variable.ttf
+source-sans-3v028R/VAR/SourceSans3VF-Roman.ttf
+source-sans-3v028R/VAR/SourceSans3VF-Italic.otf
+OTFFonts/CFF2/AdobeVFPrototype.otf

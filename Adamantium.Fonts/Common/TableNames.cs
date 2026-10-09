@@ -53,6 +53,8 @@ namespace Adamantium.Fonts.Common
         public const string fvar = "fvar";
         public const string gvar = "gvar";
         public const string HVAR = "HVAR";
+        public const string MVAR = "MVAR";
+        public const string STAT = "STAT";
         public const string hsty = "hsty";
         public const string just = "just";
         public const string lcar = "lcar";
