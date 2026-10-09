@@ -7,6 +7,16 @@ All packages share one version.
 
 ### Added
 
+- Tab stops. `TextLayout.TabStops` (`TabStop`: a position, a `TabAlignment` - `Left`, `Center`, `Right` or
+  `Decimal` on its `AlignOn` character - and a leader) moves the text after a tab to the next stop; leaders repeat
+  across the gap on one grid, so they line up from line to line. Past the last stop, tabs stop every `TabSize`
+  spaces as before.
+- Optical margin alignment. `TextLayout.OpticalMarginAlignment` hangs punctuation, quotes and hyphens at the edges of
+  lines partly past the margin - left for left-aligned and justified lines, right for right-aligned and justified
+  ones - so the edge looks straight, as InDesign's Optical Margin Alignment does.
+- Japanese line breaking is checked against the kinsoku rules of JIS X 4051 (closing brackets, small kana, the
+  prolonged sound mark and full stops never start a line, opening brackets never end one), a line at a time and a
+  paragraph at a time.
 - The paragraph composer. `TextLayout.LineBreaking` (`LineBreaking`: `Greedy` - the default, a line at a time - or
   `Paragraph`) breaks text wrapped by `WrapByWords` a paragraph at a time, as TeX and InDesign's Paragraph Composer
   do. `ParagraphComposer` is Knuth and Plass's algorithm over boxes, glue and penalties, with TeX's badness, fitness
