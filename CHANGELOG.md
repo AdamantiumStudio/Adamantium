@@ -7,6 +7,16 @@ All packages share one version.
 
 ### Added
 
+- Vertical text. `TextLayout.WritingMode` (`WritingMode.VerticalRightToLeft`) runs lines down, as long as the text
+  area is high, and stacks them from its right: ideographs and kana stand upright, shaped top to bottom in their
+  vertical forms and centered on the line, as do brackets and long marks the font has vertical forms of (UAX #50 `Tr`);
+  other text lies turned 90° clockwise, its em centered on the line; a run of
+  one or two digits among them stands upright across the line in one em (tate-chū-yoko), narrowed to fit. Wrapping,
+  hyphenation, the paragraph composer, tab stops, trimming, alignment along the line, frames and exclusions work as
+  across; `GetRangeRects` and `GetAdornments` give rectangles down the lines (underlines on their right,
+  strikethroughs down their middle), and `GlyphWordData.Upright` and
+  `Sideways` say how each glyph stands. Drop caps, carets and hit testing are for horizontal text only. A glyph's
+  `FontItem.Rotation` now turns a color glyph drawn by its paint program as well.
 - Shaping top to bottom, as HarfBuzz does it: `ShapingOptions.Vertical` applies the 'vert' forms (found anywhere in
   the font when the script lacks them), leaves out the horizontal features (`kern`, `liga`, `calt`…), advances each
   glyph down by its 'vmtx' advance and offsets it from its vertical origin ('VORG', else its top plus its 'vmtx' top
@@ -249,6 +259,9 @@ All packages share one version.
 
 ### Fixed
 
+- The system fallback drew Chinese and Japanese punctuation and full-width forms (、。「」（）Ａ) from the first family
+  that had them - Mongolian Baiti on Windows - instead of the family the text's language reads them in; they now try
+  it first, as Han and kana do.
 - 'vmtx' was read with the horizontal metrics' count (`hhea`) instead of its own (`vhea`), and before `vhea`, so the
   vertical advances of most CJK fonts were wrong; `vhea` also overwrote the line spacing `hhea` gives.
 - `Justify` stretched the last line of every paragraph but the text's last, a line ending at a newline; it stays as it

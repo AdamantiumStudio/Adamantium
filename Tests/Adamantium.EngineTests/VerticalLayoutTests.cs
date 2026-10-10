@@ -1,0 +1,267 @@
+using System;
+using System.IO;
+using System.Linq;
+using Adamantium.Fonts;
+using Adamantium.Fonts.Shaping;
+using Adamantium.Graphics.Fonts;
+using Adamantium.Mathematics;
+using NUnit.Framework;
+
+namespace Adamantium.EngineTests;
+
+/// <summary>Vertical text (<see cref="WritingMode.VerticalRightToLeft"/>): lines run down and stack from the right,
+/// ideographs and kana stand upright in their vertical forms, Latin lies turned, and one or two digits stand upright
+/// across the line.</summary>
+[TestFixture]
+public class VerticalLayoutTests
+{
+    private const double FontSize = 20;
+
+    private static readonly Lazy<Typeface> NotoSansCjk = new(() =>
+        Typeface.LoadFont(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fonts", "NotoSansCJK-Regular.ttc")));
+
+    private static IFont Font => NotoSansCjk.Value.Fonts[0];
+
+    private static double LineHeight => (Font.LineAscent + Font.LineDescent + Font.LineGap) * FontSize / Font.UnitsPerEm;
+
+    [Test]
+    public void Ideographs_StandUprightDownTheRightmostLine()
+    {
+        var glyphs = Lay("漢字かな", 200, 400).GetTextData();
+
+        Assert.That(glyphs.All(glyph => glyph.Upright && !glyph.Sideways), Is.True);
+        for (var i = 0; i < glyphs.Length; i++)
+        {
+            Assert.That(glyphs[i].PenX, Is.EqualTo(i * FontSize).Within(1e-6), "an em down the line each");
+            Assert.That(UprightCenter(glyphs[i]), Is.EqualTo(200 - LineHeight / 2).Within(0.01),
+                "centered across the rightmost line");
+            Assert.That(glyphs[i].Rect.Top, Is.GreaterThan(i * FontSize - 0.5));
+            Assert.That(glyphs[i].Rect.Bottom, Is.LessThan((i + 1) * FontSize + 0.5), "inside its em");
+        }
+    }
+
+    [Test]
+    public void Lines_StackFromRightToLeft()
+    {
+        var glyphs = Lay(string.Concat(Enumerable.Repeat("漢字", 20)), 1000, 100).GetTextData();
+
+        Assert.That(glyphs.Max(glyph => glyph.LineIndex), Is.EqualTo(7), "five ideographs a line");
+        foreach (var glyph in glyphs)
+        {
+            Assert.That(UprightCenter(glyph), Is.EqualTo(1000 - (glyph.LineIndex + 0.5) * LineHeight).Within(0.01));
+            Assert.That(glyph.PenX + glyph.Advance, Is.LessThanOrEqualTo(100 + 1e-6), "no line longer than the area is high");
+        }
+    }
+
+    [Test]
+    public void Latin_LiesTurnedClockwise_ItsEmCenteredOnTheLine()
+    {
+        var glyphs = Lay("漢Abc", 200, 400).GetTextData();
+        var scale = FontSize / Font.UnitsPerEm;
+
+        Assert.That(glyphs[0].Upright, Is.True);
+        foreach (var glyph in glyphs.Skip(1))
+        {
+            Assert.That(glyph.Sideways, Is.True, $"{glyph.Symbol} lies turned");
+            var baseline = glyph.Rect.X - glyph.Glyph.BoundingRectangle.Y * scale;
+            var emCenter = baseline + (Font.LineAscent - Font.LineDescent) / 2.0 * scale;
+            Assert.That(emCenter, Is.EqualTo(200 - LineHeight / 2).Within(0.6), $"{glyph.Symbol} centered across the line");
+            Assert.That(glyph.Rect.Top, Is.GreaterThanOrEqualTo(FontSize - 0.5), "below the ideograph");
+        }
+
+        Assert.That(glyphs[2].Rect.Top, Is.GreaterThan(glyphs[1].Rect.Bottom - 2), "read downward");
+    }
+
+    [Test]
+    public void OneOrTwoDigits_StandUprightAcrossTheLine()
+    {
+        var glyphs = Lay("12月", 200, 400).GetTextData();
+        var center = 200 - LineHeight / 2;
+
+        Assert.That(glyphs.All(glyph => glyph.Upright), Is.True);
+        Assert.That(glyphs[0].Advance + glyphs[1].Advance, Is.EqualTo(FontSize).Within(1e-6), "the digits take one em");
+        Assert.That(glyphs[2].PenX, Is.EqualTo(FontSize).Within(1e-6), "the next character an em down");
+        Assert.That(glyphs[1].Rect.Left, Is.GreaterThan(glyphs[0].Rect.Right - 1), "side by side");
+        Assert.That((glyphs[0].Rect.Left + glyphs[1].Rect.Right) / 2, Is.EqualTo(center).Within(1.5));
+        Assert.That(glyphs[1].Rect.Right - glyphs[0].Rect.Left, Is.LessThanOrEqualTo(FontSize), "no wider than an em");
+        Assert.That(glyphs.Take(2).All(glyph => glyph.Rect.Top > -0.5 && glyph.Rect.Bottom < FontSize + 0.5), Is.True);
+    }
+
+    [Test]
+    public void UprightDigits_WrapTogether()
+    {
+        var glyphs = Lay("漢12", 200, 30, wrapping: TextWrapping.WrapBySymbols).GetTextData();
+        var digits = glyphs.Where(glyph => char.IsAsciiDigit(glyph.Symbol)).ToArray();
+
+        Assert.That(digits.Select(glyph => glyph.LineIndex), Is.All.EqualTo(1), "both on the next line");
+        Assert.That(digits.All(glyph => glyph.Rect.Top > -0.5 && glyph.Rect.Bottom < FontSize + 0.5), Is.True,
+            "in the first em of the line");
+    }
+
+    [Test]
+    public void UprightDigits_TrimmedBefore_LeaveTheEllipsisClear()
+    {
+        var glyphs = Lay("漢漢12漢漢", 200, 50, wrapping: TextWrapping.NoWrap, trimming: TextTrimming.CharEllipses)
+            .GetTextData();
+        var dots = glyphs.Where(glyph => glyph.PositionInString < 0).ToArray();
+
+        Assert.That(dots, Has.Length.EqualTo(3));
+        foreach (var glyph in glyphs.Where(glyph => glyph.PositionInString >= 0))
+        {
+            Assert.That(dots.All(dot => dot.Rect.Top >= glyph.Rect.Bottom - 0.5), Is.True,
+                $"the ellipsis below {glyph.Symbol}");
+        }
+    }
+
+    [TestCase(VerticalTextAlignment.Top, 1)]
+    [TestCase(VerticalTextAlignment.Center, 0)]
+    [TestCase(VerticalTextAlignment.Bottom, -1)]
+    public void VerticalAlignment_PlacesTheLinesAcrossTheArea(VerticalTextAlignment alignment, int side)
+    {
+        var glyph = Lay("漢", 200, 400, across: alignment).GetTextData()[0];
+        var expected = side switch
+        {
+            1 => 200 - LineHeight / 2,
+            0 => 100,
+            _ => LineHeight / 2,
+        };
+
+        Assert.That(UprightCenter(glyph), Is.EqualTo(expected).Within(0.01));
+    }
+
+    [Test]
+    public void Underline_RunsRightOfTheLine_StrikethroughDownItsMiddle()
+    {
+        var layout = new TextLayout(NotoSansCjk.Value, Font) { Fallback = null, WritingMode = WritingMode.VerticalRightToLeft };
+        var attributes = new TextAttributes { Decorations = TextDecorations.Underline | TextDecorations.Strikethrough };
+        layout.ProcessText(new AttributedText("漢字", attributes), FontSize, new Size(200, 400), TextWrapping.WrapByWords,
+            TextTrimming.None, HorizontalTextAlignment.Left, VerticalTextAlignment.Top);
+        var adornments = layout.GetAdornments();
+        var underline = adornments.Single(adornment => adornment.Kind == TextAdornmentKind.Underline).Rect;
+        var strikethrough = adornments.Single(adornment => adornment.Kind == TextAdornmentKind.Strikethrough).Rect;
+        var center = 200 - LineHeight / 2;
+        var glyphsRight = layout.GetTextData().Max(glyph => glyph.Rect.Right);
+
+        Assert.That(underline.Height, Is.EqualTo(2 * FontSize).Within(0.01), "down the whole text");
+        Assert.That(underline.Left, Is.GreaterThanOrEqualTo(glyphsRight - 0.5), "right of the glyphs");
+        Assert.That(underline.Right, Is.LessThanOrEqualTo(200), "inside the line");
+        Assert.That(strikethrough.Center.X, Is.EqualTo(center).Within(0.01));
+    }
+
+    [TestCase("2024年")]
+    [TestCase("Room 12")]
+    [TestCase("3.5倍")]
+    public void LongerNumbersAndNumbersAmongLatin_LieTurned(string text)
+    {
+        var digits = Lay(text, 200, 400).GetTextData().Where(glyph => char.IsAsciiDigit(glyph.Symbol)).ToArray();
+
+        Assert.That(digits, Is.Not.Empty);
+        Assert.That(digits.All(glyph => glyph.Sideways), Is.True);
+    }
+
+    [Test]
+    public void UprightPunctuation_TakesItsVerticalForm()
+    {
+        var vertical = TextShaper.Shape(Font, "。", new ShapingOptions(vertical: true))[0].GlyphIndex;
+        var across = TextShaper.Shape(Font, "。", ShapingOptions.Default)[0].GlyphIndex;
+
+        Assert.That(vertical, Is.Not.EqualTo(across));
+        Assert.That(Lay("。", 200, 400).GetTextData()[0].Glyph.Index, Is.EqualTo(vertical));
+    }
+
+    [TestCase("「", 0x300C)]
+    [TestCase("ー", 0x30FC)]
+    [TestCase("（", 0xFF08)]
+    public void BracketsAndLongMarks_StandUprightInTheFontsVerticalForm(string text, int codepoint)
+    {
+        var vertical = TextShaper.Shape(Font, text, new ShapingOptions(vertical: true))[0].GlyphIndex;
+        var glyph = Lay(text + "漢", 200, 400).GetTextData()[0];
+
+        Assert.That(glyph.Upright, Is.True, $"U+{codepoint:X4}");
+        Assert.That(glyph.Glyph.Index, Is.EqualTo(vertical));
+    }
+
+    [TestCase(HorizontalTextAlignment.Left, 0)]
+    [TestCase(HorizontalTextAlignment.Center, 130)]
+    [TestCase(HorizontalTextAlignment.Right, 260)]
+    public void Alignment_PlacesTheTextAlongTheLine(HorizontalTextAlignment alignment, double top)
+    {
+        var glyphs = Lay("漢字", 200, 300, alignment).GetTextData();
+
+        Assert.That(glyphs[0].PenX, Is.EqualTo(top).Within(1e-3));
+        Assert.That(glyphs[1].PenX, Is.EqualTo(top + FontSize).Within(1e-3));
+    }
+
+    [Test]
+    public void Size_IsTheLinesAcrossByTheLongestLineDown()
+    {
+        var layout = Lay("漢字\n漢", double.NaN, double.NaN);
+        var glyphs = layout.GetTextData();
+
+        Assert.That(layout.CalculatedLayoutSize.Width, Is.EqualTo(Math.Ceiling(2 * LineHeight)));
+        Assert.That(layout.CalculatedLayoutSize.Height, Is.EqualTo(2 * FontSize));
+        Assert.That(UprightCenter(glyphs[0]), Is.EqualTo(Math.Ceiling(2 * LineHeight) - LineHeight / 2).Within(0.01));
+        Assert.That(UprightCenter(glyphs[2]), Is.EqualTo(Math.Ceiling(2 * LineHeight) - 1.5 * LineHeight).Within(0.01));
+    }
+
+    [Test]
+    public void Frames_AreFilledInTurn_EachFromItsRight()
+    {
+        var text = string.Concat(Enumerable.Repeat("漢字", 20));
+        RectangleF[] frames = [new RectangleF(100, 0, 100, 100), new RectangleF(0, 0, 100, 100)];
+        var layout = new TextLayout(NotoSansCjk.Value, Font)
+        {
+            Fallback = null, WritingMode = WritingMode.VerticalRightToLeft, Frames = frames,
+        };
+        layout.ProcessText(text, FontSize, new Size(200, 100), TextWrapping.WrapByWords, TextTrimming.None,
+            HorizontalTextAlignment.Left, VerticalTextAlignment.Top);
+        var linesAFrame = (int)(100 / LineHeight);
+
+        Assert.That(layout.OversetIndex, Is.EqualTo(2 * linesAFrame * 5));
+        foreach (var glyph in layout.GetTextData())
+        {
+            var frame = frames[glyph.PositionInString < linesAFrame * 5 ? 0 : 1];
+            var line = glyph.LineIndex % linesAFrame;
+            Assert.That(UprightCenter(glyph), Is.EqualTo(frame.Right - (line + 0.5) * LineHeight).Within(0.01),
+                $"{glyph.PositionInString} in frame {Array.IndexOf(frames, frame)}");
+        }
+    }
+
+    [Test]
+    public void RangeRects_RunDownTheLine()
+    {
+        var rect = Lay("漢字かな", 200, 400).GetRangeRects(0, 2).Single();
+
+        Assert.That(rect.X, Is.EqualTo(200 - LineHeight).Within(0.01));
+        Assert.That(rect.Width, Is.EqualTo(LineHeight).Within(0.01));
+        Assert.That(rect.Y, Is.EqualTo(0).Within(0.01));
+        Assert.That(rect.Height, Is.EqualTo(2 * FontSize).Within(0.01));
+    }
+
+    [Test]
+    public void HorizontalText_HasNoTurnedOrUprightGlyphs()
+    {
+        var layout = new TextLayout(NotoSansCjk.Value, Font) { Fallback = null };
+        layout.ProcessText("漢字Abc12", FontSize, new Size(400, 200), TextWrapping.WrapByWords, TextTrimming.None,
+            HorizontalTextAlignment.Left, VerticalTextAlignment.Top);
+
+        Assert.That(layout.GetTextData().Any(glyph => glyph.Upright || glyph.Sideways), Is.False);
+    }
+
+    private static TextLayout Lay(string text, double width, double height,
+        HorizontalTextAlignment alignment = HorizontalTextAlignment.Left,
+        VerticalTextAlignment across = VerticalTextAlignment.Top, TextWrapping wrapping = TextWrapping.WrapByWords,
+        TextTrimming trimming = TextTrimming.None)
+    {
+        var layout = new TextLayout(NotoSansCjk.Value, Font) { Fallback = null, WritingMode = WritingMode.VerticalRightToLeft };
+        layout.ProcessText(text, FontSize, new Size(width, height), wrapping, trimming, alignment, across);
+        return layout;
+    }
+
+    private static double UprightCenter(GlyphWordData glyph)
+    {
+        var scale = glyph.FontSize / glyph.Font.UnitsPerEm;
+        return glyph.Rect.X - glyph.Font.GetLeftSideBearing(glyph.Glyph.Index) * scale
+               + glyph.Font.GetAdvanceWidth(glyph.Glyph.Index) * scale / 2;
+    }
+}

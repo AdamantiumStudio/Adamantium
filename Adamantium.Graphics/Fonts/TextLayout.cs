@@ -98,6 +98,16 @@ public class TextLayout : DisposableObject
     public int OversetIndex { get; private set; }
 
     /// <summary>
+    /// Which way lines run: across (the default), or down and stacked from right to left. A vertical line is as long as
+    /// the text area is high, and the lines fill its width from the right; <see cref="HorizontalTextAlignment"/> places
+    /// text along each line (<see cref="HorizontalTextAlignment.Left"/> at its top) and
+    /// <see cref="VerticalTextAlignment"/> places the lines across the area (<see cref="VerticalTextAlignment.Top"/> at
+    /// its right). Underlines run right of vertical lines, strikethroughs down their middle. Drop caps, carets and hit
+    /// testing are for horizontal text only.
+    /// </summary>
+    public WritingMode WritingMode { get; set; }
+
+    /// <summary>
     /// The text's language, a BCP 47 tag such as "ru" or "en-GB", for ranges whose attributes name none: picks the
     /// hyphenation patterns, the font's localized glyph forms and the fallback fonts. Null when unknown.
     /// </summary>
@@ -149,6 +159,8 @@ public class TextLayout : DisposableObject
     private LineBreaking _laidOutLineBreaking;
     private bool _laidOutOpticalMargins;
     private DropCap _laidOutDropCap;
+    private WritingMode _laidOutWritingMode;
+    private double _columnsRight;
     private RectangleF[] _laidOutFrames = [];
     private RectangleF[] _laidOutExclusions = [];
     private int[] _lineFrames;
@@ -159,6 +171,7 @@ public class TextLayout : DisposableObject
     private byte[] _characterLevels;
     private FontFallback _fallback;
     private bool _fallbackSet;
+    private readonly Dictionary<(IFont Font, int Codepoint), bool> _verticalForms = new();
 
     private List<GlyphWordData> _wordData;
     private AttributedText _attributed;
@@ -242,7 +255,7 @@ public class TextLayout : DisposableObject
                _laidOutDirection == Direction && _laidOutHyphens == Hyphens && _laidOutLanguage == Language &&
                _laidOutLineBreaking == LineBreaking && _laidOutTabStops.SequenceEqual(TabStops ?? []) &&
                _laidOutOpticalMargins == OpticalMarginAlignment && Equals(_laidOutDropCap, DropCap) &&
-               _laidOutFrames.SequenceEqual(Frames ?? []) && _laidOutExclusions.SequenceEqual(Exclusions ?? []);
+               _laidOutWritingMode == WritingMode && _laidOutFrames.SequenceEqual(Frames ?? []) && _laidOutExclusions.SequenceEqual(Exclusions ?? []);
     }
 
     public Size ProcessText(string text,
@@ -371,16 +384,39 @@ public class TextLayout : DisposableObject
         _laidOutDropCap = DropCap;
         _laidOutFrames = Frames?.ToArray() ?? [];
         _laidOutExclusions = Exclusions?.ToArray() ?? [];
+        _laidOutWritingMode = WritingMode;
+        var vertical = WritingMode == WritingMode.VerticalRightToLeft;
+        var frames = Frames;
+        var exclusions = Exclusions;
+        if (vertical)
+        {
+            var screenArea = renderingParameters.TextArea;
+            _columnsRight = screenArea.Width < Int32.MaxValue ? screenArea.Width
+                : Frames is { Count: > 0 } ? Frames.Max(frame => frame.Right) : 0;
+            frames = Frames?.Select(AlongColumns).ToArray();
+            exclusions = Exclusions?.Select(AlongColumns).ToArray();
+            renderingParameters = new TextRenderingParameters
+            {
+                TextArea = new Rectangle(0, 0, screenArea.Height, screenArea.Width),
+                TextWrapping = renderingParameters.TextWrapping,
+                TextTrimming = renderingParameters.TextTrimming,
+                HorizontalTextAlignment = renderingParameters.HorizontalTextAlignment,
+                VerticalTextAlignment = renderingParameters.VerticalTextAlignment,
+                JustifyLastLine = renderingParameters.JustifyLastLine,
+                Color = renderingParameters.Color,
+            };
+        }
+
         OversetIndex = text.Length;
         _laidOutTabStops = TabStops?.ToArray() ?? [];
         var tabStops = _laidOutTabStops.OrderBy(stop => stop.Position).ToArray();
         _paragraphs = ResolveParagraphs(text);
         _characterLevels = null;
         var dropEnd = DropCap != null && renderingParameters.TextWrapping == TextWrapping.WrapByWords
-                                      && !IsRightToLeftParagraph(0)
+                                      && !IsRightToLeftParagraph(0) && !vertical
             ? DropCapEnd(text)
             : 0;
-        var items = Shape(text, fontSize, dropEnd);
+        var items = Shape(text, fontSize, dropEnd, vertical);
         _laidOutTabSize = TabSize;
         var tabStop = Font.GetAdvanceWidth(spaceGlyph.Index) * scale * Math.Max(TabSize, 1);
 
@@ -404,11 +440,11 @@ public class TextLayout : DisposableObject
         var lineBreaks = renderingParameters.TextWrapping == TextWrapping.WrapByWords
             ? TextBoundaries.LineBreaks(text)
             : null;
-        var slots = lineBreaks != null && Frames is { Count: > 0 }
-            ? LineSlots(Frames, Exclusions, lineHeight, 2 * fontSize, text.Length + 1)
+        var slots = lineBreaks != null && frames is { Count: > 0 }
+            ? LineSlots(frames, exclusions, lineHeight, 2 * fontSize, text.Length + 1)
             : null;
         _lineFrames = null;
-        _frameRects = slots != null ? Frames.ToArray() : null;
+        _frameRects = slots != null ? frames.ToArray() : null;
         if (slots is { Count: 0 })
         {
             OversetIndex = 0;
@@ -540,7 +576,7 @@ public class TextLayout : DisposableObject
 
         if (slots != null)
         {
-            finalRect = new Size(Math.Ceiling(Frames.Max(frame => frame.Right)), Math.Ceiling(Frames.Max(frame => frame.Bottom)));
+            finalRect = new Size(Math.Ceiling(frames.Max(frame => frame.Right)), Math.Ceiling(frames.Max(frame => frame.Bottom)));
         }
 
         if (glyphsData.Count > 0)
@@ -578,6 +614,11 @@ public class TextLayout : DisposableObject
         {
             glyphsData = WithLeaders(glyphsData, leaders,
                 slots == null && textArea.Width < Int32.MaxValue ? textArea.Width : double.MaxValue);
+        }
+
+        if (vertical)
+        {
+            TurnIntoColumns();
         }
 
         _lineTops = lineTops;
@@ -707,7 +748,7 @@ public class TextLayout : DisposableObject
             var baseline = DropBaseline();
             var attributes = items[0].Attributes;
             List<GlyphWordData> glyphs = [];
-            double pen = slots != null ? Frames[slots[0].Frame].Left + slots[0].Left : 0;
+            double pen = slots != null ? frames[slots[0].Frame].Left + slots[0].Left : 0;
             foreach (var shaped in dropGlyphs)
             {
                 var glyph = dropFont.GetGlyphByIndex(shaped.GlyphIndex);
@@ -1142,7 +1183,7 @@ public class TextLayout : DisposableObject
             {
                 var slot = slots[Math.Min(i, slots.Count - 1)];
                 lineFrames[i] = slot.Frame;
-                shiftsX[i] = Frames[slot.Frame].Left;
+                shiftsX[i] = frames[slot.Frame].Left;
                 shiftsY[i] = slot.Top - lineTops[i];
                 lineTops[i] = slot.Top;
             }
@@ -1155,6 +1196,46 @@ public class TextLayout : DisposableObject
             }
 
             _lineFrames = lineFrames;
+        }
+
+        RectangleF AlongColumns(RectangleF rect) =>
+            new(rect.Y, (float)(_columnsRight - rect.Right), rect.Height, rect.Width);
+
+        void TurnIntoColumns()
+        {
+            if (slots == null)
+            {
+                _columnsRight = finalRect.Height;
+            }
+
+            var right = _columnsRight;
+            foreach (var glyph in glyphsData)
+            {
+                var line = Math.Min(glyph.LineIndex, lineCount - 1);
+                var axis = lineTops[line] + lineHeights[line] / 2;
+                var glyphScale = glyph.FontSize / glyph.Font.UnitsPerEm;
+                if (glyph.Upright)
+                {
+                    var down = glyph.PenX + glyph.OffsetX;
+                    var upright = CalculateGlyphPosition(glyph.Font, glyph.Glyph, right - axis + glyph.OffsetY, down,
+                        glyphScale);
+                    upright.Y += (float)(down - Math.Round(down));
+                    glyph.Rect = upright;
+                    continue;
+                }
+
+                var shift = axis + (glyph.Font.LineAscent - glyph.Font.LineDescent) / 2.0 * glyphScale
+                            - (lineTops[line] + lineBaselines[line]);
+                var rect = glyph.Rect;
+                glyph.Rect = new RectangleF((float)(right - rect.Bottom - shift), rect.X, rect.Height, rect.Width);
+                glyph.Sideways = true;
+            }
+
+            finalRect = new Size(Math.Ceiling(slots != null ? Frames.Max(frame => frame.Right) : right), finalRect.Width);
+            if (glyphsData.Count > 0)
+            {
+                CalculateRealTextDimensions(glyphsData);
+            }
         }
 
         bool Overset(int start)
@@ -1222,7 +1303,11 @@ public class TextLayout : DisposableObject
                     continue;
                 }
 
-                if (item.Glyph.BoundingRectangle.Width > 0)
+                if (item.Upright)
+                {
+                    right = Math.Max(right, pen + item.Advance);
+                }
+                else if (item.Glyph.BoundingRectangle.Width > 0)
                 {
                     var inkRight = (item.Font.GetLeftSideBearing(item.Glyph.Index) + item.Glyph.BoundingRectangle.Width)
                                    * (item.FontSize / item.Font.UnitsPerEm);
@@ -1413,10 +1498,12 @@ public class TextLayout : DisposableObject
                     default:
                     {
                         var glyphBase = height + baseLine;
-                        var glyphRect = CalculateGlyphPosition(item.Font, item.Glyph,
-                            cursorPosition + item.OffsetX,
-                            glyphBase - item.OffsetY,
-                            item.FontSize / item.Font.UnitsPerEm);
+                        var glyphRect = item.Upright
+                            ? CellRect(item.Font, item.FontSize, cursorPosition, item.Advance, glyphBase)
+                            : CalculateGlyphPosition(item.Font, item.Glyph,
+                                cursorPosition + item.OffsetX,
+                                glyphBase - item.OffsetY,
+                                item.FontSize / item.Font.UnitsPerEm);
 
                         glyphsData.Add(new GlyphWordData(item.Glyph, item.Symbol, glyphRect, item.Cluster, lineIndex)
                         {
@@ -1427,6 +1514,7 @@ public class TextLayout : DisposableObject
                             Attributes = item.Attributes,
                             Font = item.Font,
                             FontSize = item.FontSize,
+                            Upright = item.Upright,
                         });
                         cursorPosition += item.Advance;
 
@@ -1629,6 +1717,12 @@ public class TextLayout : DisposableObject
 
                     var blockHeight = lastInkBaseline - textArea.Y - firstBaseline + ascent;
                     var blockTop = firstBaseline - ascent;
+                    if (vertical)
+                    {
+                        blockTop = lineTops[0] - textArea.Y;
+                        blockHeight = lineTops[lastInk] + lineHeights[lastInk] - lineTops[0];
+                    }
+
                     var diff = (finalRect.Height - blockHeight) / 2 - blockTop;
                     verticalShift = diff;
                     foreach (var glyphWordData in glyphsData)
@@ -1642,7 +1736,7 @@ public class TextLayout : DisposableObject
                 case VerticalTextAlignment.Bottom:
                 {
                     // The last baseline on the bottom edge, not the lowest ink, for the same reason.
-                    var diff = finalRect.Height - lastBaseline;
+                    var diff = finalRect.Height - (vertical ? height : lastBaseline);
                     verticalShift = diff;
                     foreach (var glyphWordData in glyphsData)
                     {
@@ -1834,6 +1928,10 @@ public class TextLayout : DisposableObject
                 {
                     glyph.Rect.Y = (float)lineBase;
                 }
+                else if (glyph.Upright)
+                {
+                    glyph.Rect = CellRect(glyph.Font, glyph.FontSize, glyph.PenX, glyph.Advance, lineBase);
+                }
                 else
                 {
                     glyph.Rect = CalculateGlyphPosition(glyph.Font, glyph.Glyph, glyph.PenX + glyph.OffsetX,
@@ -1879,10 +1977,12 @@ public class TextLayout : DisposableObject
                 var glyphData = rearrangeList[index];
                 if (index == 0 && IsBlank(glyphData.Symbol)) continue;
 
-                var glyphRect = CalculateGlyphPosition(glyphData.Font, glyphData.Glyph,
-                    cursorPosition + glyphData.OffsetX,
-                    glyphBase - glyphData.OffsetY,
-                    glyphData.FontSize / glyphData.Font.UnitsPerEm);
+                var glyphRect = glyphData.Upright
+                    ? CellRect(glyphData.Font, glyphData.FontSize, cursorPosition, glyphData.Advance, glyphBase)
+                    : CalculateGlyphPosition(glyphData.Font, glyphData.Glyph,
+                        cursorPosition + glyphData.OffsetX,
+                        glyphBase - glyphData.OffsetY,
+                        glyphData.FontSize / glyphData.Font.UnitsPerEm);
 
                 glyphData.Rect = glyphRect;
                 glyphData.PenX = cursorPosition;
@@ -2063,52 +2163,74 @@ public class TextLayout : DisposableObject
             var word = _wordData[i];
             if (IsBlank(word.Symbol) || word.Symbol == '\n') continue;
 
-            var font = DrawnFont(word.Font);
-            var palette = word.Attributes?.ColorPalette ?? 0;
-            if (palette < 0 || palette >= font.ColorPalettes.Count)
+            var first = ElementsCount;
+            AddWordItems(word);
+            if (word.Sideways)
             {
-                palette = 0;
-            }
-            var paint = font.GetColorPaint(word.Glyph.Index, palette);
-            if (paint.Count > 0)
-            {
-                AddProgramItem(word, FontAtlas.GetPaintProgram(font, word.Glyph.Index, palette, paint));
-                continue;
-            }
-
-            var layers = font.GetColorLayers(word.Glyph.Index, palette);
-            if (layers.Count == 0)
-            {
-                if (font.ColorBitmapSizes.Count > 0 &&
-                    FontAtlas.TryGetImageProgram(font, word.Glyph.Index, out var image))
-                {
-                    AddProgramItem(word, image);
-                    continue;
-                }
-
-                if (word.Font.Blend != null)
-                {
-                    AddBlendedGlyphItem(word, GlyphColor(word));
-                    continue;
-                }
-
-                AddGlyphItem(word, word.Font, word.Glyph, word.Rect, GlyphColor(word));
-                continue;
-            }
-
-            var scale = word.FontSize / font.UnitsPerEm;
-            foreach (var layer in layers)
-            {
-                var glyph = font.GetGlyphByIndex(layer.GlyphIndex);
-                var rect = CalculateGlyphPosition(font, glyph, word.PenX + word.OffsetX, Baseline(word), scale);
-                var color = layer.Color is { } own ? own.ToVector4() : GlyphColor(word);
-                AddGlyphItem(word, font, glyph, rect, color);
+                TurnItems(first, DrawnRect(word));
             }
         }
 
         _vertexBufferDirty = true;
 
         _textUpdated = true;
+    }
+
+    private void AddWordItems(GlyphWordData word)
+    {
+        var font = DrawnFont(word.Font);
+        var palette = word.Attributes?.ColorPalette ?? 0;
+        if (palette < 0 || palette >= font.ColorPalettes.Count)
+        {
+            palette = 0;
+        }
+
+        var paint = font.GetColorPaint(word.Glyph.Index, palette);
+        if (paint.Count > 0)
+        {
+            AddProgramItem(word, FontAtlas.GetPaintProgram(font, word.Glyph.Index, palette, paint));
+            return;
+        }
+
+        var layers = font.GetColorLayers(word.Glyph.Index, palette);
+        if (layers.Count == 0)
+        {
+            if (font.ColorBitmapSizes.Count > 0 &&
+                FontAtlas.TryGetImageProgram(font, word.Glyph.Index, out var image))
+            {
+                AddProgramItem(word, image);
+                return;
+            }
+
+            if (word.Font.Blend != null)
+            {
+                AddBlendedGlyphItem(word, GlyphColor(word));
+                return;
+            }
+
+            AddGlyphItem(word, word.Font, word.Glyph, DrawnRect(word), GlyphColor(word));
+            return;
+        }
+
+        var scale = word.FontSize / font.UnitsPerEm;
+        foreach (var layer in layers)
+        {
+            var glyph = font.GetGlyphByIndex(layer.GlyphIndex);
+            var rect = DrawnGlyphRect(word, font, glyph, scale);
+            var color = layer.Color is { } own ? own.ToVector4() : GlyphColor(word);
+            AddGlyphItem(word, font, glyph, rect, color);
+        }
+    }
+
+    private void TurnItems(uint first, RectangleF drawn)
+    {
+        for (var i = first; i < ElementsCount; i++)
+        {
+            var quad = fontItems[i].ArrangeRect;
+            fontItems[i].ArrangeRect = new Vector4F(drawn.X - (quad.Y - drawn.Y), drawn.Y + (quad.X - drawn.X), quad.Z,
+                quad.W);
+            fontItems[i].Rotation = (float)(Math.PI / 2);
+        }
     }
 
     private void AddProgramItem(GlyphWordData word, int program)
@@ -2122,7 +2244,8 @@ public class TextLayout : DisposableObject
         EnsureItemCapacity((int)ElementsCount + 1);
         fontItems[ElementsCount] = new FontItem
         {
-            ArrangeRect = new Vector4F((float)(word.PenX + word.OffsetX), (float)Math.Round(Baseline(word)), scale, scale),
+            ArrangeRect = new Vector4F((float)Pen(word),
+                (float)(word.Upright ? Baseline(word) : Math.Round(Baseline(word))), scale, scale),
             Depth = 1.0f,
             Color = GlyphColor(word),
             Paint = new Vector4F(program + 1, 0, 0, 0)
@@ -2197,7 +2320,7 @@ public class TextLayout : DisposableObject
             return null;
         }
 
-        var rect = CalculateGlyphPosition(key, glyph, word.PenX + word.OffsetX, Baseline(word), scale);
+        var rect = DrawnGlyphRect(word, key, glyph, scale);
         return (CellQuad(word, gd, rect), CellSource(gd), gd.DepthLayer);
     }
 
@@ -2306,6 +2429,13 @@ public class TextLayout : DisposableObject
         var sy = world.M22;
         var tx = world.M41;
         var ty = world.M42;
+        for (var i = 0; i < ElementsCount && Math.Abs(sx - sy) > eps; i++)
+        {
+            if (fontItems[i].Rotation != 0)
+            {
+                return false;
+            }
+        }
 
         for (int i = 0; i < ElementsCount; i++)
         {
@@ -2465,8 +2595,8 @@ public class TextLayout : DisposableObject
     public IReadOnlyList<RectangleF> GetRangeRects(int start, int end)
     {
         return RangeSegments(start, end)
-            .Select(s => new RectangleF((float)s.Left, (float)LineTop(s.Line),
-                (float)(s.Right - s.Left), (float)LineMetric(_lineHeights, s.Line)))
+            .Select(s => Placed(new RectangleF((float)s.Left, (float)LineTop(s.Line),
+                (float)(s.Right - s.Left), (float)LineMetric(_lineHeights, s.Line))))
             .ToList();
     }
 
@@ -2498,34 +2628,40 @@ public class TextLayout : DisposableObject
             var strikeoutSize = font.StrikeoutSize > 0 ? font.StrikeoutSize * scale : thickness;
 
             var lineColor = attributes.DecorationColor ?? attributes.Foreground;
+            var vertical = _laidOutWritingMode == WritingMode.VerticalRightToLeft;
             foreach (var segment in RangeSegments(run.Start, run.End))
             {
                 var left = (float)segment.Left;
                 var width = (float)(segment.Right - segment.Left);
                 var baseline = GetLine(segment.Line).Baseline;
+                var axis = LineTop(segment.Line) + LineMetric(_lineHeights, segment.Line) / 2;
+                var beside = axis - (attributes.FontSize ?? FontSize) / 2 - thickness;
+                var underlineTop = vertical ? beside - thickness : baseline - underline;
                 if (attributes.Background is { } background)
                 {
                     adornments.Add(new TextAdornment(TextAdornmentKind.Background,
-                        new RectangleF(left, (float)LineTop(segment.Line), width,
-                            (float)LineMetric(_lineHeights, segment.Line)), background));
+                        Placed(new RectangleF(left, (float)LineTop(segment.Line), width,
+                            (float)LineMetric(_lineHeights, segment.Line))), background));
                 }
 
                 if ((decorations & TextDecorations.Underline) != 0)
                 {
                     adornments.Add(new TextAdornment(TextAdornmentKind.Underline,
-                        new RectangleF(left, (float)(baseline - underline), width, (float)thickness), lineColor));
+                        Placed(new RectangleF(left, (float)underlineTop, width, (float)thickness)), lineColor));
                 }
 
                 if ((decorations & TextDecorations.Strikethrough) != 0)
                 {
+                    var strikeTop = vertical ? axis - strikeoutSize / 2 : baseline - strikeout;
                     adornments.Add(new TextAdornment(TextAdornmentKind.Strikethrough,
-                        new RectangleF(left, (float)(baseline - strikeout), width, (float)strikeoutSize), lineColor));
+                        Placed(new RectangleF(left, (float)strikeTop, width, (float)strikeoutSize)), lineColor));
                 }
 
                 if ((decorations & TextDecorations.Squiggle) != 0)
                 {
                     adornments.Add(new TextAdornment(TextAdornmentKind.Squiggle,
-                        new RectangleF(left, (float)(baseline - underline), width, (float)(thickness * 3)), lineColor));
+                        Placed(new RectangleF(left, (float)(vertical ? beside - 3 * thickness : underlineTop), width,
+                            (float)(thickness * 3))), lineColor));
                 }
             }
         }
@@ -2845,6 +2981,10 @@ public class TextLayout : DisposableObject
     }
 
     private int Clamp(int index) => Math.Max(0, Math.Min(index, (Text ?? string.Empty).Length));
+
+    private RectangleF Placed(RectangleF rect) => _laidOutWritingMode == WritingMode.VerticalRightToLeft
+        ? new RectangleF((float)(_columnsRight - rect.Bottom), rect.X, rect.Height, rect.Width)
+        : rect;
 
     private static double LineAdvance(IFont font, double fontSize)
     {
@@ -3517,7 +3657,7 @@ public class TextLayout : DisposableObject
         }
     }
 
-    private List<ShapedItem> Shape(string text, double fontSize, int split)
+    private List<ShapedItem> Shape(string text, double fontSize, int split, bool vertical)
     {
         HasPendingFonts = false;
         var items = new List<ShapedItem>(text.Length);
@@ -3543,30 +3683,27 @@ public class TextLayout : DisposableObject
                     var blank = pending ? runFont.GetGlyphByCharacter(' ') : null;
                     foreach (var (levelStart, levelEnd, direction) in LevelRuns(runStart, runEnd))
                     {
-                        var shaped = direction == TextDirection.Auto
-                            ? TextShaper.Shape(runFont, text, levelStart, levelEnd, options)
-                            : TextShaper.Shape(runFont, text, levelStart, levelEnd,
-                                new ShapingOptions(options.Script, options.Language, options.Features, direction));
-                        if (direction == TextDirection.RightToLeft)
+                        if (!vertical)
                         {
-                            shaped = ToLogicalOrder(shaped);
+                            AddAcross(options, runFont, blank, levelStart, levelEnd, direction);
+                            continue;
                         }
 
-                        foreach (var glyph in shaped)
+                        foreach (var (orientedStart, orientedEnd, upright, combined) in
+                                 OrientationRuns(text, levelStart, levelEnd, codepoint => StandsUpright(runFont, codepoint)))
                         {
-                            var cluster = levelStart + glyph.Cluster;
-                            var glyphAttributes = AttributesAt(cluster);
-                            var size = glyphAttributes?.FontSize ?? fontSize;
-                            var scale = size / runFont.UnitsPerEm;
-                            var advance = glyph.XAdvance * scale;
-                            if (advance > 0 && IsEmboldened(glyphAttributes))
+                            if (combined)
                             {
-                                advance += 2 * FontSynthesisRules.EmboldenPerSide(size) * size;
+                                AddCombined(options, runFont, blank, orientedStart, orientedEnd);
                             }
-
-                            items.Add(new ShapedItem(blank ?? runFont.GetGlyphByIndex(glyph.GlyphIndex), text[cluster],
-                                cluster, advance, glyph.XOffset * scale, glyph.YOffset * scale,
-                                glyphAttributes, runFont, size));
+                            else if (upright)
+                            {
+                                AddUpright(options, runFont, blank, orientedStart, orientedEnd);
+                            }
+                            else
+                            {
+                                AddAcross(options, runFont, blank, orientedStart, orientedEnd, direction);
+                            }
                         }
                     }
                 }
@@ -3584,6 +3721,71 @@ public class TextLayout : DisposableObject
         }
 
         return items;
+
+        void AddAcross(ShapingOptions options, IFont runFont, Glyph blank, int start, int end, TextDirection direction)
+        {
+            var shaped = direction == TextDirection.Auto
+                ? TextShaper.Shape(runFont, text, start, end, options)
+                : TextShaper.Shape(runFont, text, start, end,
+                    new ShapingOptions(options.Script, options.Language, options.Features, direction));
+            if (direction == TextDirection.RightToLeft)
+            {
+                shaped = ToLogicalOrder(shaped);
+            }
+
+            foreach (var glyph in shaped)
+            {
+                var cluster = start + glyph.Cluster;
+                var glyphAttributes = AttributesAt(cluster);
+                var size = glyphAttributes?.FontSize ?? fontSize;
+                var scale = size / runFont.UnitsPerEm;
+                var advance = glyph.XAdvance * scale;
+                if (advance > 0 && IsEmboldened(glyphAttributes))
+                {
+                    advance += 2 * FontSynthesisRules.EmboldenPerSide(size) * size;
+                }
+
+                items.Add(new ShapedItem(blank ?? runFont.GetGlyphByIndex(glyph.GlyphIndex), text[cluster],
+                    cluster, advance, glyph.XOffset * scale, glyph.YOffset * scale,
+                    glyphAttributes, runFont, size));
+            }
+        }
+
+        void AddUpright(ShapingOptions options, IFont runFont, Glyph blank, int start, int end)
+        {
+            var shaped = TextShaper.Shape(runFont, text, start, end,
+                new ShapingOptions(options.Script, options.Language, options.Features, vertical: true));
+            foreach (var glyph in shaped)
+            {
+                var cluster = start + glyph.Cluster;
+                var glyphAttributes = AttributesAt(cluster);
+                var size = glyphAttributes?.FontSize ?? fontSize;
+                var scale = size / runFont.UnitsPerEm;
+                items.Add(new ShapedItem(blank ?? runFont.GetGlyphByIndex(glyph.GlyphIndex), text[cluster],
+                    cluster, -glyph.YAdvance * scale, -glyph.YOffset * scale, glyph.XOffset * scale,
+                    glyphAttributes, runFont, size, true));
+            }
+        }
+
+        void AddCombined(ShapingOptions options, IFont runFont, Glyph blank, int start, int end)
+        {
+            var shaped = TextShaper.Shape(runFont, text, start, end, options);
+            var size = AttributesAt(start)?.FontSize ?? fontSize;
+            var width = shaped.Sum(glyph => glyph.XAdvance) * size / runFont.UnitsPerEm;
+            var fitted = width > size ? size * size / width : size;
+            var scale = fitted / runFont.UnitsPerEm;
+            var baseline = (size + (runFont.LineAscent - runFont.LineDescent) * scale) / 2;
+            double pen = -Math.Min(width, size) / 2;
+            for (var k = 0; k < shaped.Length; k++)
+            {
+                var glyph = shaped[k];
+                var cluster = start + glyph.Cluster;
+                items.Add(new ShapedItem(blank ?? runFont.GetGlyphByIndex(glyph.GlyphIndex), text[cluster], cluster,
+                    k == 0 ? size : 0, baseline - glyph.YOffset * scale - (k == 0 ? 0 : size),
+                    pen + glyph.XOffset * scale, AttributesAt(cluster), runFont, fitted, true));
+                pen += glyph.XAdvance * scale;
+            }
+        }
 
         TextAttributes AttributesAt(int index)
         {
@@ -3697,6 +3899,121 @@ public class TextLayout : DisposableObject
             or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark;
     }
 
+    private bool StandsUpright(IFont font, int codepoint)
+    {
+        var orientation = VerticalOrientations.Of(codepoint);
+        if (orientation != VerticalOrientation.TransformedOrRotated)
+        {
+            return orientation != VerticalOrientation.Rotated;
+        }
+
+        if (!_verticalForms.TryGetValue((font, codepoint), out var has))
+        {
+            var character = char.ConvertFromUtf32(codepoint);
+            var down = TextShaper.Shape(font, character, new ShapingOptions(vertical: true));
+            var across = TextShaper.Shape(font, character, ShapingOptions.Default);
+            has = down.Length == 1 && across.Length == 1 && down[0].GlyphIndex != across[0].GlyphIndex;
+            _verticalForms[(font, codepoint)] = has;
+        }
+
+        return has;
+    }
+
+    private static IEnumerable<(int Start, int End, bool Upright, bool Combined)> OrientationRuns(string text, int start,
+        int end, Func<int, bool> standsUpright)
+    {
+        var runStart = start;
+        var upright = false;
+        var combined = false;
+        var index = start;
+        while (index < end)
+        {
+            var codepoint = char.IsHighSurrogate(text[index]) && index + 1 < end && char.IsLowSurrogate(text[index + 1])
+                ? char.ConvertToUtf32(text[index], text[index + 1])
+                : text[index];
+            var next = index + (codepoint > 0xFFFF ? 2 : 1);
+            var digits = CombinedDigits(text, index, end);
+            if (index > start && digits == 0 && JoinsPrevious(codepoint))
+            {
+                index = next;
+                continue;
+            }
+
+            var isCombined = digits > 0;
+            var isUpright = isCombined || standsUpright(codepoint);
+            if (index > runStart && (isUpright != upright || isCombined || combined))
+            {
+                yield return (runStart, index, upright, combined);
+                runStart = index;
+            }
+
+            upright = isUpright;
+            combined = isCombined;
+            index = isCombined ? index + digits : next;
+        }
+
+        if (end > runStart)
+        {
+            yield return (runStart, end, upright, combined);
+        }
+    }
+
+    private static int CombinedDigits(string text, int index, int end)
+    {
+        if (!IsAsciiDigit(text[index]) || (index > 0 && IsAsciiDigit(text[index - 1])))
+        {
+            return 0;
+        }
+
+        var stop = index;
+        while (stop < text.Length && IsAsciiDigit(text[stop]))
+        {
+            stop++;
+        }
+
+        if (stop - index > 2 || stop > end || !BesideVerticalText(text, index - 1, -1) || !BesideVerticalText(text, stop, 1))
+        {
+            return 0;
+        }
+
+        return stop - index;
+    }
+
+    private static bool BesideVerticalText(string text, int index, int step)
+    {
+        while (index >= 0 && index < text.Length && text[index] == ' ')
+        {
+            index += step;
+        }
+
+        if (index < 0 || index >= text.Length || text[index] == '\n')
+        {
+            return true;
+        }
+
+        int codepoint = text[index];
+        if (step < 0 && char.IsLowSurrogate(text[index]) && index > 0 && char.IsHighSurrogate(text[index - 1]))
+        {
+            codepoint = char.ConvertToUtf32(text[index - 1], text[index]);
+        }
+        else if (step > 0 && char.IsHighSurrogate(text[index]) && index + 1 < text.Length
+                 && char.IsLowSurrogate(text[index + 1]))
+        {
+            codepoint = char.ConvertToUtf32(text[index], text[index + 1]);
+        }
+
+        return VerticalOrientations.Of(codepoint) != VerticalOrientation.Rotated;
+    }
+
+    private static bool IsAsciiDigit(char symbol) => symbol is >= '0' and <= '9';
+
+    private static RectangleF CellRect(IFont font, double fontSize, double pen, double advance, double glyphBase)
+    {
+        var scale = fontSize / font.UnitsPerEm;
+        return new RectangleF((float)pen, (float)(glyphBase - font.LineAscent * scale), (float)advance,
+            (float)((font.LineAscent + font.LineDescent) * scale));
+    }
+
     private static bool IsSpaceOrControl(int codepoint)
     {
         return CharUnicodeInfo.GetUnicodeCategory(codepoint) is UnicodeCategory.SpaceSeparator
@@ -3745,15 +4062,35 @@ public class TextLayout : DisposableObject
         attributes?.Synthesis is { } synthesis && (synthesis & FontSynthesis.Style) != 0;
 
     private static double Baseline(GlyphWordData word) =>
-        word.Rect.Bottom + word.Glyph.BoundingRectangle.Y * word.FontSize / word.Font.UnitsPerEm;
+        DrawnRect(word).Bottom + word.Glyph.BoundingRectangle.Y * word.FontSize / word.Font.UnitsPerEm;
+
+    private static RectangleF DrawnRect(GlyphWordData word) => word.Sideways
+        ? new RectangleF(word.Rect.Right, word.Rect.Top, word.Rect.Height, word.Rect.Width)
+        : word.Rect;
+
+    private static double Pen(GlyphWordData word) => word.Upright || word.Sideways
+        ? DrawnRect(word).X - word.Font.GetLeftSideBearing(word.Glyph.Index) * word.FontSize / word.Font.UnitsPerEm
+        : word.PenX + word.OffsetX;
+
+    private static RectangleF DrawnGlyphRect(GlyphWordData word, IFont font, Glyph glyph, double scale)
+    {
+        var baseline = Baseline(word);
+        var rect = CalculateGlyphPosition(font, glyph, Pen(word), baseline, scale);
+        if (word.Upright)
+        {
+            rect.Y += (float)(baseline - Math.Round(baseline));
+        }
+
+        return rect;
+    }
 
     private static double InkRight(GlyphWordData word) =>
-        IsSlanted(word.Attributes)
+        IsSlanted(word.Attributes) && !word.Sideways && !word.Upright
             ? word.Rect.Right + Math.Max(0, Baseline(word) - word.Rect.Top) * FontSynthesisRules.Slant
             : word.Rect.Right;
 
     private static double InkLeft(GlyphWordData word) =>
-        IsSlanted(word.Attributes)
+        IsSlanted(word.Attributes) && !word.Sideways && !word.Upright
             ? word.Rect.Left - Math.Max(0, word.Rect.Bottom - Baseline(word)) * FontSynthesisRules.Slant
             : word.Rect.Left;
 
@@ -3773,8 +4110,9 @@ public class TextLayout : DisposableObject
     private readonly struct ShapedItem
     {
         public ShapedItem(Glyph glyph, char symbol, int cluster, double advance, double offsetX, double offsetY,
-            TextAttributes attributes, IFont font, double fontSize)
+            TextAttributes attributes, IFont font, double fontSize, bool upright = false)
         {
+            Upright = upright;
             Font = font;
             Glyph = glyph;
             Symbol = symbol;
@@ -3803,6 +4141,8 @@ public class TextLayout : DisposableObject
         public double OffsetY { get; }
 
         public TextAttributes Attributes { get; }
+
+        public bool Upright { get; }
     }
 
     private static RectangleF CalculateGlyphPosition(

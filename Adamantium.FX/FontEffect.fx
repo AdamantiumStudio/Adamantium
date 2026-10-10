@@ -425,25 +425,24 @@ PSInput ExpandGlyphCorner(FontItem item, int corner)
     float2 cornerCoord = TextureCornerCoords[corner];
     float2 size = cornerCoord * item.Destination.zw;
     size.x += SlantShift(item.Synthesis, cornerCoord.y, item.Destination.w);
-    float2 position = size - origin;
-
-    [flatten]
-    if (item.Rotation != 0.0)
-    {
-        vertex.Position.x = item.Destination.x + (position.x * rotation.x) - (position.y * rotation.y);
-        vertex.Position.y = item.Destination.y + (position.x * rotation.y) + (position.y * rotation.x);
-        vertex.Position.xy += origin;
-    }
-    else
-    {
-        vertex.Position.xy = item.Destination.xy + size;
-    }
+    float2 position = item.Destination.xy + size;
 
     float2 paintPoint = float2(0.0, 0.0);
     if (item.Paint.x > 0.5)
     {
-        vertex.Position.xy = PaintCorner(item.Paint.x, cornerCoord, item.Destination, paintPoint);
+        position = PaintCorner(item.Paint.x, cornerCoord, item.Destination, paintPoint);
     }
+
+    // Turned about Destination.xy + Origin, a color glyph's quad as well.
+    [flatten]
+    if (item.Rotation != 0.0)
+    {
+        float2 pivot = item.Destination.xy + origin;
+        float2 arm = position - pivot;
+        position = pivot + float2(arm.x * rotation.x - arm.y * rotation.y, arm.x * rotation.y + arm.y * rotation.x);
+    }
+
+    vertex.Position.xy = position;
 
     vertex.PaintProgram = item.Paint.x;
     vertex.PaintPoint = paintPoint;
@@ -712,7 +711,8 @@ struct GlyphData
                         // baseline, xy, and pixels per font unit, zw); .y = the element's opacity raised to 2.2, for the
                         // glyph's own colors
     float4 SecondSource; // a glyph between two key instances: the second key's cell over the same quad, or zero
-    float4 Second;      // .x = that cell's layer; .y = its share
+    float4 Second;      // .x = that cell's layer; .y = its share; .z = the glyph's turn, radians clockwise about
+                        // LocalRect.xy
 };
 
 [shader("vertex")]
@@ -730,6 +730,13 @@ PSInput FontBatchInstancedVS(uint vertexId : SV_VertexID, uint instanceId : SV_I
     if (g.Paint.x > 0.5)
     {
         localPos = PaintCorner(g.Paint.x, corner, g.LocalRect, paintPoint);
+    }
+    // A glyph turned in vertical text: Second.z radians clockwise about LocalRect.xy.
+    if (g.Second.z != 0.0)
+    {
+        float2 turn = float2(cos(g.Second.z), sin(g.Second.z));
+        float2 arm = localPos - g.LocalRect.xy;
+        localPos = g.LocalRect.xy + float2(arm.x * turn.x - arm.y * turn.y, arm.x * turn.y + arm.y * turn.x);
     }
     // Node-local -> world via the instance's transform-table matrix (slot 0 = identity for legacy world bakes).
     NodeSlot* nodes = (NodeSlot*)TransformsAddress;

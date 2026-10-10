@@ -42,6 +42,9 @@
         <Content Include="..\Adamantium.FontTests\TTFFonts\PlayfairDisplay-Regular.ttf" Link="Fonts\PlayfairDisplay-Regular.ttf">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </Content>
+        <Content Include="..\Adamantium.FontTests\OTFFonts\FontCollections\NotoSansCJK-Regular.ttc" Link="Fonts\NotoSansCJK-Regular.ttc">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
     </ItemGroup>
 
 </Project>
