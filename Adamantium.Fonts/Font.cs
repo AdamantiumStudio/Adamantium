@@ -30,6 +30,7 @@ namespace Adamantium.Fonts
         private bool trueTypeOutlines;
         private short defaultVerticalOriginY;
         private Dictionary<uint, short> verticalOrigins;
+        private Dictionary<string, uint[]> justificationExtenders;
         private float[] coordinates;
         private int[] variedAdvances;
         private readonly ConcurrentDictionary<ulong, ColorLayer[]> colorLayerCache = new();
@@ -755,6 +756,17 @@ namespace Adamantium.Fonts
             var advance = LineAscent + LineDescent;
             return (short)(top + ((advance - bounds.Height) >> 1));
         }
+
+        public IReadOnlyList<uint> GetJustificationExtenders(string scriptTag)
+        {
+            var source = baseFont ?? this;
+            return source.justificationExtenders != null
+                   && source.justificationExtenders.TryGetValue(scriptTag, out var glyphs)
+                ? glyphs
+                : [];
+        }
+
+        internal void SetJustificationExtenders(Dictionary<string, uint[]> extenders) => justificationExtenders = extenders;
 
         internal void SetVerticalOrigins(short defaultY, Dictionary<uint, short> origins)
         {

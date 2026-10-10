@@ -7,6 +7,14 @@ All packages share one version.
 
 ### Added
 
+- Kashida justification. A justified line of Arabic and other joined scripts whose spaces are at their maximum
+  stretches its words with kashidas (`TextLayout.Kashidas`, on by default): in each word, a stretched extender
+  between two joined letters, after a seen or a sad where the word has one, else nearest its end, up to an em. The
+  paragraph composer counts that stretch. The extender is the glyph the font's justification table gives the script
+  (`JSTF`, read for its extender glyphs: `IFont.GetJustificationExtenders`), else its tatweel (U+0640), or the
+  lajanyalan for N'Ko; a kashida joins only two letters that follow one another in the text.
+  `CursiveScripts.JoinsNext` and `Extender` tell whether a letter joins the next and what stretches its script.
+
 - Where the last line of a justified paragraph and a justified line of a single word stand, as InDesign sets them:
   `TextLayout.LastLineAlignment` (at the start by default, centered, at the end, or justified) and
   `SingleWordJustification` (at the start by default, centered, at the end, or justified, its letters spread across
