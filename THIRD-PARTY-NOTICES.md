@@ -113,15 +113,16 @@ PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
 ## Unicode Character Database
 
 **Where:** `Adamantium.Fonts/Data/` — `Scripts.ucd`, `CombiningClass.ucd`, `Decompositions.ucd`,
-`ExtendedPictographic.ucd`, `GraphemeBreak.ucd`, `WordBreak.ucd`, `IndicConjunctBreak.ucd`, `LineBreak.ucd`,
-`EastAsianWidth.ucd`, `BidiClass.ucd`, `BidiBrackets.ucd`, `BidiMirroring.ucd`, `JoiningType.ucd` and
-`VerticalOrientation.ucd`, embedded in `Adamantium.Fonts`;
+`ExtendedPictographic.ucd`, `EmojiPresentation.ucd`, `GraphemeBreak.ucd`, `WordBreak.ucd`, `IndicConjunctBreak.ucd`,
+`LineBreak.ucd`, `EastAsianWidth.ucd`, `BidiClass.ucd`, `BidiBrackets.ucd`, `BidiMirroring.ucd`, `JoiningType.ucd`
+and `VerticalOrientation.ucd`, embedded in `Adamantium.Fonts`;
 and, for the tests only, `GraphemeBreakTest.txt`, `WordBreakTest.txt`, `LineBreakTest.txt`, `BidiTest.txt` and
 `BidiCharacterTest.txt` in `Tests/Adamantium.FontTests/Unicode/`.
 
-Data, not code: the script, canonical combining class, canonical decomposition, Extended_Pictographic, grapheme, word
-and line break, Indic_Conjunct_Break, East_Asian_Width, Bidi_Class, Bidi_Paired_Bracket, Bidi_Mirroring_Glyph,
-Joining_Type, Joining_Group and Vertical_Orientation properties of Unicode 16.0, cut down from the UCD files
+Data, not code: the script, canonical combining class, canonical decomposition, Extended_Pictographic,
+Emoji_Presentation, grapheme, word and line break, Indic_Conjunct_Break, East_Asian_Width, Bidi_Class,
+Bidi_Paired_Bracket, Bidi_Mirroring_Glyph, Joining_Type, Joining_Group and Vertical_Orientation properties of
+Unicode 16.0, cut down from the UCD files
 (`Scripts.txt`, `DerivedCombiningClass.txt`, `UnicodeData.txt`, `DerivedNormalizationProps.txt`, `emoji-data.txt`,
 `GraphemeBreakProperty.txt`, `WordBreakProperty.txt`, `DerivedCoreProperties.txt`, `LineBreak.txt`,
 `EastAsianWidth.txt`, `DerivedBidiClass.txt`, `BidiBrackets.txt`, `BidiMirroring.txt`, `ArabicShaping.txt`,
