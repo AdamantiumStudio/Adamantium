@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Adamantium.Mathematics;
 
 namespace Adamantium.Graphics.Fonts;
@@ -10,6 +11,13 @@ public readonly struct TextAdornment
         Kind = kind;
         Rect = rect;
         Color = color;
+        Dashes = null;
+    }
+
+    public TextAdornment(TextAdornmentKind kind, RectangleF rect, Color? color, IReadOnlyList<double> dashes)
+        : this(kind, rect, color)
+    {
+        Dashes = dashes;
     }
 
     public TextAdornmentKind Kind { get; }
@@ -20,4 +28,7 @@ public readonly struct TextAdornment
 
     /// <summary>Null draws a line in the color of the text it runs under.</summary>
     public Color? Color { get; }
+
+    /// <summary>The lengths of a line's dashes and gaps, in turn, along its length; null for a solid line.</summary>
+    public IReadOnlyList<double> Dashes { get; }
 }

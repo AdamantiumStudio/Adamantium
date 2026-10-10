@@ -63,6 +63,10 @@ public sealed class TextAttributes
     /// <summary>The color of the lines; unset draws them in the text's color.</summary>
     public Color? DecorationColor { get; init; }
 
+    /// <summary>Lines each with its own place, thickness, offset, color and dashes, drawn besides
+    /// <see cref="Decorations"/>.</summary>
+    public IReadOnlyList<TextDecorationLine> DecorationLines { get; init; }
+
     /// <summary>These attributes with every field <paramref name="over"/> sets taken from it.</summary>
     public TextAttributes With(TextAttributes over)
     {
@@ -87,6 +91,7 @@ public sealed class TextAttributes
             Background = over.Background ?? Background,
             Decorations = over.Decorations ?? Decorations,
             DecorationColor = over.DecorationColor ?? DecorationColor,
+            DecorationLines = over.DecorationLines ?? DecorationLines,
         };
     }
 

@@ -7,4 +7,8 @@ public enum TextAdornmentKind
     Underline,
     Strikethrough,
     Squiggle,
+    Overline,
+
+    /// <summary>A line on the baseline.</summary>
+    Baseline,
 }
