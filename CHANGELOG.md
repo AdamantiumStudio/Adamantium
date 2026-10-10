@@ -7,6 +7,15 @@ All packages share one version.
 
 ### Added
 
+- Glyph scaling and justification alternates, as InDesign justifies. `TextLayout.GlyphScaling` (a `SpacingRange` of
+  the glyphs' own width) draws glyphs at their desired width, scaled about their origins, marks with their letters.
+  A justified line that cannot fill its width within its spacing first takes the wider glyphs its font offers for
+  justification (`jalt`, as the wide letters of Hebrew; `JustificationAlternates`, on by default), then widens or
+  narrows its glyphs within the range, and only then stretches its spaces further. `GlyphWordData.HorizontalScale`
+  tells each glyph's width; hyphens and the trimming ellipsis are scaled with the text. Text broken a line at a time
+  and justified now also takes a word, or a hyphenated part of one, it fits by squeezing its spaces, letters and
+  glyphs within their minimums, as the paragraph composer did. `jalt=0` among a range's features keeps its glyphs.
+
 - Word and letter spacing ranges and tracking, as InDesign's justification and character settings have them.
   `TextLayout.WordSpacing` and `LetterSpacing` (`SpacingRange`: minimum, desired and maximum shares of the font's
   space; `"80% 100% 133%"` in markup) set spaces and letter spacing at their desired widths. A justified line
