@@ -518,6 +518,9 @@ namespace Adamantium.Fonts.Parsers
                     case TableNames.VORG:
                         ReadVerticalOriginTable(tableEntry);
                         break;
+                    case TableNames.JSTF:
+                        ReadJustificationTable(tableEntry);
+                        break;
                     case TableNames.OS2:
                         ReadOS2Table(tableEntry);
                         break;
@@ -1056,6 +1059,52 @@ namespace Adamantium.Fonts.Parsers
             }
 
             CurrentFont.SetVerticalOrigins(defaultY, origins);
+        }
+
+        protected virtual void ReadJustificationTable(TableEntry entry)
+        {
+            FontReader.Position = entry.Offset;
+            FontReader.ReadUInt16();
+            FontReader.ReadUInt16();
+            var scriptCount = FontReader.ReadUInt16();
+            var scripts = new List<(string Tag, ushort Offset)>(scriptCount);
+            for (var i = 0; i < scriptCount; i++)
+            {
+                scripts.Add((FontReader.ReadString(4), FontReader.ReadUInt16()));
+            }
+
+            var extenders = new Dictionary<string, uint[]>();
+            foreach (var (tag, offset) in scripts)
+            {
+                if (offset == 0 || offset + 2 > entry.Length)
+                {
+                    continue;
+                }
+
+                FontReader.Position = entry.Offset + offset;
+                var extenderOffset = FontReader.ReadUInt16();
+                if (extenderOffset == 0 || offset + extenderOffset + 2 > entry.Length)
+                {
+                    continue;
+                }
+
+                FontReader.Position = entry.Offset + offset + extenderOffset;
+                var count = FontReader.ReadUInt16();
+                if (offset + extenderOffset + 2 + count * 2 > entry.Length)
+                {
+                    continue;
+                }
+
+                var glyphs = new uint[count];
+                for (var i = 0; i < glyphs.Length; i++)
+                {
+                    glyphs[i] = FontReader.ReadUInt16();
+                }
+
+                extenders[tag] = glyphs;
+            }
+
+            CurrentFont.SetJustificationExtenders(extenders);
         }
 
         protected virtual void ReadOS2Table(TableEntry entry)

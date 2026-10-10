@@ -138,6 +138,12 @@ public class TextLayout : DisposableObject
     /// offers for justification ('jalt', as the wide letters of Hebrew), before it scales glyphs. True by default.</summary>
     public bool JustificationAlternates { get; set; } = true;
 
+    /// <summary>Whether a justified line of Arabic and other joined scripts stretches its words with kashidas, once
+    /// its spaces are at their maximum: a stretched extender between two joined letters of each word, after a seen
+    /// or a sad where the word has one, else nearest its end, up to an em each. The extender is the font's
+    /// justification glyph ('JSTF'), else its tatweel (U+0640). True by default.</summary>
+    public bool Kashidas { get; set; } = true;
+
     /// <summary>Where the last line of a justified paragraph stands, as InDesign sets it: at its start (the default; on
     /// the right in a right-to-left paragraph), centered, at its end, or justified too
     /// (<see cref="TextRenderingParameters.JustifyLastLine"/> justifies it as well).</summary>
@@ -212,6 +218,7 @@ public class TextLayout : DisposableObject
     private bool _laidOutJustificationAlternates;
     private HorizontalTextAlignment _laidOutLastLineAlignment;
     private HorizontalTextAlignment _laidOutSingleWordJustification;
+    private bool _laidOutKashidas;
     private double _laidOutTracking;
     private double _columnsRight;
     private RectangleF[] _laidOutFrames = [];
@@ -312,7 +319,7 @@ public class TextLayout : DisposableObject
                && _laidOutLetterSpacing.Equals(LetterSpacing) && _laidOutTracking.Equals(Tracking)
                && _laidOutGlyphScaling.Equals(GlyphScaling) && _laidOutJustificationAlternates == JustificationAlternates
                && _laidOutLastLineAlignment == LastLineAlignment
-               && _laidOutSingleWordJustification == SingleWordJustification
+               && _laidOutSingleWordJustification == SingleWordJustification && _laidOutKashidas == Kashidas
                && _laidOutFrames.SequenceEqual(Frames ?? []) && _laidOutExclusions.SequenceEqual(Exclusions ?? []);
     }
 
@@ -450,6 +457,7 @@ public class TextLayout : DisposableObject
         _laidOutJustificationAlternates = JustificationAlternates;
         _laidOutLastLineAlignment = LastLineAlignment;
         _laidOutSingleWordJustification = SingleWordJustification;
+        _laidOutKashidas = Kashidas;
         var vertical = WritingMode == WritingMode.VerticalRightToLeft;
         var frames = Frames;
         var exclusions = Exclusions;
@@ -1201,8 +1209,16 @@ public class TextLayout : DisposableObject
                 letters -= lastLetter;
             }
 
+            var joins = false;
+            for (var k = from; k < to - 1 && justified && Kashidas && !joins; k++)
+            {
+                joins = items[k + 1].Cluster > items[k].Cluster
+                        && KashidaAt(items[k].Cluster, items[k + 1].Cluster, items[k].Font, out _) != null;
+            }
+
             var stretch = letters * (LetterSpacing.Maximum - LetterSpacing.Desired)
-                          + natural * (GlyphScaling.Maximum - GlyphScaling.Desired);
+                          + natural * (GlyphScaling.Maximum - GlyphScaling.Desired)
+                          + (joins ? items[from].FontSize : 0);
             var shrink = letters * (LetterSpacing.Desired - LetterSpacing.Minimum)
                          + natural * (GlyphScaling.Desired - GlyphScaling.Minimum);
             if (to - from < 2 || (stretch == 0 && shrink == 0))
@@ -1789,6 +1805,7 @@ public class TextLayout : DisposableObject
                 case HorizontalTextAlignment.Justify:
                 {
                     var maxLines = glyphsData.Max(x => x.LineIndex);
+                    List<(GlyphWordData After, GlyphWordData Extender)> extenders = [];
                     var firstClusters = new int[maxLines + 2];
                     Array.Fill(firstClusters, text.Length);
                     foreach (var glyph in glyphsData)
@@ -1868,21 +1885,30 @@ public class TextLayout : DisposableObject
 
                         double wordShare;
                         double letterShare;
+                        double kashidaShare = 0;
                         double alternateShare = 0;
                         double scaleShare;
                         var alternates = new Glyph[clusters.Count];
+                        var kashidas = Kashidas && stretches && extra > 0
+                            ? KashidaPoints(clusters, fromCluster, lastInkCluster)
+                            : new Glyph[clusters.Count];
+                        var kashidaRoom = kashidas.Select((glyph, c) => glyph != null ? clusters[c][0].FontSize : 0).Sum();
                         if (extra > 0)
                         {
                             wordShare = Math.Min(extra, wordStretch);
                             letterShare = Math.Min(extra - wordShare, letterStretch);
                             var rest = extra - wordShare - letterShare;
+                            kashidaShare = Math.Min(rest, kashidaRoom);
+                            rest -= kashidaShare;
                             if (JustificationAlternates && rest > 0 && stretches)
                             {
                                 alternateShare = ChooseAlternates(clusters, fromCluster, lastInkCluster, rest, alternates);
                             }
 
                             scaleShare = Math.Min(rest - alternateShare, scaleStretch);
-                            wordShare = spaceUnits > 0 ? extra - letterShare - alternateShare - scaleShare : wordShare;
+                            wordShare = spaceUnits > 0
+                                ? extra - letterShare - kashidaShare - alternateShare - scaleShare
+                                : wordShare;
                         }
                         else
                         {
@@ -1897,7 +1923,7 @@ public class TextLayout : DisposableObject
                         double offset = 0;
                         if (singleWord)
                         {
-                            var rest = extra - wordShare - letterShare - alternateShare - scaleShare;
+                            var rest = extra - wordShare - letterShare - kashidaShare - alternateShare - scaleShare;
                             if (SingleWordJustification == HorizontalTextAlignment.Justify && letterUnits > 0)
                             {
                                 letterShare += rest;
@@ -1913,8 +1939,8 @@ public class TextLayout : DisposableObject
                             }
                         }
 
-                        var unspread = wordShare == 0 && letterShare == 0 && alternateShare == 0 && scaleShare == 0
-                                       && offset == 0;
+                        var unspread = wordShare == 0 && letterShare == 0 && kashidaShare == 0 && alternateShare == 0
+                                       && scaleShare == 0 && offset == 0;
                         if (!hasInk || (!singleWord && (unspread || (extra > 0 && !stretches))))
                         {
                             var placement = hasInk && extra > 0 && !stretches && lastTab < 0
@@ -1964,6 +1990,16 @@ public class TextLayout : DisposableObject
                                 shift += Scale(clusters[c], scaleShare * natural[c] / naturalWidth);
                             }
 
+                            if (kashidas[c] != null && kashidaShare > 0)
+                            {
+                                var letter = clusters[c][0];
+                                var stretch = kashidaShare * letter.FontSize / kashidaRoom;
+                                var pen = clusters[c].Max(glyph => glyph.PenX + glyph.Advance);
+                                extenders.Add((clusters[c][^1], Extender(letter, kashidas[c], pen, stretch)));
+                                letter.Advance += stretch;
+                                shift += stretch;
+                            }
+
                             var widening = spaces[c] > 0 ? wordShare * spaces[c] / spaceUnits
                                 : letters[c] > 0 ? Math.Max(letterShare * letters[c] / letterUnits, -clusters[c].Sum(glyph => glyph.Advance))
                                 : 0;
@@ -1980,6 +2016,23 @@ public class TextLayout : DisposableObject
 
                             shift += widening;
                         }
+                    }
+
+                    if (extenders.Count > 0)
+                    {
+                        var followers = extenders.ToDictionary(pair => pair.After, pair => pair.Extender);
+                        var laid = new List<GlyphWordData>(glyphsData.Count + followers.Count);
+                        foreach (var glyph in glyphsData)
+                        {
+                            laid.Add(glyph);
+                            if (followers.TryGetValue(glyph, out var extender))
+                            {
+                                laid.Add(extender);
+                            }
+                        }
+
+                        glyphsData.Clear();
+                        glyphsData.AddRange(laid);
                     }
                 }
                 break;
@@ -2134,6 +2187,91 @@ public class TextLayout : DisposableObject
 
             return groups.OrderBy(group => group.Min(glyph => glyph.PenX))
                 .ThenBy(group => group.Max(glyph => glyph.PenX + glyph.Advance)).ToList();
+        }
+
+        Glyph[] KashidaPoints(List<GlyphWordData[]> clusters, int from, int to)
+        {
+            var points = new Glyph[clusters.Count];
+            var starts = clusters.Select(cluster => cluster[0].PositionInString).Where(position => position >= 0)
+                .Distinct().OrderBy(position => position).ToArray();
+            var c = from;
+            while (c <= to)
+            {
+                while (c <= to && !IsInk(clusters[c]))
+                {
+                    c++;
+                }
+
+                var best = -1;
+                Glyph bestGlyph = null;
+                var bestRank = (Priority: 0, Position: -1);
+                for (; c < to && IsInk(clusters[c + 1]); c++)
+                {
+                    var later = Math.Max(clusters[c][0].PositionInString, clusters[c + 1][0].PositionInString);
+                    var earlier = Math.Min(clusters[c][0].PositionInString, clusters[c + 1][0].PositionInString);
+                    if (earlier < 0)
+                    {
+                        continue;
+                    }
+
+                    var next = Array.BinarySearch(starts, earlier);
+                    if (next < 0 || next + 1 >= starts.Length || starts[next + 1] != later)
+                    {
+                        continue;
+                    }
+
+                    var glyph = KashidaAt(earlier, later, clusters[c][0].Font, out var letter);
+                    if (glyph == null)
+                    {
+                        continue;
+                    }
+
+                    var rank = (Priority: CodepointAt(text, letter) is >= 0x0633 and <= 0x0636 ? 1 : 0, Position: later);
+                    if (rank.CompareTo(bestRank) > 0)
+                    {
+                        best = c;
+                        bestGlyph = glyph;
+                        bestRank = rank;
+                    }
+                }
+
+                if (best >= 0)
+                {
+                    points[best] = bestGlyph;
+                }
+
+                c++;
+            }
+
+            return points;
+        }
+
+        Glyph KashidaAt(int earlier, int later, IFont font, out int letter)
+        {
+            letter = later - 1;
+            while (letter > earlier)
+            {
+                if (char.IsLowSurrogate(text[letter]) && char.IsHighSurrogate(text[letter - 1]))
+                {
+                    letter--;
+                }
+
+                if (letter <= earlier
+                    || CharUnicodeInfo.GetUnicodeCategory(CodepointAt(text, letter)) != UnicodeCategory.NonSpacingMark)
+                {
+                    break;
+                }
+
+                letter--;
+            }
+
+            if (!CursiveScripts.JoinsNext(text, letter))
+            {
+                return null;
+            }
+
+            var extender = CursiveScripts.Extender(CodepointAt(text, letter));
+            return extender == 0 ? null : ExtenderGlyph(font, extender);
         }
 
         bool IsOneWord(List<GlyphWordData[]> clusters, int lastInkCluster)
@@ -4397,6 +4535,40 @@ public class TextLayout : DisposableObject
     }
 
     private static bool IsAsciiDigit(char symbol) => symbol is >= '0' and <= '9';
+
+    private static Glyph ExtenderGlyph(IFont font, int codepoint)
+    {
+        foreach (var extender in codepoint == 0x0640 ? font.GetJustificationExtenders("arab") : [])
+        {
+            if (font.GetAdvanceWidth(extender) > 0)
+            {
+                return font.GetGlyphByIndex(extender);
+            }
+        }
+
+        return font.TryGetGlyphIndex(codepoint, out var glyph) && font.GetAdvanceWidth(glyph) > 0
+            ? font.GetGlyphByIndex(glyph)
+            : null;
+    }
+
+    private static GlyphWordData Extender(GlyphWordData letter, Glyph glyph, double pen, double width)
+    {
+        var scale = letter.FontSize / letter.Font.UnitsPerEm;
+        var ink = glyph.BoundingRectangle.Width * scale;
+        var natural = ink > 0 ? ink : letter.Font.GetAdvanceWidth(glyph.Index) * scale;
+        var widthScale = width / natural;
+        var baseline = Baseline(letter);
+        var extender = new GlyphWordData(glyph, 'ـ', default, -1, letter.LineIndex)
+        {
+            PenX = ink > 0 ? pen - letter.Font.GetLeftSideBearing(glyph.Index) * scale * widthScale : pen,
+            Font = letter.Font,
+            FontSize = letter.FontSize,
+            Attributes = letter.Attributes,
+            HorizontalScale = widthScale,
+        };
+        Relay(extender, baseline);
+        return extender;
+    }
 
     private static double FontAdvance(GlyphWordData glyph) =>
         glyph.Font.GetAdvanceWidth(glyph.Glyph.Index) * glyph.FontSize / glyph.Font.UnitsPerEm;

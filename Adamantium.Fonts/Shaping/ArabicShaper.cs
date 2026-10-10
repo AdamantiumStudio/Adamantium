@@ -190,6 +190,30 @@ internal static class ArabicShaper
         }
     }
 
+    public static bool JoinsNext(string text, int index)
+    {
+        if (JoiningTypeAt(text, index) is not (JoinD or JoinL))
+        {
+            return false;
+        }
+
+        var next = index + (char.IsHighSurrogate(text[index]) && index + 1 < text.Length ? 2 : 1);
+        while (next < text.Length && JoiningTypeAt(text, next) == JoinT)
+        {
+            next += char.IsHighSurrogate(text[next]) && next + 1 < text.Length ? 2 : 1;
+        }
+
+        return next < text.Length && JoiningTypeAt(text, next) is JoinD or JoinR or Alaph or DalathRish;
+    }
+
+    private static byte JoiningTypeAt(string text, int index)
+    {
+        var codepoint = char.IsHighSurrogate(text[index]) && index + 1 < text.Length && char.IsLowSurrogate(text[index + 1])
+            ? char.ConvertToUtf32(text[index], text[index + 1])
+            : text[index];
+        return JoiningType(codepoint, UnicodeData.GetCategory(codepoint));
+    }
+
     private static byte JoiningType(int codepoint, UnicodeCategory category)
     {
         var type = JoiningTypes.Value[codepoint];

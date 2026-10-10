@@ -71,6 +71,10 @@ namespace Adamantium.Fonts
         /// glyph centered in the line's height.</summary>
         public short GetVerticalOriginY(uint glyphIndex);
 
+        /// <summary>The glyphs the font's justification table ('JSTF') gives a script for stretching its words, as
+        /// Arabic's kashida, by OpenType script tag (<c>arab</c>); empty when it gives none.</summary>
+        public IReadOnlyList<uint> GetJustificationExtenders(string scriptTag);
+
         /// <summary>The axes this font varies along ('fvar'); empty for a font that does not vary.</summary>
         public IReadOnlyList<FontAxis> Axes { get; }
 
