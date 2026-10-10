@@ -416,8 +416,13 @@ public class TextLayout : DisposableObject
     public static long TailBytes;
     public static int ProcessCount;
 
+    /// <summary>Grows each time the text is laid out anew, so whoever keeps this layout can tell its glyphs changed when
+    /// its text and size did not: a new last-line alignment, or kashidas switched off.</summary>
+    public int Revision { get; private set; }
+
     public Size ProcessText(string text, double fontSize, TextRenderingParameters renderingParameters)
     {
+        Revision++;
         // Empty text clears the previous glyphs, or a recycled row keeps drawing its old text.
         if (string.IsNullOrEmpty(text))
         {
@@ -771,6 +776,7 @@ public class TextLayout : DisposableObject
                 var advances = leaderGlyphs.Select(g => glyph.Font.GetAdvanceWidth(g.Index) * glyphScale).ToArray();
                 var unit = advances.Sum();
                 var to = Math.Min(glyph.PenX + glyph.Advance, limit);
+                var shift = glyph.Attributes?.BaselineShift ?? 0;
                 if (unit <= 0)
                 {
                     continue;
@@ -781,13 +787,14 @@ public class TextLayout : DisposableObject
                     var pen = x;
                     for (var g = 0; g < leaderGlyphs.Length; g++)
                     {
-                        var rect = CalculateGlyphPosition(glyph.Font, leaderGlyphs[g], pen, glyph.Rect.Y - verticalShift,
-                            glyphScale);
+                        var rect = CalculateGlyphPosition(glyph.Font, leaderGlyphs[g], pen,
+                            glyph.Rect.Y - verticalShift - shift, glyphScale);
                         rect.Y += (float)verticalShift;
                         result.Add(new GlyphWordData(leaderGlyphs[g], leader[g], rect, -1, glyph.LineIndex)
                         {
                             PenX = pen,
                             Advance = advances[g],
+                            OffsetY = shift,
                             Attributes = glyph.Attributes,
                             Font = glyph.Font,
                             FontSize = glyph.FontSize,
@@ -818,8 +825,9 @@ public class TextLayout : DisposableObject
 
         List<GlyphWordData> DropCapGlyphs()
         {
-            var baseline = DropBaseline();
             var attributes = items[0].Attributes;
+            var shift = attributes?.BaselineShift ?? 0;
+            var baseline = DropBaseline() - shift;
             List<GlyphWordData> glyphs = [];
             double pen = slots != null ? frames[slots[0].Frame].Left + slots[0].Left : 0;
             foreach (var shaped in dropGlyphs)
@@ -833,7 +841,7 @@ public class TextLayout : DisposableObject
                     PenX = pen,
                     Advance = advance,
                     OffsetX = shaped.XOffset * dropScale,
-                    OffsetY = shaped.YOffset * dropScale,
+                    OffsetY = shaped.YOffset * dropScale + shift,
                     Attributes = attributes,
                     Font = dropFont,
                     FontSize = dropScale * dropFont.UnitsPerEm,
@@ -1631,12 +1639,14 @@ public class TextLayout : DisposableObject
             var hyphen = HyphenGlyph(last.Font);
             var hyphenScale = last.FontSize / last.Font.UnitsPerEm;
             var advance = last.Font.GetAdvanceWidth(hyphen.Index) * hyphenScale * GlyphScaling.Desired;
-            var rect = Widened(CalculateGlyphPosition(last.Font, hyphen, cursorPosition, height + baseLine, hyphenScale),
-                cursorPosition, GlyphScaling.Desired);
+            var shift = last.Attributes?.BaselineShift ?? 0;
+            var rect = Widened(CalculateGlyphPosition(last.Font, hyphen, cursorPosition, height + baseLine - shift,
+                hyphenScale), cursorPosition, GlyphScaling.Desired);
             glyphsData.Add(new GlyphWordData(hyphen, '-', rect, -1, lineIndex)
             {
                 PenX = cursorPosition,
                 Advance = advance,
+                OffsetY = shift,
                 Attributes = last.Attributes,
                 Font = last.Font,
                 FontSize = last.FontSize,
@@ -3130,12 +3140,15 @@ public class TextLayout : DisposableObject
 
             var lineColor = attributes.DecorationColor ?? attributes.Foreground;
             var vertical = _laidOutWritingMode == WritingMode.VerticalRightToLeft;
+            var shift = attributes.BaselineShift ?? 0;
             foreach (var segment in RangeSegments(run.Start, run.End))
             {
                 var left = (float)segment.Left;
                 var width = (float)(segment.Right - segment.Left);
-                var baseline = GetLine(segment.Line).Baseline;
-                var axis = LineTop(segment.Line) + LineMetric(_lineHeights, segment.Line) / 2;
+                var top = LineTop(segment.Line);
+                var baseline = Math.Round(top - _verticalShift + LineMetric(_lineBaselines, segment.Line) - shift)
+                               + _verticalShift;
+                var axis = top + LineMetric(_lineHeights, segment.Line) / 2 - shift;
                 var beside = axis - (attributes.FontSize ?? FontSize) / 2 - thickness;
                 var underlineTop = vertical ? beside - thickness : baseline - underline;
                 if (attributes.Background is { } background)
@@ -4254,7 +4267,8 @@ public class TextLayout : DisposableObject
                 var widthScale = IsBlank(text[cluster]) ? 1 : GlyphScaling.Desired;
                 items.Add(new ShapedItem(blank ?? runFont.GetGlyphByIndex(glyph.GlyphIndex), text[cluster],
                     cluster, Spaced(advance * widthScale, runFont, size, glyphAttributes, cluster, carries),
-                    glyph.XOffset * scale * widthScale, glyph.YOffset * scale, glyphAttributes, runFont, size,
+                    glyph.XOffset * scale * widthScale, glyph.YOffset * scale + (glyphAttributes?.BaselineShift ?? 0),
+                    glyphAttributes, runFont, size,
                     horizontalScale: widthScale));
             }
         }
@@ -4292,7 +4306,8 @@ public class TextLayout : DisposableObject
                 var carries = k == shaped.Length - 1 || shaped[k + 1].Cluster != glyph.Cluster;
                 items.Add(new ShapedItem(blank ?? runFont.GetGlyphByIndex(glyph.GlyphIndex), text[cluster],
                     cluster, Spaced(-glyph.YAdvance * scale, runFont, size, glyphAttributes, cluster, carries),
-                    -glyph.YOffset * scale, glyph.XOffset * scale, glyphAttributes, runFont, size, true));
+                    -glyph.YOffset * scale, glyph.XOffset * scale + (glyphAttributes?.BaselineShift ?? 0), glyphAttributes,
+                    runFont, size, true));
             }
         }
 
@@ -4309,9 +4324,11 @@ public class TextLayout : DisposableObject
             {
                 var glyph = shaped[k];
                 var cluster = start + glyph.Cluster;
+                var glyphAttributes = AttributesAt(cluster);
                 items.Add(new ShapedItem(blank ?? runFont.GetGlyphByIndex(glyph.GlyphIndex), text[cluster], cluster,
                     k == 0 ? size : 0, baseline - glyph.YOffset * scale - (k == 0 ? 0 : size),
-                    pen + glyph.XOffset * scale, AttributesAt(cluster), runFont, fitted, true));
+                    pen + glyph.XOffset * scale + (glyphAttributes?.BaselineShift ?? 0), glyphAttributes, runFont, fitted,
+                    true));
                 pen += glyph.XAdvance * scale;
             }
         }
