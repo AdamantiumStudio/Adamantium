@@ -32,6 +32,10 @@ public sealed class TextAttributes
     /// letters closer. Unset takes the layout's <see cref="TextLayout.Tracking"/>.</summary>
     public double? Tracking { get; init; }
 
+    /// <summary>How far the text is raised above its line's baseline, in the layout's units, as InDesign's baseline
+    /// shift; negative lowers it. Its size and the line's height stay as they are; its lines follow it.</summary>
+    public double? BaselineShift { get; init; }
+
     /// <summary>The font's palette color glyphs are drawn in ('CPAL', <see cref="IFont.ColorPalettes"/>); unset, or one
     /// the font lacks, draws them in its first.</summary>
     public int? ColorPalette { get; init; }
@@ -62,6 +66,7 @@ public sealed class TextAttributes
             FontSize = over.FontSize ?? FontSize,
             Synthesis = over.Synthesis ?? Synthesis,
             Tracking = over.Tracking ?? Tracking,
+            BaselineShift = over.BaselineShift ?? BaselineShift,
             ColorPalette = over.ColorPalette ?? ColorPalette,
             Foreground = over.Foreground ?? Foreground,
             Background = over.Background ?? Background,
@@ -71,12 +76,13 @@ public sealed class TextAttributes
     }
 
     /// <summary>Whether text with these attributes and with <paramref name="other"/> shapes alike: colors, lines and
-    /// sizes differ freely; a palette does not, as its color glyphs are drawn anew, and tracking does not, as it moves
-    /// them.</summary>
+    /// sizes differ freely; a palette does not, as its color glyphs are drawn anew, and tracking and baseline shift do
+    /// not, as they move them.</summary>
     public bool ShapesLike(TextAttributes other)
     {
         return Language == other.Language && ReferenceEquals(Font, other.Font) && Synthesis == other.Synthesis
                                           && ColorPalette == other.ColorPalette && Tracking == other.Tracking
+                                          && BaselineShift == other.BaselineShift
                                           && FeaturesEqual(Features, other.Features);
     }
 
