@@ -7,6 +7,10 @@ All packages share one version.
 
 ### Added
 
+- U+2028 LINE SEPARATOR in laid-out text ends the line but not the paragraph, as WPF's `LineBreak`: the paragraph
+  keeps its direction across it, a justified line ending in it is not stretched, it draws nothing, and the caret stands
+  at the end of one line and the start of the next.
+
 - Baseline shift, as InDesign's: `TextAttributes.BaselineShift` raises a range above its line's baseline (negative
   lowers it), its size and the line's height unchanged. Its underline, strikethrough and squiggle, the hyphens of its
   words, its tab leaders and a drop cap follow it; its background stays on the line. In vertical text an upright

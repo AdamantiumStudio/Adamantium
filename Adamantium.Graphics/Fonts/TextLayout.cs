@@ -192,6 +192,10 @@ public class TextLayout : DisposableObject
 
     private const char SoftHyphen = '­';
 
+    private const char LineSeparator = (char)0x2028;
+
+    private static readonly char[] LineEnds = ['\n', LineSeparator];
+
     private static readonly Dictionary<char, (double Left, double Right)> MarginHangs = new()
     {
         ['.'] = (0, 0.7), [','] = (0, 0.7), [':'] = (0, 0.5), [';'] = (0, 0.5), ['!'] = (0, 0.2), ['?'] = (0, 0.2),
@@ -2326,7 +2330,7 @@ public class TextLayout : DisposableObject
 
             for (var c = last + 1; last >= 0 && c < nextLineStart; c++)
             {
-                if (text[c] == '\n')
+                if (text[c] is '\n' or LineSeparator)
                 {
                     return true;
                 }
@@ -3031,7 +3035,7 @@ public class TextLayout : DisposableObject
             }
         }
 
-        if (text[text.Length - 1] == '\n')
+        if (text[text.Length - 1] is '\n' or LineSeparator)
         {
             var rightToLeft = _laidOutDirection == TextDirection.RightToLeft
                 || (_laidOutDirection == TextDirection.Auto && IsRightToLeftParagraph(text.Length - 1));
@@ -3255,7 +3259,7 @@ public class TextLayout : DisposableObject
         var lineRight = double.MinValue;
         for (var g = line.Start; g < line.End && g < text.Length; g = TextBoundaries.Next(graphemes, g))
         {
-            if (text[g] is '\n' or '\r')
+            if (text[g] is '\n' or '\r' or LineSeparator)
             {
                 newline = newline < 0 ? g : newline;
                 continue;
@@ -3329,7 +3333,7 @@ public class TextLayout : DisposableObject
         }
 
         var line = stops[index].LineIndex;
-        if (_paragraphs != null && index < text.Length && text[index] is '\n' or '\r')
+        if (_paragraphs != null && index < text.Length && text[index] is '\n' or '\r' or LineSeparator)
         {
             var boxes = LineBoxes(line);
             if (boxes.Count > 0)
@@ -3634,7 +3638,7 @@ public class TextLayout : DisposableObject
     private int HeldCharacter(int index)
     {
         var text = Text ?? string.Empty;
-        if (index <= 0 || index > text.Length || text[index - 1] is '\n' or '\r')
+        if (index <= 0 || index > text.Length || text[index - 1] is '\n' or '\r' or LineSeparator)
         {
             return -1;
         }
@@ -3654,7 +3658,7 @@ public class TextLayout : DisposableObject
         var boxes = new List<(int Start, int End, double Left, double Right)>();
         for (var g = line.Start; g < line.End && g < text.Length; g = TextBoundaries.Next(graphemes, g))
         {
-            if (text[g] is '\n' or '\r')
+            if (text[g] is '\n' or '\r' or LineSeparator)
             {
                 continue;
             }
@@ -3712,7 +3716,7 @@ public class TextLayout : DisposableObject
         var text = Text ?? string.Empty;
         for (var c = line.Start; c < line.End && c < text.Length; c++)
         {
-            if (text[c] is '\n' or '\r')
+            if (text[c] is '\n' or '\r' or LineSeparator)
             {
                 return c;
             }
@@ -4142,7 +4146,7 @@ public class TextLayout : DisposableObject
         var graphemes = TextBoundaries.Graphemes(text);
         var end = 0;
         var letters = 0;
-        while (end < text.Length && letters < DropCap.Characters && text[end] != '\n')
+        while (end < text.Length && letters < DropCap.Characters && text[end] is not ('\n' or LineSeparator))
         {
             if (CharUnicodeInfo.GetUnicodeCategory(text, end) is not (UnicodeCategory.OpenPunctuation
                 or UnicodeCategory.InitialQuotePunctuation))
@@ -4191,7 +4195,7 @@ public class TextLayout : DisposableObject
             var position = start;
             while (position < end)
             {
-                var newline = text.IndexOf('\n', position, end - position);
+                var newline = text.IndexOfAny(LineEnds, position, end - position);
                 var stop = newline < 0 ? end : newline;
                 foreach (var (runStart, runEnd, runFont, pending) in FontRuns(text, graphemes, position, stop, font, language))
                 {
@@ -4532,7 +4536,7 @@ public class TextLayout : DisposableObject
             index += step;
         }
 
-        if (index < 0 || index >= text.Length || text[index] == '\n')
+        if (index < 0 || index >= text.Length || text[index] is '\n' or LineSeparator)
         {
             return true;
         }
