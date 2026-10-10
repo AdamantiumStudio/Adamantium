@@ -899,15 +899,25 @@ public class TextLayout : DisposableObject
                 }
             }
 
-            if (LineHasContent() && HasRoomBelow()
-                && cursorPosition + WordWidth(start, newline) > LineRight(lineIndex) + LineShrink())
+            var firstCut = start + 1;
+            while (firstCut < newline && !composedCuts.Contains(firstCut))
+            {
+                firstCut++;
+            }
+
+            var needed = firstCut < newline
+                ? Math.Max(WordWidth(start, firstCut), Advance(start, firstCut) + HyphenInk(items[firstCut - 1]))
+                : WordWidth(start, newline);
+            var passedCut = -1;
+            if (LineHasContent() && HasRoomBelow() && cursorPosition + needed > LineRight(lineIndex) + LineShrink())
             {
                 NewLine();
+                passedCut = firstCut;
             }
 
             for (var k = start + 1; k < newline; k++)
             {
-                if (!composedCuts.Contains(k))
+                if (!composedCuts.Contains(k) || k == passedCut)
                 {
                     continue;
                 }
@@ -1660,24 +1670,30 @@ public class TextLayout : DisposableObject
                             }
                         }
 
-                        if (spaceCount == 0)
-                        {
-                            continue;
-                        }
-
-                        var hangs = OpticalMarginAlignment && !IsRightToLeftLine(lineGlyphs);
+                        var rightToLeft = IsRightToLeftLine(lineGlyphs);
+                        var lead = rightToLeft ? lineGlyphs[firstInk].PenX - LineIndent(i) : 0;
+                        var hangs = OpticalMarginAlignment && !rightToLeft;
                         var leftHang = hangs && firstInk == 0 && lastTab < 0 ? Hang(lineGlyphs[firstInk], true) : 0;
                         var rightHang = hangs ? Hang(lineGlyphs[lastInk], false) : 0;
-                        var extra = AlignRight(i) + leftHang + rightHang - lineGlyphs[lastInk].Rect.Right;
+                        var inkRight = lineGlyphs.Where(glyph => !IsBlank(glyph.Symbol) && glyph.Symbol != '\n')
+                            .Select(glyph => glyph.Rect.Right).DefaultIfEmpty(lineGlyphs[lastInk].Rect.Right).Max();
+                        var extra = AlignRight(i) + leftHang + rightHang - (inkRight - lead);
 
-                        if (extra == 0 || shrinkable == 0 || (extra > 0 && !stretches))
+                        if (spaceCount == 0 || extra == 0 || shrinkable == 0 || (extra > 0 && !stretches))
                         {
+                            var toStart = rightToLeft ? AlignRight(i) - inkRight : 0;
+                            for (var k = 0; k < lineGlyphs.Length && toStart != 0; k++)
+                            {
+                                lineGlyphs[k].Rect.X += (float)toStart;
+                                lineGlyphs[k].PenX += toStart;
+                            }
+
                             continue;
                         }
 
                         var shrinkRatio = extra < 0 ? Math.Max(extra, -shrinkable) / shrinkable : 0;
                         var perSpace = extra / spaceCount;
-                        double shift = -leftHang;
+                        var shift = -leftHang - lead;
                         hung.Add(i);
                         for (int k = 0; k < lineGlyphs.Length; k++)
                         {
@@ -1687,7 +1703,10 @@ public class TextLayout : DisposableObject
                             lineGlyphs[k].PenX += shift;
                             if (k > from && k < lastInk && lineGlyphs[k].Symbol == ' ')
                             {
-                                shift += extra > 0 ? perSpace : shrinkRatio * lineGlyphs[k].Advance / 3;
+                                var widening = extra > 0 ? perSpace : shrinkRatio * lineGlyphs[k].Advance / 3;
+                                lineGlyphs[k].Advance += widening;
+                                lineGlyphs[k].Rect.Width += (float)widening;
+                                shift += widening;
                             }
                         }
                     }
@@ -2539,7 +2558,14 @@ public class TextLayout : DisposableObject
                 right = filled[k] ? Math.Max(right, stops[k].Right) : right;
             }
 
-            stops[text.Length] = new CaretStop(right, endLine + 1);
+            var width = CalculatedLayoutSize.Width;
+            var x = RenderingParameters?.HorizontalTextAlignment switch
+            {
+                HorizontalTextAlignment.Center => width / 2,
+                HorizontalTextAlignment.Right => rightToLeft ? 0 : width,
+                _ => right,
+            };
+            stops[text.Length] = new CaretStop(x, endLine + 1);
             filled[text.Length] = true;
         }
 

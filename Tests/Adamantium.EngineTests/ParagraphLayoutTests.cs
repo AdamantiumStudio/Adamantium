@@ -234,6 +234,23 @@ public class ParagraphLayoutTests
         }
     }
 
+    [TestCase(HorizontalTextAlignment.Left)]
+    [TestCase(HorizontalTextAlignment.Justify)]
+    public void AWordTheComposerCutsAtALinesEnd_StartsOnThatLine(HorizontalTextAlignment alignment)
+    {
+        const string text = "Высокопроизводительные текстовые редакторы переносят слова автоматически.";
+        for (var width = 220; width <= 320; width += 5)
+        {
+            var lines = Lines(Layout(text, width, LineBreaking.Paragraph, alignment, Hyphens.Auto, "ru"));
+            for (var i = 0; i < lines.Length - 1; i++)
+            {
+                var ink = lines[i].Where(g => g.Symbol is not (' ' or '\t' or '\n')).ToArray();
+                Assert.That(ink.Sum(g => g.Advance), Is.GreaterThan(width - 4 * FontSize),
+                    $"width {width}: line {i} is left nearly empty");
+            }
+        }
+    }
+
     [Test]
     public void Paragraph_SetsAWordWiderThanTheLineAlone()
     {
