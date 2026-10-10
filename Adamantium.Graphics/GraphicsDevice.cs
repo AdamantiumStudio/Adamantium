@@ -25,6 +25,7 @@ namespace Adamantium.Graphics;
 public class GraphicsDevice : DisposableObject, IGraphicsDevice
 {
     private object _locker = new object();
+    private bool _withheld;
     public Guid DeviceId { get; private set; }
 
     private CommandBuffer[] commandBuffers;
@@ -957,6 +958,8 @@ public class GraphicsDevice : DisposableObject, IGraphicsDevice
     {
         CanPresent = false;
         LastFrameError = null;
+        _withheld = false;
+        FrameWithheld = false;
         var renderFence = InFlightFences[CurrentFrame];
         // TEMP: the CPU blocks HERE until the GPU is done with this slot. Timed on its own because "BeginDraw is a third
         // of the frame" does not say whether we are waiting for the GPU or doing work - and those have opposite fixes.
@@ -1169,19 +1172,25 @@ public class GraphicsDevice : DisposableObject, IGraphicsDevice
     /// neither blit nor present, exactly as it must not when Submit never ran.</summary>
     public bool HasSwapchainImage { get; private set; }
 
+    public void WithholdFrame() => _withheld = true;
+
+    public bool FrameWithheld { get; private set; }
+
     public void EndDraw()
     {
         // Acquired here, after the work: the frame renders offscreen, and acquiring first blocked on the present engine.
         // Everything fallible runs before this, so an aborted frame leaks nothing.
         HasSwapchainImage = false;
-        if (Presenter is SwapChainGraphicsPresenter)
+        FrameWithheld = _withheld;
+        _withheld = false;
+        if (Presenter is SwapChainGraphicsPresenter && !FrameWithheld)
         {
             HasSwapchainImage = Presenter.AcquireNextImage(null, ImageAvailableSemaphores[CurrentFrame]);
 
             if (!HasSwapchainImage)
                 LastFrameError = $"swapchain AcquireNextImage failed{DescribeRecentValidation()}";
         }
-        else
+        else if (Presenter is not SwapChainGraphicsPresenter)
         {
             HasSwapchainImage = true;   // a render-target presenter owns its image outright
         }
@@ -1241,17 +1250,20 @@ public class GraphicsDevice : DisposableObject, IGraphicsDevice
         // on this frame's ImageAvailable semaphore, which nothing will ever signal - submitting would hang the device.
         // Skipping is safe for the fence: it is reset inside the submit, so an un-submitted frame leaves it signaled and
         // the next BeginDraw walks straight through. The presenter self-heals on the next frame (OutOfDate rebuild).
-        if (Presenter is SwapChainGraphicsPresenter && !HasSwapchainImage) return;
+        // A WITHHELD frame has no image either, but by its own choice: its work - stroke expansion, layout transitions,
+        // the shared surfaces' semaphores - is still submitted, only nothing is shown.
+        if (Presenter is SwapChainGraphicsPresenter && !HasSwapchainImage && !FrameWithheld) return;
 
         _submissionSync?.Wait();
-            
+
         //Log.Logger.Debug($"Enter Submit for device {DeviceId}");
 
         var commandBuffer = CurrentCommandBuffer;
+        var presents = Presenter is SwapChainGraphicsPresenter && !FrameWithheld;
 
         // Transition the swapchain image to PresentSrc inside the MAIN command buffer instead of a separate
         // per-frame single-time submit in Present() (which Present()'s guard then skips).
-        if (Presenter is SwapChainGraphicsPresenter presenterForLayout)
+        if (presents && Presenter is SwapChainGraphicsPresenter presenterForLayout)
         {
             TransitionPresenterImageForPresent(commandBuffer, presenterForLayout.GetCurrentImage());
         }
@@ -1272,7 +1284,7 @@ public class GraphicsDevice : DisposableObject, IGraphicsDevice
         var waits = new System.Collections.Generic.List<SemaphoreSubmitInfo>();
         var signals = new System.Collections.Generic.List<SemaphoreSubmitInfo>();
 
-        if (Presenter is SwapChainGraphicsPresenter swapChainGraphicsPresenter)
+        if (presents && Presenter is SwapChainGraphicsPresenter swapChainGraphicsPresenter)
         {
             waits.Add(new SemaphoreSubmitInfo
             {
@@ -1335,7 +1347,7 @@ public class GraphicsDevice : DisposableObject, IGraphicsDevice
             Log.Logger.Error($"failed to submit draw command buffer! Result was {result}");
         }
 
-        CanPresent = true;
+        CanPresent = !FrameWithheld;
 
         _submissionSync?.Release();
     }

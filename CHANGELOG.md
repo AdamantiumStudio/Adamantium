@@ -7,6 +7,10 @@ All packages share one version.
 
 ### Added
 
+- `IGraphicsDevice.WithholdFrame`: a frame asked to be held back before `EndDraw` acquires no swapchain image, so nothing
+  is submitted or presented and the window keeps showing the last frame - for a frame drawn incomplete that the next
+  one draws whole. A render-target presenter keeps its frame.
+
 - Text decoration lines, as WPF's: `TextDecorations.Overline` at the font's ascender, and
   `TextAttributes.DecorationLines` - lines each with their own place (`TextDecorationLocation`: under, over, through
   the text or on the baseline), thickness, offset, color and dashes (`TextAdornment.Dashes`), drawn besides the

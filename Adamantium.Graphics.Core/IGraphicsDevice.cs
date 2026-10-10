@@ -209,6 +209,15 @@ public unsafe interface IGraphicsDevice : IDrawableDevice, IDynamicStateDevice, 
     /// needs the image only for the blit - so a caller must ask before blitting or presenting.</summary>
     bool HasSwapchainImage { get; }
 
+    /// <summary>Holds this frame back, when asked before EndDraw: no swapchain image is acquired and nothing is presented,
+    /// so the window keeps showing the last frame, while the frame's work is still submitted. For a frame drawn
+    /// incomplete that the next one draws whole. A render-target presenter owns its image, so its frame is kept.</summary>
+    void WithholdFrame();
+
+    /// <summary>Whether this frame is held back (<see cref="WithholdFrame"/>): set by EndDraw, so a caller can draw the next
+    /// one at once where nobody will ask for it - a one-shot render into a texture.</summary>
+    bool FrameWithheld { get; }
+
     MainGraphicsDevice MainDevice { get; }
 
     Fence GetCurrentFence();
