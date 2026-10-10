@@ -37,6 +37,12 @@ public sealed class TextAttributes
     /// shift; negative lowers it. Its size and the line's height stay as they are; its lines follow it.</summary>
     public double? BaselineShift { get; init; }
 
+    /// <summary>Where the text stands across its line: on the baseline (unset), at the top, middle or bottom of the
+    /// line, at the ascender or descender of the layout's font, or where the font sets a superscript or a subscript
+    /// (its 'OS/2' offsets). Its size and the line's height stay as they are; a <see cref="BaselineShift"/> adds to
+    /// it. In vertical text only the superscript and the subscript move it.</summary>
+    public BaselineAlignment? BaselineAlignment { get; init; }
+
     /// <summary>The size of an object set into the text in place of a U+FFFC OBJECT REPLACEMENT CHARACTER - a control in
     /// a line of a UI's text: it advances the line by its width and stands on the baseline, its height raising the line
     /// as a tall glyph would. Nothing is drawn for it; whoever placed it draws the object at
@@ -74,6 +80,7 @@ public sealed class TextAttributes
             Synthesis = over.Synthesis ?? Synthesis,
             Tracking = over.Tracking ?? Tracking,
             BaselineShift = over.BaselineShift ?? BaselineShift,
+            BaselineAlignment = over.BaselineAlignment ?? BaselineAlignment,
             ObjectSize = over.ObjectSize ?? ObjectSize,
             ColorPalette = over.ColorPalette ?? ColorPalette,
             Foreground = over.Foreground ?? Foreground,
@@ -84,13 +91,14 @@ public sealed class TextAttributes
     }
 
     /// <summary>Whether text with these attributes and with <paramref name="other"/> shapes alike: colors, lines and
-    /// sizes differ freely; a palette does not, as its color glyphs are drawn anew, and tracking, baseline shift and an
-    /// object's size do not, as they move them.</summary>
+    /// sizes differ freely; a palette does not, as its color glyphs are drawn anew, and tracking, baseline shift and
+    /// alignment and an object's size do not, as they move them.</summary>
     public bool ShapesLike(TextAttributes other)
     {
         return Language == other.Language && ReferenceEquals(Font, other.Font) && Synthesis == other.Synthesis
                                           && ColorPalette == other.ColorPalette && Tracking == other.Tracking
                                           && BaselineShift == other.BaselineShift
+                                          && BaselineAlignment == other.BaselineAlignment
                                           && Nullable.Equals(ObjectSize, other.ObjectSize)
                                           && FeaturesEqual(Features, other.Features);
     }

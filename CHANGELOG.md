@@ -7,6 +7,11 @@ All packages share one version.
 
 ### Added
 
+- Baseline alignment, as WPF's: `TextAttributes.BaselineAlignment` sets a range where the layout's font sets a
+  superscript or a subscript (`IFont.SuperscriptYOffset`/`SubscriptYOffset`, from 'OS/2'), at the font's ascender or
+  descender, or at the top, middle or bottom of its line, its size and the line's height unchanged. A baseline shift
+  adds to it; its lines and hyphens follow it.
+
 - Line height, line stacking, line spacing and the most lines on `TextLayout`, as WPF's and Avalonia's:
   `LineHeight` sets the distance between baselines, its extra room (or what it lacks) split above and below the text;
   `LineStacking` says whether a line holding text of a larger size or a taller object still grows (`MaxHeight`, the

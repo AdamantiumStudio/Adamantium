@@ -141,6 +141,10 @@ namespace Adamantium.Fonts
 
         public Int16 StrikeoutSize { get; internal set; }
 
+        public Int16 SuperscriptYOffset { get; internal set; }
+
+        public Int16 SubscriptYOffset { get; internal set; }
+
         /// <summary>
         /// smallest readable size in pixels
         /// </summary>
@@ -648,6 +652,8 @@ namespace Adamantium.Fonts
             UnderlineThickness = Varied(UnderlineThickness, "unds");
             StrikeoutPosition = Varied(StrikeoutPosition, "stro");
             StrikeoutSize = Varied(StrikeoutSize, "strs");
+            SuperscriptYOffset = Varied(SuperscriptYOffset, "spyo");
+            SubscriptYOffset = Varied(SubscriptYOffset, "sbyo");
             if (LineMetricsFromWindows)
             {
                 LineAscent = Varied(LineAscent, "hcla");

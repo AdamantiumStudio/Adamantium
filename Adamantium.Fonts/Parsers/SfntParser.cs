@@ -1128,6 +1128,8 @@ namespace Adamantium.Fonts.Parsers
             os2.yStrikeoutSize = FontReader.ReadInt16();
             os2.yStrikeoutPosition = FontReader.ReadInt16();
             CurrentFont.StrikeoutSize = os2.yStrikeoutSize;
+            CurrentFont.SuperscriptYOffset = os2.ySuperscriptYOffset;
+            CurrentFont.SubscriptYOffset = os2.ySubscriptYOffset;
             CurrentFont.StrikeoutPosition = os2.yStrikeoutPosition;
             os2.sFamilyClass = FontReader.ReadInt16();
             os2.panose = FontReader.ReadBytes(10, true); // array of 10 bytes
