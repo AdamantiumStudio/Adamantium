@@ -7,6 +7,11 @@ All packages share one version.
 
 ### Added
 
+- Where the last line of a justified paragraph and a justified line of a single word stand, as InDesign sets them:
+  `TextLayout.LastLineAlignment` (at the start by default, centered, at the end, or justified) and
+  `SingleWordJustification` (at the start by default, centered, at the end, or justified, its letters spread across
+  the line). Start and end follow the paragraph's direction; the caret on an empty last line stands there too.
+
 - Glyph scaling and justification alternates, as InDesign justifies. `TextLayout.GlyphScaling` (a `SpacingRange` of
   the glyphs' own width) draws glyphs at their desired width, scaled about their origins, marks with their letters.
   A justified line that cannot fill its width within its spacing first takes the wider glyphs its font offers for
