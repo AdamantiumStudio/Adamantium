@@ -9,8 +9,11 @@ All packages share one version.
 
 - Baseline shift, as InDesign's: `TextAttributes.BaselineShift` raises a range above its line's baseline (negative
   lowers it), its size and the line's height unchanged. Its underline, strikethrough and squiggle, the hyphens of its
-  words, its tab leaders and a drop cap follow it; its background stays on the line. In vertical text an upright glyph moves across the line, to
-  the right.
+  words, its tab leaders and a drop cap follow it; its background stays on the line. In vertical text an upright
+  glyph moves across the line, to the right.
+
+- `TextLayout.Revision` grows each time the text is laid out anew, so a renderer keeping one layout can tell its
+  glyphs changed when its text and size did not.
 
 - Kashida justification. A justified line of Arabic and other joined scripts whose spaces are at their maximum
   stretches its words with kashidas (`TextLayout.Kashidas`, on by default): in each word, a stretched extender

@@ -416,8 +416,13 @@ public class TextLayout : DisposableObject
     public static long TailBytes;
     public static int ProcessCount;
 
+    /// <summary>Grows each time the text is laid out anew, so whoever keeps this layout can tell its glyphs changed when
+    /// its text and size did not: a new last-line alignment, or kashidas switched off.</summary>
+    public int Revision { get; private set; }
+
     public Size ProcessText(string text, double fontSize, TextRenderingParameters renderingParameters)
     {
+        Revision++;
         // Empty text clears the previous glyphs, or a recycled row keeps drawing its old text.
         if (string.IsNullOrEmpty(text))
         {
