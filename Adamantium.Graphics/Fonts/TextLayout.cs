@@ -138,6 +138,15 @@ public class TextLayout : DisposableObject
     /// offers for justification ('jalt', as the wide letters of Hebrew), before it scales glyphs. True by default.</summary>
     public bool JustificationAlternates { get; set; } = true;
 
+    /// <summary>Where the last line of a justified paragraph stands, as InDesign sets it: at its start (the default; on
+    /// the right in a right-to-left paragraph), centered, at its end, or justified too
+    /// (<see cref="TextRenderingParameters.JustifyLastLine"/> justifies it as well).</summary>
+    public HorizontalTextAlignment LastLineAlignment { get; set; } = HorizontalTextAlignment.Left;
+
+    /// <summary>Where a justified line holding a single word stands, as InDesign's single word justification sets it:
+    /// at its start (the default), centered, at its end, or justified, its letters spread across the line.</summary>
+    public HorizontalTextAlignment SingleWordJustification { get; set; } = HorizontalTextAlignment.Left;
+
     /// <summary>Space added after each character, in thousandths of an em, as InDesign's tracking; negative draws the
     /// letters closer. 0 by default; <see cref="TextAttributes.Tracking"/> sets it for a range. Cursive scripts, such
     /// as Arabic, are never tracked.</summary>
@@ -201,6 +210,8 @@ public class TextLayout : DisposableObject
     private SpacingRange _laidOutGlyphScaling;
     private SpacingRange _glyphScaling = new(1, 1, 1);
     private bool _laidOutJustificationAlternates;
+    private HorizontalTextAlignment _laidOutLastLineAlignment;
+    private HorizontalTextAlignment _laidOutSingleWordJustification;
     private double _laidOutTracking;
     private double _columnsRight;
     private RectangleF[] _laidOutFrames = [];
@@ -300,6 +311,8 @@ public class TextLayout : DisposableObject
                _laidOutWritingMode == WritingMode && _laidOutWordSpacing.Equals(WordSpacing)
                && _laidOutLetterSpacing.Equals(LetterSpacing) && _laidOutTracking.Equals(Tracking)
                && _laidOutGlyphScaling.Equals(GlyphScaling) && _laidOutJustificationAlternates == JustificationAlternates
+               && _laidOutLastLineAlignment == LastLineAlignment
+               && _laidOutSingleWordJustification == SingleWordJustification
                && _laidOutFrames.SequenceEqual(Frames ?? []) && _laidOutExclusions.SequenceEqual(Exclusions ?? []);
     }
 
@@ -435,6 +448,8 @@ public class TextLayout : DisposableObject
         _laidOutTracking = Tracking;
         _laidOutGlyphScaling = GlyphScaling;
         _laidOutJustificationAlternates = JustificationAlternates;
+        _laidOutLastLineAlignment = LastLineAlignment;
+        _laidOutSingleWordJustification = SingleWordJustification;
         var vertical = WritingMode == WritingMode.VerticalRightToLeft;
         var frames = Frames;
         var exclusions = Exclusions;
@@ -1096,7 +1111,7 @@ public class TextLayout : DisposableObject
             }
 
             widths.Add(LineRight(distinct) - LineIndent(distinct));
-            if (!justified || !renderingParameters.JustifyLastLine)
+            if (!justified || !JustifiesLastLine())
             {
                 paragraph.Add((ComposerItem.Penalty(0, ParagraphComposer.Never, false), -1, false, false));
                 paragraph.Add((ComposerItem.Glue(0, double.PositiveInfinity, 0), -1, false, false));
@@ -1290,6 +1305,9 @@ public class TextLayout : DisposableObject
 
             return LayItems(start, end);
         }
+
+        bool JustifiesLastLine() =>
+            renderingParameters.JustifyLastLine || LastLineAlignment == HorizontalTextAlignment.Justify;
 
         bool Overflows(double width) =>
             cursorPosition + width > LineRight(lineIndex) && cursorPosition + width > LineRight(lineIndex) + LineShrink();
@@ -1786,7 +1804,7 @@ public class TextLayout : DisposableObject
                         // Only the gaps between words change; glyphs are shifted, never re-laid, so kerning and bearings stay.
                         var lineGlyphs = glyphsData.Where(x => x.LineIndex == i).OrderBy(x => x.Rect.X).ToArray();
                         if (lineGlyphs.Length == 0) continue;
-                        var stretches = renderingParameters.JustifyLastLine
+                        var stretches = JustifiesLastLine()
                                         || (i < maxLines
                                             ? !EndsParagraph(lineGlyphs, firstClusters[i + 1])
                                             : OversetIndex < text.Length && !EndsParagraph(lineGlyphs, OversetIndex));
@@ -1873,20 +1891,60 @@ public class TextLayout : DisposableObject
                             scaleShare = Math.Max(extra - wordShare - letterShare, -scaleShrink);
                         }
 
-                        if ((wordShare == 0 && letterShare == 0 && alternateShare == 0 && scaleShare == 0)
-                            || (extra > 0 && !stretches))
+                        var hasInk = lineGlyphs.Any(glyph => !IsBlank(glyph.Symbol) && glyph.Symbol != '\n');
+                        var singleWord = hasInk && stretches && extra > 0 && lastTab < 0 && spaceUnits == 0
+                                         && IsOneWord(clusters, lastInkCluster);
+                        double offset = 0;
+                        if (singleWord)
                         {
-                            var toStart = rightToLeft ? AlignRight(i) - inkRight : 0;
-                            for (var k = 0; k < lineGlyphs.Length && toStart != 0; k++)
+                            var rest = extra - wordShare - letterShare - alternateShare - scaleShare;
+                            if (SingleWordJustification == HorizontalTextAlignment.Justify && letterUnits > 0)
                             {
-                                lineGlyphs[k].Rect.X += (float)toStart;
-                                lineGlyphs[k].PenX += toStart;
+                                letterShare += rest;
+                            }
+                            else
+                            {
+                                offset = SingleWordJustification switch
+                                {
+                                    HorizontalTextAlignment.Center => rest / 2,
+                                    HorizontalTextAlignment.Right => rightToLeft ? 0 : rest,
+                                    _ => rightToLeft ? rest : 0,
+                                };
+                            }
+                        }
+
+                        var unspread = wordShare == 0 && letterShare == 0 && alternateShare == 0 && scaleShare == 0
+                                       && offset == 0;
+                        if (!hasInk || (!singleWord && (unspread || (extra > 0 && !stretches))))
+                        {
+                            var placement = hasInk && extra > 0 && !stretches && lastTab < 0
+                                ? LastLineAlignment
+                                : HorizontalTextAlignment.Left;
+                            var inkLeft = lineGlyphs.Where(glyph => !IsBlank(glyph.Symbol) && glyph.Symbol != '\n')
+                                .Select(glyph => glyph.Rect.Left).DefaultIfEmpty(lineGlyphs[firstInk].Rect.Left).Min();
+                            var placed = placement switch
+                            {
+                                HorizontalTextAlignment.Center => (LineIndent(i) + AlignRight(i) - inkLeft - inkRight) / 2,
+                                HorizontalTextAlignment.Right => rightToLeft
+                                    ? LineIndent(i) - inkLeft
+                                    : AlignRight(i) + rightHang - inkRight,
+                                _ => rightToLeft ? AlignRight(i) - inkRight : 0,
+                            };
+                            if (placement is HorizontalTextAlignment.Center or HorizontalTextAlignment.Right)
+                            {
+                                hung.Add(i);
+                            }
+
+                            for (var k = 0; k < lineGlyphs.Length && placed != 0; k++)
+                            {
+                                lineGlyphs[k].Rect.X += (float)placed;
+                                lineGlyphs[k].PenX += placed;
                             }
 
                             continue;
                         }
 
-                        var shift = -leftHang - lead;
+                        var shift = -leftHang - lead + offset;
                         hung.Add(i);
                         for (var c = 0; c < clusters.Count; c++)
                         {
@@ -2076,6 +2134,20 @@ public class TextLayout : DisposableObject
 
             return groups.OrderBy(group => group.Min(glyph => glyph.PenX))
                 .ThenBy(group => group.Max(glyph => glyph.PenX + glyph.Advance)).ToList();
+        }
+
+        bool IsOneWord(List<GlyphWordData[]> clusters, int lastInkCluster)
+        {
+            if (lineBreaks == null)
+            {
+                return false;
+            }
+
+            var positions = clusters.Take(lastInkCluster + 1).Where(IsInk).Select(cluster => cluster[0].PositionInString)
+                .Where(position => position >= 0).ToArray();
+            var start = positions.DefaultIfEmpty(-1).Min();
+            return positions.All(position => position == start || position >= lineBreaks.Length
+                                             || lineBreaks[position] == LineBreakKind.None);
         }
 
         static bool IsInk(GlyphWordData[] cluster) => cluster.Any(glyph => !IsBlank(glyph.Symbol) && glyph.Symbol != '\n');
@@ -2822,7 +2894,9 @@ public class TextLayout : DisposableObject
             }
 
             var width = CalculatedLayoutSize.Width;
-            var x = RenderingParameters?.HorizontalTextAlignment switch
+            var alignment = RenderingParameters?.HorizontalTextAlignment;
+            var last = RenderingParameters?.JustifyLastLine == true ? HorizontalTextAlignment.Left : _laidOutLastLineAlignment;
+            var x = (alignment == HorizontalTextAlignment.Justify ? last : alignment) switch
             {
                 HorizontalTextAlignment.Center => width / 2,
                 HorizontalTextAlignment.Right => rightToLeft ? 0 : width,

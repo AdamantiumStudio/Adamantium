@@ -40,6 +40,156 @@ public class JustificationTests
         return layout;
     }
 
+    [TestCase("SourceSans3-Regular.ttf", Prose, HorizontalTextAlignment.Left)]
+    [TestCase("SourceSans3-Regular.ttf", Prose, HorizontalTextAlignment.Center)]
+    [TestCase("SourceSans3-Regular.ttf", Prose, HorizontalTextAlignment.Right)]
+    [TestCase("SourceSans3-Regular.ttf", Prose, HorizontalTextAlignment.Justify)]
+    [TestCase("NotoSansHebrew-Regular.ttf", Hebrew, HorizontalTextAlignment.Center)]
+    [TestCase("NotoSansHebrew-Regular.ttf", Hebrew, HorizontalTextAlignment.Right)]
+    public void TheLastLine_StandsWhereLastLineAlignmentPutsIt(string font, string text, HorizontalTextAlignment last)
+    {
+        var typeface = Typeface.LoadFont(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fonts", font));
+        var layout = new TextLayout(typeface, typeface.Fonts[0]) { Fallback = null, LastLineAlignment = last };
+        layout.ProcessText(text, FontSize, new Size(Width, double.NaN), TextWrapping.WrapByWords, TextTrimming.None,
+            HorizontalTextAlignment.Justify, VerticalTextAlignment.Top);
+        var (left, right) = Ink(layout, layout.LineCount - 1);
+        var rightToLeft = layout.IsRightToLeftParagraph(0);
+
+        switch (last)
+        {
+            case HorizontalTextAlignment.Center:
+                Assert.That((left + right) / 2, Is.EqualTo(Width / 2).Within(1));
+                break;
+            case HorizontalTextAlignment.Justify:
+                Assert.That(left, Is.EqualTo(0).Within(2));
+                Assert.That(right, Is.EqualTo(Width).Within(2));
+                break;
+            default:
+                var atRight = (last == HorizontalTextAlignment.Right) != rightToLeft;
+                Assert.That(atRight ? right : left, Is.EqualTo(atRight ? Width : 0).Within(2));
+                Assert.That(right - left, Is.LessThan(Width - 20));
+                break;
+        }
+    }
+
+    private static TextLayout Justified(string text, string font, double width, HorizontalTextAlignment single,
+        HorizontalTextAlignment last = HorizontalTextAlignment.Left, SpacingRange? letters = null, bool hangs = false)
+    {
+        var typeface = Typeface.LoadFont(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fonts", font));
+        var layout = new TextLayout(typeface, typeface.Fonts[0])
+        {
+            Fallback = null, SingleWordJustification = single, LastLineAlignment = last,
+            LetterSpacing = letters ?? SpacingRange.Letters, OpticalMarginAlignment = hangs,
+        };
+        layout.ProcessText(text, FontSize, new Size(width, double.NaN), TextWrapping.WrapByWords, TextTrimming.None,
+            HorizontalTextAlignment.Justify, VerticalTextAlignment.Top);
+        return layout;
+    }
+
+    [Test]
+    public void ALineWithATab_IsNotASingleWord()
+    {
+        const string text = "Introduction\t17 Incomprehensibilities";
+        var glyphs = Justified(text, "SourceSans3-Regular.ttf", 220, HorizontalTextAlignment.Justify).GetTextData();
+        var one = Array.FindIndex(glyphs, glyph => glyph.Symbol == '1');
+
+        Assert.That(glyphs[one].LineIndex, Is.EqualTo(0));
+        Assert.That(glyphs[one + 1].Rect.Left - glyphs[one].Rect.Right, Is.LessThan(3), "the number stays whole");
+    }
+
+    [Test]
+    public void ASingleWord_IsCentered_EvenWhenItsLettersTakeSomeOfTheRoom()
+    {
+        var layout = Justified("Incomprehensibilities notwithstanding, we go on.", "SourceSans3-Regular.ttf", 220,
+            HorizontalTextAlignment.Center, letters: new SpacingRange(0, 0, 0.05));
+        var (left, right) = Ink(layout, 0);
+
+        Assert.That((left + right) / 2, Is.EqualTo(110).Within(1));
+        Assert.That(left, Is.GreaterThan(2), "not left at the start");
+    }
+
+    [Test]
+    public void ALastLineAtTheEnd_HangsItsPunctuationPastTheRightEdge()
+    {
+        var layout = Justified(Prose, "SourceSans3-Regular.ttf", Width, HorizontalTextAlignment.Left,
+            HorizontalTextAlignment.Right, hangs: true);
+
+        Assert.That(Ink(layout, layout.LineCount - 1).Right, Is.GreaterThan(Width + 1), "the final full stop hangs");
+    }
+
+    [Test]
+    public void LinesOfIdeographs_AreNotSingleWords()
+    {
+        const string text = "吾輩は猫である。名前はまだ無い。どこで生れたかとんと見当がつかぬ。何でも薄暗いじめじめした所で泣いていた事だけは記憶している。";
+        var layout = Justified(text, "NotoSansCJK-Regular.ttc", Width, HorizontalTextAlignment.Center);
+        var (left, _) = Ink(layout, 0);
+
+        Assert.That(layout.LineCount, Is.GreaterThan(1));
+        Assert.That(left, Is.LessThan(3), "the first line starts at the start");
+    }
+
+    [Test]
+    public void TheCaretOnAnEmptyLastLine_StaysAtTheStart_WhenTheLastLineIsJustified()
+    {
+        var typeface = Typeface.LoadFont(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fonts", "SourceSans3-Regular.ttf"));
+        var layout = new TextLayout(typeface, typeface.Fonts[0])
+        {
+            Fallback = null, EmitNewlineCarets = true, LastLineAlignment = HorizontalTextAlignment.Center,
+        };
+        layout.ProcessText("abc\n", FontSize, new Size(Width, double.NaN), TextWrapping.WrapByWords, TextTrimming.None,
+            HorizontalTextAlignment.Justify, VerticalTextAlignment.Top, justifyLastLine: true);
+
+        Assert.That(layout.GetCaretStops()[4].X, Is.EqualTo(0).Within(0.5));
+    }
+
+    [Test]
+    public void TheCaretOnAnEmptyLastLineOfJustifiedText_FollowsLastLineAlignment()
+    {
+        var typeface = Typeface.LoadFont(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fonts", "SourceSans3-Regular.ttf"));
+        var layout = new TextLayout(typeface, typeface.Fonts[0])
+        {
+            Fallback = null, EmitNewlineCarets = true, LastLineAlignment = HorizontalTextAlignment.Center,
+        };
+        layout.ProcessText("abc\n", FontSize, new Size(Width, double.NaN), TextWrapping.WrapByWords, TextTrimming.None,
+            HorizontalTextAlignment.Justify, VerticalTextAlignment.Top);
+
+        Assert.That(layout.GetCaretStops()[4].X, Is.EqualTo(Width / 2).Within(0.5));
+    }
+
+    [TestCase(HorizontalTextAlignment.Left)]
+    [TestCase(HorizontalTextAlignment.Center)]
+    [TestCase(HorizontalTextAlignment.Right)]
+    [TestCase(HorizontalTextAlignment.Justify)]
+    public void ASingleWordLine_StandsWhereSingleWordJustificationPutsIt(HorizontalTextAlignment single)
+    {
+        const string text = "Incomprehensibilities notwithstanding, we go on.";
+        var typeface = Typeface.LoadFont(Path.Combine(TestContext.CurrentContext.TestDirectory, "Fonts", "SourceSans3-Regular.ttf"));
+        var layout = new TextLayout(typeface, typeface.Fonts[0]) { Fallback = null, SingleWordJustification = single };
+        layout.ProcessText(text, FontSize, new Size(220, double.NaN), TextWrapping.WrapByWords, TextTrimming.None,
+            HorizontalTextAlignment.Justify, VerticalTextAlignment.Top);
+        var line = layout.GetLine(0);
+        var (left, right) = Ink(layout, 0);
+
+        Assert.That(text.Substring(line.Start, line.End - line.Start).Trim(), Is.EqualTo("Incomprehensibilities"));
+        switch (single)
+        {
+            case HorizontalTextAlignment.Left:
+                Assert.That(left, Is.EqualTo(0).Within(2));
+                Assert.That(right, Is.LessThan(210));
+                break;
+            case HorizontalTextAlignment.Center:
+                Assert.That((left + right) / 2, Is.EqualTo(110).Within(1));
+                break;
+            case HorizontalTextAlignment.Right:
+                Assert.That(right, Is.EqualTo(220).Within(1));
+                break;
+            default:
+                Assert.That(left, Is.EqualTo(0).Within(2));
+                Assert.That(right, Is.EqualTo(220).Within(1), "its letters spread across the line");
+                break;
+        }
+    }
+
     [TestCase(HorizontalTextAlignment.Left, 0)]
     [TestCase(HorizontalTextAlignment.Center, Width / 2)]
     [TestCase(HorizontalTextAlignment.Right, Width)]
