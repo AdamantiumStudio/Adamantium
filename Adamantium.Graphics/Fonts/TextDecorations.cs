@@ -12,4 +12,7 @@ public enum TextDecorations
 
     /// <summary>A wavy line under the text, as for a spelling or compiler error.</summary>
     Squiggle = 4,
+
+    /// <summary>A line over the text, at the font's ascender.</summary>
+    Overline = 8,
 }

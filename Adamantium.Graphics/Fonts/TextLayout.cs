@@ -3218,7 +3218,8 @@ public class TextLayout : DisposableObject
         {
             var attributes = run.Attributes;
             var decorations = attributes.Decorations ?? TextDecorations.None;
-            if (attributes.Background == null && decorations == TextDecorations.None)
+            var lines = attributes.DecorationLines ?? [];
+            if (attributes.Background == null && decorations == TextDecorations.None && lines.Count == 0)
             {
                 continue;
             }
@@ -3230,6 +3231,7 @@ public class TextLayout : DisposableObject
             var underline = (font.UnderlinePosition != 0 ? font.UnderlinePosition : -em / 10) * scale;
             var strikeout = (font.StrikeoutPosition != 0 ? font.StrikeoutPosition : em / 4) * scale;
             var strikeoutSize = font.StrikeoutSize > 0 ? font.StrikeoutSize * scale : thickness;
+            var ascender = (font.Ascender > 0 ? font.Ascender : em * 0.8) * scale;
 
             var lineColor = attributes.DecorationColor ?? attributes.Foreground;
             var vertical = _laidOutWritingMode == WritingMode.VerticalRightToLeft;
@@ -3256,15 +3258,35 @@ public class TextLayout : DisposableObject
 
                 if ((decorations & TextDecorations.Underline) != 0)
                 {
-                    adornments.Add(new TextAdornment(TextAdornmentKind.Underline,
-                        Placed(new RectangleF(left, (float)underlineTop, width, (float)thickness)), lineColor));
+                    AddLine(TextDecorationLocation.Underline, thickness, 0, lineColor, null);
                 }
 
                 if ((decorations & TextDecorations.Strikethrough) != 0)
                 {
-                    var strikeTop = vertical ? axis - strikeoutSize / 2 : baseline - strikeout;
-                    adornments.Add(new TextAdornment(TextAdornmentKind.Strikethrough,
-                        Placed(new RectangleF(left, (float)strikeTop, width, (float)strikeoutSize)), lineColor));
+                    AddLine(TextDecorationLocation.Strikethrough, strikeoutSize, 0, lineColor, null);
+                }
+
+                if ((decorations & TextDecorations.Overline) != 0)
+                {
+                    AddLine(TextDecorationLocation.Overline, thickness, 0, lineColor, null);
+                }
+
+                foreach (var line in lines)
+                {
+                    if (line == null)
+                    {
+                        continue;
+                    }
+
+                    var own = line.Thickness is { } set && set > 0 && double.IsFinite(set) ? set
+                        : line.Location == TextDecorationLocation.Strikethrough ? strikeoutSize : thickness;
+                    var dashes = line.Dashes is { Count: > 0 } pattern
+                                 && pattern.All(length => length >= 0 && double.IsFinite(length))
+                                 && pattern.Any(length => length > 0)
+                        ? pattern
+                        : null;
+                    AddLine(line.Location, own, double.IsFinite(line.Offset) ? line.Offset : 0,
+                        line.Color ?? lineColor, dashes);
                 }
 
                 if ((decorations & TextDecorations.Squiggle) != 0)
@@ -3272,6 +3294,35 @@ public class TextLayout : DisposableObject
                     adornments.Add(new TextAdornment(TextAdornmentKind.Squiggle,
                         Placed(new RectangleF(left, (float)(vertical ? beside - 3 * thickness : underlineTop), width,
                             (float)(thickness * 3))), lineColor));
+                }
+
+                void AddLine(TextDecorationLocation location, double lineThickness, double offset, Color? color,
+                    IReadOnlyList<double> dashes)
+                {
+                    var y = vertical
+                        ? location switch
+                        {
+                            TextDecorationLocation.Underline => axis - size / 2 - thickness - lineThickness,
+                            TextDecorationLocation.Overline => axis + size / 2 + thickness,
+                            _ => axis - lineThickness / 2,
+                        }
+                        : location switch
+                        {
+                            TextDecorationLocation.Underline => baseline - underline,
+                            TextDecorationLocation.Overline => baseline - ascender - lineThickness,
+                            TextDecorationLocation.Strikethrough =>
+                                baseline - strikeout + (strikeoutSize - lineThickness) / 2,
+                            _ => baseline - lineThickness / 2,
+                        };
+                    var kind = location switch
+                    {
+                        TextDecorationLocation.Underline => TextAdornmentKind.Underline,
+                        TextDecorationLocation.Overline => TextAdornmentKind.Overline,
+                        TextDecorationLocation.Strikethrough => TextAdornmentKind.Strikethrough,
+                        _ => TextAdornmentKind.Baseline,
+                    };
+                    adornments.Add(new TextAdornment(kind,
+                        Placed(new RectangleF(left, (float)(y + offset), width, (float)lineThickness)), color, dashes));
                 }
             }
         }

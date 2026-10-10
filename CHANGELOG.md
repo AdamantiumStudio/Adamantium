@@ -7,6 +7,11 @@ All packages share one version.
 
 ### Added
 
+- Text decoration lines, as WPF's: `TextDecorations.Overline` at the font's ascender, and
+  `TextAttributes.DecorationLines` - lines each with their own place (`TextDecorationLocation`: under, over, through
+  the text or on the baseline), thickness, offset, color and dashes (`TextAdornment.Dashes`), drawn besides the
+  decorations; a thicker line grows away from the letters, a thicker strikethrough stays centered.
+
 - Baseline alignment, as WPF's: `TextAttributes.BaselineAlignment` sets a range where the layout's font sets a
   superscript or a subscript (`IFont.SuperscriptYOffset`/`SubscriptYOffset`, from 'OS/2'), at the font's ascender or
   descender, or at the top, middle or bottom of its line, its size and the line's height unchanged. A baseline shift
