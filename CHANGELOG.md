@@ -297,6 +297,9 @@ All packages share one version.
 
 ### Fixed
 
+- `THIRD-PARTY-NOTICES.md` lists `EmojiPresentation.ucd` among the Unicode data `Adamantium.Fonts` embeds. The
+  `.ucd` files are checked out with LF, the line endings they are written with, so git no longer shows them changed
+  once a tool has touched them.
 - Justified text: a widened space now takes its added width into its advance, so the caret, a click and a selection
   reach across the gap instead of skipping it; justified right-to-left lines run from edge to edge, the trailing
   space that ends up on their left no longer holding them off it, and the last line of a right-to-left paragraph
