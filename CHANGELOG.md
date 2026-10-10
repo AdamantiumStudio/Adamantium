@@ -259,6 +259,12 @@ All packages share one version.
 
 ### Fixed
 
+- Justified text: a widened space now takes its added width into its advance, so the caret, a click and a selection
+  reach across the gap instead of skipping it; justified right-to-left lines run from edge to edge, the trailing
+  space that ends up on their left no longer holding them off it, and the last line of a right-to-left paragraph
+  stands at its start, on the right.
+- A paragraph broken a paragraph at a time put a word the composer hyphenated at a line's end whole onto the next
+  line, its head left alone there ("тек-" on a line of its own): the line now takes the head, as the composer chose.
 - The system fallback drew Chinese and Japanese punctuation and full-width forms (、。「」（）Ａ) from the first family
   that had them - Mongolian Baiti on Windows - instead of the family the text's language reads them in; they now try
   it first, as Han and kana do.
