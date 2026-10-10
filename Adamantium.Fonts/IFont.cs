@@ -192,6 +192,12 @@ namespace Adamantium.Fonts
         public Int16 StrikeoutPosition { get; }
 
         public Int16 StrikeoutSize { get; }
+
+        /// <summary>How far above the baseline the font sets a superscript, in font units ('OS/2').</summary>
+        public Int16 SuperscriptYOffset { get; }
+
+        /// <summary>How far below the baseline the font sets a subscript, in font units, positive ('OS/2').</summary>
+        public Int16 SubscriptYOffset { get; }
         /// <summary>
         /// smallest readable size in pixels
         /// </summary>
