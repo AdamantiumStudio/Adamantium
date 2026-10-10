@@ -7,6 +7,13 @@ All packages share one version.
 
 ### Added
 
+- Line height, line stacking, line spacing and the most lines on `TextLayout`, as WPF's and Avalonia's:
+  `LineHeight` sets the distance between baselines, its extra room (or what it lacks) split above and below the text;
+  `LineStacking` says whether a line holding text of a larger size or a taller object still grows (`MaxHeight`, the
+  default) or every line is exactly that high (`BlockLineHeight`); `LineSpacing` adds space between lines; `MaxLines`
+  lays out that many lines, the rest reported by `OversetIndex`, or, with trimming, the last ends in an ellipsis.
+  Frames, drop caps, wrapping by symbols, hyphenation and the caret follow them.
+
 - Objects in a line of text, as WPF's `InlineUIContainer`: `TextAttributes.ObjectSize` on a U+FFFC OBJECT REPLACEMENT
   CHARACTER sets it as an object of that size. It advances the line by its width, stands on the baseline (a baseline
   shift raises it), raises a line it is taller than, wraps and aligns as a word does and draws nothing itself;
