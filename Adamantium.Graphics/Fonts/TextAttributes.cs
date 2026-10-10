@@ -28,6 +28,10 @@ public sealed class TextAttributes
     /// (<see cref="FontSynthesisRules"/>). A thickened glyph advances further.</summary>
     public FontSynthesis? Synthesis { get; init; }
 
+    /// <summary>Space added after each character, in thousandths of an em, as InDesign's tracking; negative draws the
+    /// letters closer. Unset takes the layout's <see cref="TextLayout.Tracking"/>.</summary>
+    public double? Tracking { get; init; }
+
     /// <summary>The font's palette color glyphs are drawn in ('CPAL', <see cref="IFont.ColorPalettes"/>); unset, or one
     /// the font lacks, draws them in its first.</summary>
     public int? ColorPalette { get; init; }
@@ -57,6 +61,7 @@ public sealed class TextAttributes
             Font = over.Font ?? Font,
             FontSize = over.FontSize ?? FontSize,
             Synthesis = over.Synthesis ?? Synthesis,
+            Tracking = over.Tracking ?? Tracking,
             ColorPalette = over.ColorPalette ?? ColorPalette,
             Foreground = over.Foreground ?? Foreground,
             Background = over.Background ?? Background,
@@ -66,11 +71,12 @@ public sealed class TextAttributes
     }
 
     /// <summary>Whether text with these attributes and with <paramref name="other"/> shapes alike: colors, lines and
-    /// sizes differ freely; a palette does not, as its color glyphs are drawn anew.</summary>
+    /// sizes differ freely; a palette does not, as its color glyphs are drawn anew, and tracking does not, as it moves
+    /// them.</summary>
     public bool ShapesLike(TextAttributes other)
     {
         return Language == other.Language && ReferenceEquals(Font, other.Font) && Synthesis == other.Synthesis
-                                          && ColorPalette == other.ColorPalette
+                                          && ColorPalette == other.ColorPalette && Tracking == other.Tracking
                                           && FeaturesEqual(Features, other.Features);
     }
 

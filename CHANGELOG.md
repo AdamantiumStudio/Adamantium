@@ -7,6 +7,14 @@ All packages share one version.
 
 ### Added
 
+- Word and letter spacing ranges and tracking, as InDesign's justification and character settings have them.
+  `TextLayout.WordSpacing` and `LetterSpacing` (`SpacingRange`: minimum, desired and maximum shares of the font's
+  space; `"80% 100% 133%"` in markup) set spaces and letter spacing at their desired widths. A justified line
+  squeezes and stretches its spaces within the range first, then its letters, and only past both stretches its spaces
+  further. The paragraph composer weighs both: letter spacing is glue it cannot break at. `TextLayout.Tracking` and
+  `TextAttributes.Tracking` add thousandths of an em after each character. Marks stay on their letters, and Arabic
+  and other joined scripts are never spaced or tracked (`CursiveScripts`).
+
 - Vertical text. `TextLayout.WritingMode` (`WritingMode.VerticalRightToLeft`) runs lines down, as long as the text
   area is high, and stacks them from its right: ideographs and kana stand upright, shaped top to bottom in their
   vertical forms and centered on the line, as do brackets and long marks the font has vertical forms of (UAX #50 `Tr`);
@@ -377,6 +385,9 @@ All packages share one version.
 
 ### Changed
 
+- Justified text keeps its spaces within InDesign's word spacing by default: 80% to 133% of the space. Before,
+  spaces could squeeze to two thirds and stretch without limit; the paragraph composer weighed them at two thirds to
+  one and a half.
 - `HorizontalTextAlignment.Left` puts a line at its start and `Right` at its end, as WPF does: a right-to-left
   paragraph aligned `Left` stands on the right edge. Left-to-right text is aligned as before.
 - `TextLayout.HitTest` beside a line stands on the line's edge on screen: on the side its paragraph ends, before the
