@@ -214,6 +214,24 @@ public class SpacingTests
         Assert.That(glyphs.Where(glyph => glyph.Symbol != ' ').Max(glyph => glyph.Rect.Right), Is.LessThanOrEqualTo(Width + 0.5));
     }
 
+    [Test]
+    public void ALineAtATime_TakesAWordItFitsBySqueezingItsSpaces()
+    {
+        var squeezed = false;
+        for (var width = 200; width <= 400; width += 5)
+        {
+            var left = Lay(Prose, words: SpacingRange.Words, width: width);
+            var justified = Lay(Prose, alignment: HorizontalTextAlignment.Justify, words: SpacingRange.Words, width: width);
+
+            Assert.That(justified.LineCount, Is.LessThanOrEqualTo(left.LineCount), $"width {width}");
+            Assert.That(justified.GetTextData().Where(glyph => glyph.Symbol != ' ').Max(glyph => glyph.Rect.Right),
+                Is.LessThanOrEqualTo(width + 0.5), $"width {width}");
+            squeezed |= justified.GetLine(0).End > left.GetLine(0).End;
+        }
+
+        Assert.That(squeezed, Is.True, "a first line took one more word by squeezing its spaces");
+    }
+
     [TestCase(LineBreaking.Greedy)]
     [TestCase(LineBreaking.Paragraph)]
     public void LetterSpacedJustification_LeavesNoGapsForTheCaret(LineBreaking breaking)

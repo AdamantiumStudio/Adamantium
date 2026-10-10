@@ -17,7 +17,7 @@ public class GlyphWordData
     
     public Char Symbol { get; }
 
-    public Glyph Glyph { get; }
+    public Glyph Glyph { get; internal set; }
 
     public RectangleF Rect;
 
@@ -44,6 +44,10 @@ public class GlyphWordData
 
     /// <summary>The attributes of the text this glyph draws; null for plain text.</summary>
     public TextAttributes Attributes { get; set; }
+
+    /// <summary>How wide the glyph is drawn, as a share of its own width (<see cref="TextLayout.GlyphScaling"/>), about
+    /// its origin; 1 draws it as the font has it.</summary>
+    public double HorizontalScale { get; set; } = 1;
 
     /// <summary>Whether the glyph stands upright in a vertical line, shaped top to bottom. <see cref="PenX"/> and
     /// <see cref="Advance"/> then run down the line, and <see cref="Rect"/> is where the glyph is drawn.</summary>
