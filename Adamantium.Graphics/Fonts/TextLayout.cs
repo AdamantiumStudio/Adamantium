@@ -194,7 +194,11 @@ public class TextLayout : DisposableObject
 
     private const char LineSeparator = (char)0x2028;
 
+    private const char ObjectReplacement = (char)0xFFFC;
+
     private static readonly char[] LineEnds = ['\n', LineSeparator];
+
+    private static readonly char[] LineEndsAndObjects = ['\n', LineSeparator, ObjectReplacement];
 
     private static readonly Dictionary<char, (double Left, double Right)> MarginHangs = new()
     {
@@ -1203,7 +1207,7 @@ public class TextLayout : DisposableObject
             for (var k = from; k < to && justified; k++)
             {
                 var item = items[k];
-                if (!IsBlank(item.Symbol) && !item.Upright)
+                if (!IsBlank(item.Symbol) && !item.Upright && ObjectSizeOf(item.Symbol, item.Attributes) == null)
                 {
                     natural += item.Advance / item.HorizontalScale;
                 }
@@ -1446,7 +1450,7 @@ public class TextLayout : DisposableObject
                 }
 
                 started = true;
-                if (scales && !glyph.Upright)
+                if (scales && !glyph.Upright && ObjectSizeOf(glyph.Symbol, glyph.Attributes) == null)
                 {
                     shrink += glyph.Advance / glyph.HorizontalScale * (GlyphScaling.Desired - GlyphScaling.Minimum);
                 }
@@ -1498,7 +1502,7 @@ public class TextLayout : DisposableObject
                     continue;
                 }
 
-                if (item.Upright)
+                if (item.Upright || ObjectSizeOf(item.Symbol, item.Attributes) != null)
                 {
                     right = Math.Max(right, pen + item.Advance);
                 }
@@ -1698,7 +1702,9 @@ public class TextLayout : DisposableObject
                     default:
                     {
                         var glyphBase = height + baseLine;
-                        var glyphRect = item.Upright
+                        var glyphRect = ObjectSizeOf(item.Symbol, item.Attributes) is { } objectSize
+                            ? ObjectRect(cursorPosition, glyphBase - item.OffsetY, objectSize)
+                            : item.Upright
                             ? CellRect(item.Font, item.FontSize, cursorPosition, item.Advance, glyphBase)
                             : Widened(CalculateGlyphPosition(item.Font, item.Glyph,
                                 cursorPosition + item.OffsetX,
@@ -1872,7 +1878,8 @@ public class TextLayout : DisposableObject
                         var natural = new double[clusters.Count];
                         for (var c = fromCluster; c <= lastInkCluster; c++)
                         {
-                            if (IsInk(clusters[c]) && !clusters[c][0].Upright)
+                            if (IsInk(clusters[c]) && !clusters[c][0].Upright
+                                && ObjectSizeOf(clusters[c][0].Symbol, clusters[c][0].Attributes) == null)
                             {
                                 natural[c] = clusters[c].Sum(glyph => glyph.Advance / glyph.HorizontalScale);
                             }
@@ -2386,7 +2393,8 @@ public class TextLayout : DisposableObject
 
             foreach (var glyph in glyphsData)
             {
-                mixed |= glyph.FontSize != fontSize || !ReferenceEquals(glyph.Font, Font);
+                mixed |= glyph.FontSize != fontSize || !ReferenceEquals(glyph.Font, Font)
+                                                    || ObjectSizeOf(glyph.Symbol, glyph.Attributes) != null;
             }
 
             if (mixed)
@@ -2403,6 +2411,12 @@ public class TextLayout : DisposableObject
                     lineBaselines[line] = Math.Max(lineBaselines[line], glyphBaseline);
                     below[line] = Math.Max(below[line], glyphBelow);
                     lineAscents[line] = Math.Max(lineAscents[line], glyphAscent);
+                    if (ObjectSizeOf(glyph.Symbol, glyph.Attributes) is { } objectSize)
+                    {
+                        lineBaselines[line] = Math.Max(lineBaselines[line], objectSize.Height + glyph.OffsetY);
+                        lineAscents[line] = Math.Max(lineAscents[line], objectSize.Height + glyph.OffsetY);
+                        below[line] = Math.Max(below[line], -glyph.OffsetY);
+                    }
                 }
 
                 for (var i = 0; i < lineCount; i++)
@@ -2428,6 +2442,10 @@ public class TextLayout : DisposableObject
                 if (IsBlank(glyph.Symbol) || glyph.Symbol == '\n')
                 {
                     glyph.Rect.Y = (float)lineBase;
+                }
+                else if (ObjectSizeOf(glyph.Symbol, glyph.Attributes) is { } objectSize)
+                {
+                    glyph.Rect = ObjectRect(glyph.PenX, lineBase - glyph.OffsetY, objectSize);
                 }
                 else if (glyph.Upright)
                 {
@@ -2479,7 +2497,9 @@ public class TextLayout : DisposableObject
                 var glyphData = rearrangeList[index];
                 if (index == 0 && IsBlank(glyphData.Symbol)) continue;
 
-                var glyphRect = glyphData.Upright
+                var glyphRect = ObjectSizeOf(glyphData.Symbol, glyphData.Attributes) is { } objectSize
+                    ? ObjectRect(cursorPosition, glyphBase - glyphData.OffsetY, objectSize)
+                    : glyphData.Upright
                     ? CellRect(glyphData.Font, glyphData.FontSize, cursorPosition, glyphData.Advance, glyphBase)
                     : Widened(CalculateGlyphPosition(glyphData.Font, glyphData.Glyph,
                         cursorPosition + glyphData.OffsetX,
@@ -2570,7 +2590,7 @@ public class TextLayout : DisposableObject
 
         foreach (var word in data)
         {
-            if (IsBlank(word.Symbol) || word.Symbol == '\n')
+            if (IsBlank(word.Symbol) || word.Symbol == '\n' || ObjectSizeOf(word.Symbol, word.Attributes) != null)
             {
                 continue;
             }
@@ -2666,7 +2686,10 @@ public class TextLayout : DisposableObject
         for (int i = 0; i < _wordData.Count; ++i)
         {
             var word = _wordData[i];
-            if (IsBlank(word.Symbol) || word.Symbol == '\n') continue;
+            if (IsBlank(word.Symbol) || word.Symbol == '\n' || ObjectSizeOf(word.Symbol, word.Attributes) != null)
+            {
+                continue;
+            }
 
             var first = ElementsCount;
             AddWordItems(word);
@@ -3185,6 +3208,28 @@ public class TextLayout : DisposableObject
         }
 
         return adornments;
+    }
+
+    /// <summary>The objects of the text last laid out, in text order; one trimmed away or past the last line is left
+    /// out. Objects are set in horizontal text only: vertical text has none.</summary>
+    public IReadOnlyList<TextInlineObject> GetInlineObjects()
+    {
+        List<TextInlineObject> objects = [];
+        if (_laidOutWritingMode == WritingMode.VerticalRightToLeft)
+        {
+            return objects;
+        }
+
+        foreach (var word in _wordData ?? [])
+        {
+            if (ObjectSizeOf(word.Symbol, word.Attributes) != null)
+            {
+                objects.Add(new TextInlineObject(word.PositionInString, word.Rect));
+            }
+        }
+
+        objects.Sort((left, right) => left.Index.CompareTo(right.Index));
+        return objects;
     }
 
     /// <summary>The next place the caret may stand after <paramref name="index"/>: the end of the grapheme there, so an
@@ -4138,7 +4183,7 @@ public class TextLayout : DisposableObject
 
     private int DropCapEnd(string text)
     {
-        if (char.IsWhiteSpace(text[0]) || char.IsControl(text[0]))
+        if (char.IsWhiteSpace(text[0]) || char.IsControl(text[0]) || text[0] == ObjectReplacement)
         {
             return 0;
         }
@@ -4146,7 +4191,8 @@ public class TextLayout : DisposableObject
         var graphemes = TextBoundaries.Graphemes(text);
         var end = 0;
         var letters = 0;
-        while (end < text.Length && letters < DropCap.Characters && text[end] is not ('\n' or LineSeparator))
+        while (end < text.Length && letters < DropCap.Characters
+                                 && text[end] is not ('\n' or LineSeparator or ObjectReplacement))
         {
             if (CharUnicodeInfo.GetUnicodeCategory(text, end) is not (UnicodeCategory.OpenPunctuation
                 or UnicodeCategory.InitialQuotePunctuation))
@@ -4193,9 +4239,10 @@ public class TextLayout : DisposableObject
                 : new ShapingOptions(null, language, attributes?.Features);
             var font = RunFont(attributes, fontSize);
             var position = start;
+            var stops = attributes?.ObjectSize != null ? LineEndsAndObjects : LineEnds;
             while (position < end)
             {
-                var newline = text.IndexOfAny(LineEnds, position, end - position);
+                var newline = text.IndexOfAny(stops, position, end - position);
                 var stop = newline < 0 ? end : newline;
                 foreach (var (runStart, runEnd, runFont, pending) in FontRuns(text, graphemes, position, stop, font, language))
                 {
@@ -4233,8 +4280,18 @@ public class TextLayout : DisposableObject
                 }
 
                 var newlineAttributes = AttributesAt(newline);
-                items.Add(new ShapedItem(font.GetGlyphByCharacter('\n'), '\n', newline, 0, 0, 0, newlineAttributes,
-                    font, newlineAttributes?.FontSize ?? fontSize));
+                if (text[newline] == ObjectReplacement)
+                {
+                    items.Add(new ShapedItem(font.GetGlyphByCharacter(' '), ObjectReplacement, newline,
+                        newlineAttributes.ObjectSize.Value.Width, 0, newlineAttributes.BaselineShift ?? 0,
+                        newlineAttributes, font, newlineAttributes.FontSize ?? fontSize));
+                }
+                else
+                {
+                    items.Add(new ShapedItem(font.GetGlyphByCharacter('\n'), '\n', newline, 0, 0, 0, newlineAttributes,
+                        font, newlineAttributes?.FontSize ?? fontSize));
+                }
+
                 position = newline + 1;
             }
         }
@@ -4667,8 +4724,20 @@ public class TextLayout : DisposableObject
         return cluster.Sum(glyph => glyph.Advance) - before;
     }
 
+    private static Size? ObjectSizeOf(char symbol, TextAttributes attributes) =>
+        symbol == ObjectReplacement ? attributes?.ObjectSize : null;
+
+    private static RectangleF ObjectRect(double pen, double baseline, Size size) =>
+        new((float)pen, (float)(Math.Round(baseline) - size.Height), (float)size.Width, (float)size.Height);
+
     private static void Relay(GlyphWordData glyph, double baseline)
     {
+        if (ObjectSizeOf(glyph.Symbol, glyph.Attributes) != null)
+        {
+            glyph.Rect.X = (float)glyph.PenX;
+            return;
+        }
+
         var origin = glyph.PenX + glyph.OffsetX;
         glyph.Rect = Widened(CalculateGlyphPosition(glyph.Font, glyph.Glyph, origin, baseline,
             glyph.FontSize / glyph.Font.UnitsPerEm), origin, glyph.HorizontalScale);
