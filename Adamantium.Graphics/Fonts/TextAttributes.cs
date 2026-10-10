@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Adamantium.Fonts;
@@ -36,6 +37,12 @@ public sealed class TextAttributes
     /// shift; negative lowers it. Its size and the line's height stay as they are; its lines follow it.</summary>
     public double? BaselineShift { get; init; }
 
+    /// <summary>The size of an object set into the text in place of a U+FFFC OBJECT REPLACEMENT CHARACTER - a control in
+    /// a line of a UI's text: it advances the line by its width and stands on the baseline, its height raising the line
+    /// as a tall glyph would. Nothing is drawn for it; whoever placed it draws the object at
+    /// <see cref="TextLayout.GetInlineObjects"/>. Horizontal text only.</summary>
+    public Size? ObjectSize { get; init; }
+
     /// <summary>The font's palette color glyphs are drawn in ('CPAL', <see cref="IFont.ColorPalettes"/>); unset, or one
     /// the font lacks, draws them in its first.</summary>
     public int? ColorPalette { get; init; }
@@ -67,6 +74,7 @@ public sealed class TextAttributes
             Synthesis = over.Synthesis ?? Synthesis,
             Tracking = over.Tracking ?? Tracking,
             BaselineShift = over.BaselineShift ?? BaselineShift,
+            ObjectSize = over.ObjectSize ?? ObjectSize,
             ColorPalette = over.ColorPalette ?? ColorPalette,
             Foreground = over.Foreground ?? Foreground,
             Background = over.Background ?? Background,
@@ -76,13 +84,14 @@ public sealed class TextAttributes
     }
 
     /// <summary>Whether text with these attributes and with <paramref name="other"/> shapes alike: colors, lines and
-    /// sizes differ freely; a palette does not, as its color glyphs are drawn anew, and tracking and baseline shift do
-    /// not, as they move them.</summary>
+    /// sizes differ freely; a palette does not, as its color glyphs are drawn anew, and tracking, baseline shift and an
+    /// object's size do not, as they move them.</summary>
     public bool ShapesLike(TextAttributes other)
     {
         return Language == other.Language && ReferenceEquals(Font, other.Font) && Synthesis == other.Synthesis
                                           && ColorPalette == other.ColorPalette && Tracking == other.Tracking
                                           && BaselineShift == other.BaselineShift
+                                          && Nullable.Equals(ObjectSize, other.ObjectSize)
                                           && FeaturesEqual(Features, other.Features);
     }
 

@@ -7,6 +7,11 @@ All packages share one version.
 
 ### Added
 
+- Objects in a line of text, as WPF's `InlineUIContainer`: `TextAttributes.ObjectSize` on a U+FFFC OBJECT REPLACEMENT
+  CHARACTER sets it as an object of that size. It advances the line by its width, stands on the baseline (a baseline
+  shift raises it), raises a line it is taller than, wraps and aligns as a word does and draws nothing itself;
+  `TextLayout.GetInlineObjects` tells where each one stands, for the caller to draw it there. Horizontal text only.
+
 - U+2028 LINE SEPARATOR in laid-out text ends the line but not the paragraph, as WPF's `LineBreak`: the paragraph
   keeps its direction across it, a justified line ending in it is not stretched, it draws nothing, and the caret stands
   at the end of one line and the start of the next.
