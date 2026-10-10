@@ -69,6 +69,26 @@ public class TextLayoutFallbackTests
     }
 
     [Test]
+    public void CjkPunctuationAndFullWidthForms_FollowTheLanguageOfTheText()
+    {
+        const string text = "「直。」、（Ａ）";
+        var japanese = Layout(new AttributedText(text, new TextAttributes { Language = "ja" }));
+        var chinese = Layout(new AttributedText(text, new TextAttributes { Language = "zh" }));
+
+        Assert.That(japanese.GetTextData().Select(g => g.Font.FontFamily), Is.All.Contain("Yu Gothic"));
+        Assert.That(chinese.GetTextData().Select(g => g.Font.FontFamily), Is.All.Contain("YaHei"));
+    }
+
+    [TestCase("\U00003299\U0000FE0F")]
+    [TestCase("\U0000303D\U0000FE0F")]
+    public void ACjkSymbolAskedForAsAnEmoji_IsDrawnFromTheEmojiFont(string text)
+    {
+        var layout = Layout(new AttributedText(text, new TextAttributes { Language = "ja" }));
+
+        Assert.That(layout.GetTextData().First().Font.FontFamily, Is.EqualTo("Segoe UI Emoji"));
+    }
+
+    [Test]
     public void AnEmoji_IsDrawnFromTheEmojiFont()
     {
         var layout = Layout(new AttributedText("ok \U0001F600"));

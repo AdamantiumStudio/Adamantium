@@ -7,9 +7,10 @@ namespace Adamantium.Fonts;
 
 /// <summary>
 /// The fonts a text falls back on for a character its own font does not have: families tried in order, each in the
-/// face nearest to the weight, slant and width of the text's font. Han, kana and Hangul try the family the text's
-/// language reads them in first (Japanese, Korean, Traditional or Simplified Chinese), as the same character is drawn
-/// differently in each. A family's character map is read without loading the font, so only the font chosen is loaded.
+/// face nearest to the weight, slant and width of the text's font. Han, kana and Hangul, and the punctuation and
+/// full-width forms set among them, try the family the text's language reads them in first (Japanese, Korean,
+/// Traditional or Simplified Chinese), as the same character is drawn differently in each. A family's character map is
+/// read without loading the font, so only the font chosen is loaded.
 /// </summary>
 public sealed class FontFallback
 {
@@ -75,8 +76,8 @@ public sealed class FontFallback
     private IFont FontFor(int codepoint, IFont like, string language, bool emoji, bool wait, out bool pending)
     {
         pending = false;
-        var preferred = IsCjk(codepoint) ? CjkFamily(language)
-            : emoji ? _emojiFamily
+        var preferred = emoji ? _emojiFamily
+            : IsCjk(codepoint) ? CjkFamily(language)
             : null;
         var preferredOnly = emoji && preferred != null && like.TryGetGlyphIndex(codepoint, out _);
         var key = (codepoint, like.Weight.Value, like.Style, like.Stretch.Percent, preferred, preferredOnly);
@@ -169,7 +170,9 @@ public sealed class FontFallback
 
     private static bool IsCjk(int codepoint)
     {
-        return UnicodeData.GetScript(codepoint) is "Hani" or "Hira" or "Kana" or "Hang" or "Bopo";
+        return UnicodeData.GetScript(codepoint) is "Hani" or "Hira" or "Kana" or "Hang" or "Bopo"
+               || codepoint is >= 0x3000 and <= 0x303F or >= 0x3190 and <= 0x33FF or >= 0xFE10 and <= 0xFE1F
+                   or >= 0xFE30 and <= 0xFE4F or >= 0xFF00 and <= 0xFFEF;
     }
 
     private static FontFallback CreateSystem()

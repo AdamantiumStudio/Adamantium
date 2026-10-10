@@ -45,6 +45,14 @@ public class GlyphWordData
     /// <summary>The attributes of the text this glyph draws; null for plain text.</summary>
     public TextAttributes Attributes { get; set; }
 
+    /// <summary>Whether the glyph stands upright in a vertical line, shaped top to bottom. <see cref="PenX"/> and
+    /// <see cref="Advance"/> then run down the line, and <see cref="Rect"/> is where the glyph is drawn.</summary>
+    public bool Upright { get; set; }
+
+    /// <summary>Whether the glyph lies turned 90° clockwise in a vertical line. <see cref="PenX"/> and
+    /// <see cref="Advance"/> then run down the line, and <see cref="Rect"/> bounds the turned glyph.</summary>
+    public bool Sideways { get; set; }
+
     public override string ToString()
     {
         return $"{Symbol} [{Rect}]";
